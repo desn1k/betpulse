@@ -1,0 +1,47 @@
+# Production overrides — layered on top of docker-compose.yml:
+#
+#   docker compose -f infra/docker-compose.yml -f infra/docker-compose.prod.yml up -d
+#
+# In production the api/web images are pulled from GHCR (published by
+# release.yml, Phase 14) instead of being built locally, database ports are not
+# exposed publicly, and Caddy terminates TLS in front of the stack.
+
+services:
+  postgres:
+    ports: []
+
+  redis:
+    ports: []
+
+  minio:
+    ports: []
+
+  api:
+    image: ghcr.io/${GHCR_OWNER:-desn1k}/betpulse-api:${IMAGE_TAG:-latest}
+    build: null
+    ports: []
+    restart: always
+
+  web:
+    image: ghcr.io/${GHCR_OWNER:-desn1k}/betpulse-web:${IMAGE_TAG:-latest}
+    build: null
+    ports: []
+    restart: always
+
+  caddy:
+    image: caddy:2.9-alpine
+    depends_on:
+      - api
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: always
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,29 @@
+# Caddy reverse proxy with automatic TLS.
+#
+# Set PUBLIC_DOMAIN in the environment. Locally you can use `localhost`, which
+# Caddy serves over its internal CA. The frontend is the public entrypoint; the
+# API is proxied under /api and /docs.
+
+{$PUBLIC_DOMAIN:localhost} {
+	encode zstd gzip
+
+	# Security headers (a fuller CSP is added in the Phase 13 hardening pass).
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	handle /docs* {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}
