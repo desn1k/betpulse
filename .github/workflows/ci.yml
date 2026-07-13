@@ -77,6 +77,15 @@ jobs:
           alembic downgrade base
           alembic upgrade head
 
+      - name: Historical ingestion (offline fixture)
+        # CI proves the parser + ingestion logic against a committed CSV slice.
+        # The full bootstrap (real network download of all leagues/seasons) runs
+        # on the VPS, not in CI — football-data.co.uk has no uptime SLA.
+        run: |
+          python -m app.cli bootstrap-history --leagues EPL --seasons 2023-2024 \
+            --offline-dir tests/fixtures/football_data
+          python -m app.cli verify-history --leagues EPL --seasons 2023-2024
+
       - name: Pytest (coverage)
         run: python -m pytest
 

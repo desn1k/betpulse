@@ -12,7 +12,7 @@ COMPOSE_PROD := docker compose --env-file .env -f infra/docker-compose.yml -f in
 
 .DEFAULT_GOAL := help
 .PHONY: help up down logs ps build test test-backend test-frontend lint lint-backend lint-frontend \
-        migrate seed bootstrap-history train backup restore-drill deploy
+        migrate seed bootstrap-history verify-history train backup restore-drill deploy
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -61,8 +61,11 @@ migrate: ## Apply DB migrations (alembic upgrade head)
 seed: ## Create the bootstrap admin account
 	cd backend && python -m app.bootstrap create-admin
 
-bootstrap-history: ## Ingest football-data.co.uk CSVs (Phase 3)
-	@echo "bootstrap-history: not implemented until Phase 3"
+bootstrap-history: ## Ingest football-data.co.uk historical CSVs (HISTORY_ARGS to scope)
+	cd backend && python -m app.cli bootstrap-history $(HISTORY_ARGS)
+
+verify-history: ## Print per league/season fixture+odds counts; fail on gaps
+	cd backend && python -m app.cli verify-history $(HISTORY_ARGS)
 
 train: ## Train all enabled ML methods (Phase 4)
 	@echo "train: not implemented until Phase 4"

@@ -26,6 +26,8 @@ remaining quota**.
 
 ## 1. football-data.co.uk — historical (role: `historical`, `odds`)
 
+**Provider id:** `football_data_couk` (implemented in `backend/app/providers/football_data_couk.py`).
+
 **What it is.** Free CSV archives of European league results, going back 30+ seasons. Each row has
 full-time and **half-time** scores, shots, corners, cards — and **closing odds from 10+ bookmakers**
 (Pinnacle, Bet365, William Hill, …).
@@ -34,37 +36,74 @@ full-time and **half-time** scores, shots, corners, cards — and **closing odds
 strategy backtester and the market-implied benchmark would be impossible. This dataset bootstraps
 the whole ML layer for free.
 
-**Access.** No registration, no API key. Plain CSV over HTTPS.
+**Access.** No registration, no API key. Plain CSV over HTTPS
+(`https://www.football-data.co.uk/mmz4281/{season}/{code}.csv`, e.g. season `2324`, code `E0`).
 
-**Coverage.** Major European divisions (England, Spain, Italy, Germany, France + second tiers and
-several others). **Does not cover RPL** — see the caveat below.
+**Coverage / league codes.** Major European divisions. Our canonical → football-data division map:
+
+| Canonical | football-data code |
+|---|---|
+| EPL | E0 |
+| LALIGA | SP1 |
+| SERIEA | I1 |
+| BUNDESLIGA | D1 |
+| LIGUE1 | F1 |
+
+**Does not cover RPL.** football-data.co.uk has **no** Russian Premier League data. Passing `RPL`
+to `--leagues` is **not** silently skipped — the ingester logs a structured `WARNING`
+(`event: league_unsupported_by_source`) and moves on. RPL history comes from the live provider and
+is flagged **beta** in the UI.
+
+**Column mapping (as implemented).** The loader (pandas) reads these columns; season-format drift is
+handled by fallbacks:
+
+| Field | CSV column(s) |
+|---|---|
+| kickoff date / time | `Date` (dayfirst), optional `Time` |
+| full-time goals | `FTHG`, `FTAG` |
+| half-time goals | `HTHG`, `HTAG` |
+| shots / on target | `HS`,`AS` / `HST`,`AST` |
+| corners | `HC`, `AC` |
+| **Pinnacle closing 1X2** | `PSCH`,`PSCD`,`PSCA` → fallback `PSH`,`PSD`,`PSA` |
+
+Closing odds are stored in the `odds` hypertable as `bookmaker='pinnacle'`, `market='1x2'`,
+`outcome in {home,draw,away}`, `ts = kickoff`, `is_closing = true`.
+
+**ID mapping (seed behaviour).** football-data.co.uk is the **canonical seed source**: the first time
+a team/league name is seen it creates the canonical `teams`/`leagues` row (keyed by normalized name /
+league code) and records the alias in `provider_team_aliases` / `provider_league_aliases`. Each
+creation emits a structured-JSON `WARNING` with `league`, `raw_name`, `normalized` and `csv_row` so it
+is auditable — never a silent duplicate. **Other** providers resolve against these aliases via a
+strict resolver that **raises** `UnmappedEntityError` on an unknown name.
 
 **How to load.**
 
 ```bash
-make bootstrap-history          # downloads + normalizes + loads all configured seasons
-make bootstrap-history SEASONS=2015-2026 LEAGUES=EPL,LALIGA,SERIEA,BUNDESLIGA,LIGUE1
+make bootstrap-history HISTORY_ARGS="--leagues EPL,LALIGA --seasons 2022-2023,2023-2024"
+make verify-history    HISTORY_ARGS="--leagues EPL,LALIGA --seasons 2022-2023,2023-2024"
 ```
 
-Expect a few hundred MB of raw CSV and a few minutes of processing. Verify with:
-
-```bash
-make verify-history             # prints row counts per league/season; fails on gaps
-```
+`bootstrap-history` downloads from football-data.co.uk (local dev / VPS). `verify-history` prints a
+`league | season | fixtures | odds` table and exits non-zero if any configured league/season has zero
+fixtures. Ingestion is **idempotent** — re-running the same CSV inserts nothing new
+(`ON CONFLICT DO NOTHING` on the fixture and odds identity keys).
 
 **Caveats.**
-- Column names drift across seasons — the loader normalizes them; keep the mapping table updated.
 - No shot coordinates → **no own-xG for historical seasons** from this source. Historical xG features
-  are approximated from shots/shots-on-target until a shot-level source is connected.
-- Team names differ from API-Football → handled by the **ID-mapping layer**
-  (`provider_team_aliases`). Unmapped names raise an ingestion warning, never a silent mismatch.
+  are approximated from shots / shots-on-target until a shot-level source is connected.
+- Kickoff times are stored as UTC from the CSV `Date`/`Time` (football-data times are UK local; the
+  small offset is immaterial for closing-odds analysis).
 
 **Legal.** Free for personal/non-commercial analysis; check the site's terms before commercial use
-and attribute the source.
+and attribute the source. The committed test fixture
+(`backend/tests/fixtures/football_data/E0_2324.csv`) is a tiny slice with an attribution header.
 
 ---
 
 ## 2. API-Football (api-sports.io) — live (roles: `live`, `odds`, optionally `xg`)
+
+**Provider id:** `api_football` (interface + response parsers implemented in
+`backend/app/providers/api_football.py`; live ingestion wiring lands in Phase 5).
 
 **What it is.** Football-only REST API: 1200+ leagues, live updates every ~15 seconds, endpoints for
 fixtures, standings, players, statistics, lineups, live scores, **odds**, transfers. All endpoints
