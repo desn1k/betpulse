@@ -1,0 +1,19 @@
+{
+  "get": "fixtures",
+  "parameters": { "live": "all" },
+  "results": 2,
+  "response": [
+    {
+      "fixture": { "id": 1035037, "status": { "long": "Second Half", "elapsed": 67 } },
+      "league": { "id": 39, "name": "Premier League", "country": "England" },
+      "teams": { "home": { "name": "Arsenal" }, "away": { "name": "Chelsea" } },
+      "goals": { "home": 2, "away": 1 }
+    },
+    {
+      "fixture": { "id": 1035038, "status": { "long": "First Half", "elapsed": 23 } },
+      "league": { "id": 140, "name": "La Liga", "country": "Spain" },
+      "teams": { "home": { "name": "Real Madrid" }, "away": { "name": "Sevilla" } },
+      "goals": { "home": 0, "away": 0 }
+    }
+  ]
+}

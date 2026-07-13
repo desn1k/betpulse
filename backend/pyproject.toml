@@ -20,6 +20,9 @@ dependencies = [
     # Pinned above the version uvicorn would otherwise resolve, to clear
     # PYSEC-2026-2132 (fixed in 8.3.3).
     "click==8.4.2",
+    # HTTP client for providers; pandas for historical CSV normalization.
+    "httpx==0.28.1",
+    "pandas==3.0.3",
 ]
 
 [project.optional-dependencies]
@@ -28,6 +31,7 @@ dev = [
     "pytest-asyncio==1.4.0",
     "pytest-cov==7.1.0",
     "httpx==0.28.1",
+    "respx==0.23.1",
     "ruff==0.15.21",
     "mypy==2.3.0",
 ]
@@ -63,6 +67,10 @@ plugins = ["pydantic.mypy"]
 warn_unused_ignores = true
 disallow_untyped_defs = true
 files = ["app", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["pandas", "pandas.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

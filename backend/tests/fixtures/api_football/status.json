@@ -1,0 +1,8 @@
+{
+  "get": "status",
+  "response": {
+    "account": { "firstname": "Test", "lastname": "Account" },
+    "subscription": { "plan": "Pro", "active": true },
+    "requests": { "current": 500, "limit_day": 7500 }
+  }
+}

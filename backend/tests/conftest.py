@@ -29,7 +29,8 @@ from httpx import ASGITransport, AsyncClient  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
-_TABLES = "users, refresh_tokens, email_verification_tokens, audit_log"
+# Every mapped table, truncated between tests (CASCADE handles FK order).
+_TABLES = ", ".join(t.name for t in Base.metadata.sorted_tables)
 
 
 @pytest_asyncio.fixture(autouse=True)
