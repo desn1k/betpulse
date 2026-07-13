@@ -41,12 +41,14 @@ jobs:
   semgrep:
     name: SAST (semgrep)
     runs-on: ubuntu-latest
-    container:
-      image: semgrep/semgrep:1.99.0
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install semgrep==1.169.0
       - name: Semgrep scan
-        run: semgrep scan --config p/security-audit --config p/secrets --error --skip-unknown-extensions
+        run: semgrep scan --config p/security-audit --config p/secrets --error --metrics=off --skip-unknown-extensions
 
   pip-audit:
     name: Dependency audit (pip-audit)
@@ -86,7 +88,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.29.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
