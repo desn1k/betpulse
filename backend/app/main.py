@@ -1,14 +1,12 @@
-"""FastAPI application entrypoint.
-
-Phase 1 exposes only health probes so the container, CI, and the Docker
-Compose stack have something concrete to check. Feature routers are mounted in
-later phases.
-"""
+"""FastAPI application entrypoint."""
 
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.admin import router as admin_router
+from app.api.auth import router as auth_router
 from app.api.health import router as health_router
 from app.core.config import get_settings
 
@@ -25,7 +23,17 @@ def create_app() -> FastAPI:
         debug=settings.debug,
     )
 
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     app.include_router(health_router)
+    app.include_router(auth_router)
+    app.include_router(admin_router)
     return app
 
 

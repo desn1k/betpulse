@@ -147,6 +147,33 @@ never returned to the client**, full audit log.
 
 Report vulnerabilities privately — do not open a public issue.
 
+### Authentication
+
+Email + password accounts with:
+
+- **Argon2id** password hashing (parameters documented in `backend/app/core/security.py`).
+- **Access token** (short-lived JWT) returned in the JSON body and kept in memory by the client;
+  **refresh token** delivered only as an `HttpOnly` + `SameSite=Strict` cookie scoped to
+  `/auth/refresh`, with **double-submit CSRF** on refresh/logout.
+- **Rotating refresh tokens** with family-wide **reuse detection** (a replayed token revokes the
+  whole session family).
+- Login abuse controls: **per-IP** rate limit **and** per-account **exponential-backoff** lockout
+  (never permanent); responses do not reveal whether an email exists.
+- **RBAC** (`guest` / `user` / `admin`); admin routes require a changed bootstrap password **and**
+  enabled **TOTP 2FA**.
+- `require_verified` email gate (feature-flagged via `EMAIL_VERIFICATION_REQUIRED`, default off).
+- Every security event — successes **and** failures — is written to `audit_log`.
+
+Routes live under `/auth` (`register`, `login`, `refresh`, `logout`, `me`, `change-password`,
+`verify-email`, `2fa/{setup,enable,disable}`). Create the first admin with:
+
+```bash
+make seed            # python -m app.bootstrap create-admin
+```
+
+If `ADMIN_PASSWORD` is empty a strong one-time password is printed once; the admin must change it
+on first login before admin features unlock.
+
 ---
 
 ## Contributing / CI gate
