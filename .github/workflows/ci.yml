@@ -24,6 +24,31 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    services:
+      postgres:
+        image: timescale/timescaledb:2.17.2-pg16
+        env:
+          POSTGRES_DB: football
+          POSTGRES_USER: football
+          POSTGRES_PASSWORD: football
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U football -d football"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      SECRET_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      DATA_ENCRYPTION_KEY: "1111111111111111111111111111111111111111111111111111111111111111"
+      DATABASE_URL: postgresql+asyncpg://football:football@localhost:5432/football
+      REDIS_URL: redis://localhost:6379/0
+      AUTH_COOKIE_SECURE: "false"
     steps:
       - uses: actions/checkout@v4
 
@@ -45,6 +70,12 @@ jobs:
 
       - name: Mypy (type check)
         run: mypy
+
+      - name: Migrations round-trip (upgrade → downgrade → upgrade)
+        run: |
+          alembic upgrade head
+          alembic downgrade base
+          alembic upgrade head
 
       - name: Pytest (coverage)
         run: python -m pytest

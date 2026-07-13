@@ -55,11 +55,11 @@ lint-frontend: ## ESLint + tsc
 
 ## --- Data & ops (implemented in later phases) -------------------------------
 
-migrate: ## Apply DB migrations (Phase 3)
-	@echo "migrate: not implemented until Phase 3 (data model + migrations)"
+migrate: ## Apply DB migrations (alembic upgrade head)
+	cd backend && alembic upgrade head
 
-seed: ## Seed tiers, leagues, admin user (Phase 7)
-	@echo "seed: not implemented yet"
+seed: ## Create the bootstrap admin account
+	cd backend && python -m app.bootstrap create-admin
 
 bootstrap-history: ## Ingest football-data.co.uk CSVs (Phase 3)
 	@echo "bootstrap-history: not implemented until Phase 3"
