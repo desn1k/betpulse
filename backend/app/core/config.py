@@ -87,6 +87,15 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     redis_password: str = ""
 
+    # --- ML / MLflow / model governance -------------------------------------
+    mlflow_tracking_uri: str = "http://localhost:5000"
+    accuracy_window_days: int = 90
+    consensus_weight_mode: Literal["auto", "manual"] = "auto"
+    champion_min_samples: int = 300
+    # Max expected champion-reeval runtime; the Redis lock TTL is 2x this so a
+    # crashed worker never holds the lock forever (see reevaluate_champions_task).
+    champion_reeval_max_runtime_seconds: int = 600
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.cors_allowed_origins.split(",") if o.strip()]

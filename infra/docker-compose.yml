@@ -22,6 +22,8 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Creates the dedicated `mlflow` metadata database on first init.
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-football} -d ${POSTGRES_DB:-football}"]
       interval: 10s
@@ -61,21 +63,44 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # One-shot: create the MinIO buckets MLflow (and backups) need on startup.
+  createbuckets:
+    image: minio/mc:RELEASE.2024-11-21T17-21-54Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${S3_ACCESS_KEY_ID:-minioadmin} ${S3_SECRET_ACCESS_KEY};
+      mc mb --ignore-existing local/${S3_BUCKET_ARTIFACTS:-ml-artifacts};
+      mc mb --ignore-existing local/${S3_BUCKET_BACKUPS:-backups};
+      "
+    restart: "no"
+
   mlflow:
-    # Phase 1: minimal tracking server on a local backend so the service is
-    # reachable and health-checkable. S3 artifact store + Postgres backend are
-    # wired in Phase 4 (ML layer).
-    image: ghcr.io/mlflow/mlflow:v2.19.0
+    # Tracking metadata → Postgres (queryable); model artifacts → MinIO/S3.
+    # MLflow never writes artifacts to local disk (required for rollback, §16/§17).
+    build:
+      context: ./mlflow
+      dockerfile: Dockerfile
     command: >
-      mlflow server
+      server
       --host 0.0.0.0
       --port 5000
-      --backend-store-uri sqlite:////mlflow/mlflow.db
-      --default-artifact-root /mlflow/artifacts
+      --backend-store-uri postgresql+psycopg://${POSTGRES_USER:-football}:${POSTGRES_PASSWORD}@postgres:5432/mlflow
+      --artifacts-destination s3://${S3_BUCKET_ARTIFACTS:-ml-artifacts}/mlflow
+      --serve-artifacts
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://minio:9000}
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
     ports:
       - "5000:5000"
-    volumes:
-      - mlflow_data:/mlflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+      createbuckets:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:5000/health').status==200 else 1)"]
       interval: 15s
@@ -104,6 +129,23 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # ARQ worker: processes the `train` queue and runs the nightly champion
+  # re-evaluation cron. The cron takes a Redis lock (with a TTL), so extra
+  # worker replicas are safe hot standbys rather than duplicate schedulers (§18).
+  worker:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    command: ["arq", "app.workers.arq_app.WorkerSettings"]
+    env_file:
+      - ../.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
   web:
     build:
       context: ../frontend
@@ -127,4 +169,3 @@ volumes:
   postgres_data:
   redis_data:
   minio_data:
-  mlflow_data:

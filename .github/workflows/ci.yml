@@ -49,6 +49,10 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://football:football@localhost:5432/football
       REDIS_URL: redis://localhost:6379/0
       AUTH_COOKIE_SECURE: "false"
+      # MLflow uses a temp file store in CI (dev/prod use Postgres + MinIO); the
+      # opt-out is required by MLflow 3's file-store guard.
+      MLFLOW_TRACKING_URI: "file:///tmp/mlruns_ci"
+      MLFLOW_ALLOW_FILE_STORE: "true"
     steps:
       - uses: actions/checkout@v4
 
@@ -57,6 +61,9 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: backend/pyproject.toml
+
+      - name: Install system libs (LightGBM needs libgomp)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgomp1
 
       - name: Install dependencies
         run: |
@@ -87,6 +94,12 @@ jobs:
           python -m app.cli verify-history --leagues EPL --seasons 2023-2024
 
       - name: Pytest (coverage)
+        # The full `make train` (LightGBM on real data, several minutes) is NOT run
+        # in CI: the CI budget is for correctness, not full training. The training
+        # pipeline is instead exercised end-to-end on the committed fixture by
+        # tests/ml/test_training_pipeline.py — features → train → MLflow log →
+        # predictions written → model_registry upserted — where LightGBM and the
+        # consensus stack are (asserted to be) skipped on the tiny dataset.
         run: python -m pytest
 
   frontend:

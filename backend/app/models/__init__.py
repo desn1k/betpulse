@@ -4,6 +4,7 @@ from app.models.audit_log import AuditLog
 from app.models.email_verification_token import EmailVerificationToken
 from app.models.fixture import Fixture, FixtureStats, FixtureStatus, Shot
 from app.models.market import Odds
+from app.models.model_registry import ModelRegistry, ModelRegistrySnapshot, ModelStatus
 from app.models.prediction import ModelRun, Prediction, PredictionLive
 from app.models.rating import RatingElo, RatingGlicko
 from app.models.reference import (
@@ -24,7 +25,10 @@ __all__ = [
     "FixtureStats",
     "FixtureStatus",
     "League",
+    "ModelRegistry",
+    "ModelRegistrySnapshot",
     "ModelRun",
+    "ModelStatus",
     "Odds",
     "Prediction",
     "PredictionLive",
