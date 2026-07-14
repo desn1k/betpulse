@@ -67,8 +67,8 @@ bootstrap-history: ## Ingest football-data.co.uk historical CSVs (HISTORY_ARGS t
 verify-history: ## Print per league/season fixture+odds counts; fail on gaps
 	cd backend && python -m app.cli verify-history $(HISTORY_ARGS)
 
-train: ## Train all enabled ML methods (Phase 4)
-	@echo "train: not implemented until Phase 4"
+train: ## Train all enabled ML methods and register them (MLflow + model_registry)
+	cd backend && python -m app.cli train
 
 backup: ## On-demand encrypted backup (Phase 17 track)
 	@echo "backup: not implemented yet"

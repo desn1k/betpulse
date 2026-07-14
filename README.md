@@ -35,8 +35,27 @@ Statistical and machine-learning predictions for **live and upcoming football ma
 | Market-implied (de-vig) | Benchmark: the line to beat |
 | **Consensus** | Stacked + isotonically calibrated blend |
 
-Rolling 90-day **Brier / log-loss / ROI-vs-closing-line** are published per method. The method with
-the highest accuracy is auto-promoted to **champion**; admins can override weights manually.
+Rolling 90-day **Brier / log-loss / ROI-vs-closing-line** are published per method (public
+`GET /performance`, served from `model_registry` — not recomputed per request). The method with
+the highest accuracy is auto-promoted to **champion** by a nightly ARQ job; admins can override
+weights manually.
+
+### Training & model governance
+
+```bash
+make train      # build features → train → log to MLflow → write predictions → upsert model_registry
+```
+
+Each training run stores its **model binary**, **feature schema** (JSON), **training-data hash**
+(sha256 of the input DataFrame) and **metrics** in MLflow. MLflow keeps tracking metadata in a
+dedicated `mlflow` Postgres database and writes **artifacts to MinIO/S3** (`S3_BUCKET_ARTIFACTS`) —
+never to local disk, so any past model version can be rolled back (§16/§17). A nightly
+`reevaluate_champions` ARQ task recomputes rolling out-of-sample accuracy and promotes the champion,
+snapshotting the full registry first for one-click rollback.
+
+> LightGBM and the consensus stack need a real dataset; on tiny inputs (e.g. CI's fixture) the
+> pipeline **skips** them with a logged note and trains Elo / Glicko-2 / Dixon-Coles / market. Run
+> the full `make train` on the VPS after `make bootstrap-history`.
 
 ---
 

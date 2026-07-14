@@ -72,6 +72,19 @@ async def _verify(leagues: list[str], seasons: list[str]) -> int:
     return 0
 
 
+async def _train() -> int:
+    from app.ml.training import run_training
+
+    async with _write_sessionmaker()() as session:
+        summary = await run_training(session)
+        await session.commit()
+    print(
+        f"train: version={summary.version} trained={summary.trained} "
+        f"predictions={summary.predictions_written} skipped={summary.skipped}"
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="app.cli")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -82,12 +95,15 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--seasons", type=_split, default=DEFAULT_SEASONS)
         if name == "bootstrap-history":
             p.add_argument("--offline-dir", default=None)
+    sub.add_parser("train")
 
     args = parser.parse_args(argv)
     if args.command == "bootstrap-history":
         return asyncio.run(_bootstrap(args.leagues, args.seasons, args.offline_dir))
     if args.command == "verify-history":
         return asyncio.run(_verify(args.leagues, args.seasons))
+    if args.command == "train":
+        return asyncio.run(_train())
     parser.error(f"unknown command: {args.command}")
     return 2
 

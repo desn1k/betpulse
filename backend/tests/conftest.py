@@ -18,6 +18,10 @@ os.environ.setdefault(
     "DATABASE_URL", "postgresql+asyncpg://football:football@localhost:5432/football"
 )
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
+# MLflow: a temp file store is the sanctioned CI/test backend (dev/prod use
+# Postgres + MinIO). The opt-out is required by MLflow 3's file-store guard.
+os.environ.setdefault("MLFLOW_TRACKING_URI", "file:///tmp/mlruns_pytest")
+os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
 
 from collections.abc import AsyncIterator  # noqa: E402
 

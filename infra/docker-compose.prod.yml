@@ -22,6 +22,11 @@ services:
     ports: []
     restart: always
 
+  worker:
+    image: ghcr.io/${GHCR_OWNER:-desn1k}/betpulse-api:${IMAGE_TAG:-latest}
+    build: null
+    restart: always
+
   web:
     image: ghcr.io/${GHCR_OWNER:-desn1k}/betpulse-web:${IMAGE_TAG:-latest}
     build: null

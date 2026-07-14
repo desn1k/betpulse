@@ -89,10 +89,16 @@ fixtures. Ingestion is **idempotent** — re-running the same CSV inserts nothin
 (`ON CONFLICT DO NOTHING` on the fixture and odds identity keys).
 
 **Caveats.**
-- No shot coordinates → **no own-xG for historical seasons** from this source. Historical xG features
-  are approximated from shots / shots-on-target until a shot-level source is connected.
 - Kickoff times are stored as UTC from the CSV `Date`/`Time` (football-data times are UK local; the
   small offset is immaterial for closing-odds analysis).
+
+**xG coverage caveat.** football-data.co.uk has **no shot coordinates**, so the own-xG model
+(`backend/app/ml/xg.py`) runs in **approximate** mode for historical seasons: team xG is estimated
+from shots / shots-on-target counts rather than per-shot geometry. `XgModel.data_quality` returns
+`DataQuality.APPROXIMATE` in this mode and `DataQuality.FULL` only when a shot-level source (with
+coordinates) is connected. Connecting such a source later is a new provider + `has_coordinates=True`
+— no model rewrite. Provider xG (e.g. from API-Football) is inconsistent per league/season and is at
+most a secondary feature, never the source of truth.
 
 **Legal.** Free for personal/non-commercial analysis; check the site's terms before commercial use
 and attribute the source. The committed test fixture

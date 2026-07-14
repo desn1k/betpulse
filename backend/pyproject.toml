@@ -15,14 +15,24 @@ dependencies = [
     "argon2-cffi==25.1.0",
     "pyjwt==2.13.0",
     "pyotp==2.10.0",
-    "redis==8.0.1",
-    "cryptography==49.0.0",
+    # redis and cryptography are held at these versions by arq (<6) and mlflow
+    # (cryptography <49); both remain non-vulnerable per pip-audit.
+    "redis==5.3.1",
+    "cryptography==48.0.1",
     # Pinned above the version uvicorn would otherwise resolve, to clear
     # PYSEC-2026-2132 (fixed in 8.3.3).
     "click==8.4.2",
-    # HTTP client for providers; pandas for historical CSV normalization.
+    # HTTP client for providers; pandas for CSV/feature work (mlflow caps <3).
     "httpx==0.28.1",
-    "pandas==3.0.3",
+    "pandas==2.3.3",
+    # ML stack (Phase 4).
+    "scipy==1.18.0",
+    "scikit-learn==1.9.0",
+    "lightgbm==4.6.0",
+    "statsmodels==0.14.6",
+    "mlflow==3.14.0",
+    "boto3==1.43.47",
+    "arq==0.28.0",
 ]
 
 [project.optional-dependencies]
@@ -69,7 +79,11 @@ disallow_untyped_defs = true
 files = ["app", "tests"]
 
 [[tool.mypy.overrides]]
-module = ["pandas", "pandas.*"]
+module = [
+    "pandas", "pandas.*", "joblib",
+    "lightgbm", "lightgbm.*", "statsmodels", "statsmodels.*",
+    "sklearn", "sklearn.*",
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
