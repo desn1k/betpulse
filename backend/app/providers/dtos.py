@@ -72,9 +72,15 @@ class FixtureDTO(BaseModel):
 
 class LiveFixtureDTO(BaseModel):
     provider: str
+    # The provider's own fixture id (e.g. API-Football numeric id), kept for
+    # traceability in warnings; canonical identity is (league, season, pairing,
+    # kickoff) via ``uq_fixture_identity``.
+    provider_fixture_id: str
     league: LeagueRef
+    season: str
     home: TeamRef
     away: TeamRef
+    kickoff_at: datetime
     minute: int
     home_score: int
     away_score: int

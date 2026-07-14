@@ -108,8 +108,21 @@ and attribute the source. The committed test fixture
 
 ## 2. API-Football (api-sports.io) — live (roles: `live`, `odds`, optionally `xg`)
 
-**Provider id:** `api_football` (interface + response parsers implemented in
-`backend/app/providers/api_football.py`; live ingestion wiring lands in Phase 5).
+**Provider id:** `api_football` (interface, response parsers and live ingestion in
+`backend/app/providers/api_football.py` + `backend/app/services/live/`).
+
+**Live pipeline (Phase 5).** A self-rescheduling ARQ task on the `live` queue polls
+`/fixtures?live=all` every `LIVE_POLL_INTERVAL_SECONDS` under a Redis single-flight lock,
+quota-guarded (hard stop before the request when the day's budget is spent). Each in-play fixture
+is resolved **strictly** through the ID-mapping aliases — an unmapped team/league is logged as a
+structured `live_fixture_unmapped` warning and skipped, never guessed (alias seeding for
+API-Football is an admin task). After each poll a per-fixture recompute (Dixon-Coles conditioned on
+the current score + elapsed minute) runs **only when the score/minute changed**, writes
+`predictions_live`, and appends a `live_updates` event (its `BIGSERIAL` id is the SSE
+`Last-Event-ID`). A probability swing over `PROBABILITY_SWING_PUSH_THRESHOLD` enqueues a push
+(Telegram Bot API + Web Push/VAPID), rate-limited to one per fixture per `PUSH_RATE_LIMIT_SECONDS`.
+Browsers subscribe over SSE at `GET /live/stream` (Pro/Expert tiers only); Redis pub/sub fans
+updates out across API replicas.
 
 **What it is.** Football-only REST API: 1200+ leagues, live updates every ~15 seconds, endpoints for
 fixtures, standings, players, statistics, lineups, live scores, **odds**, transfers. All endpoints

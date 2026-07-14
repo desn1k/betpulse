@@ -7,6 +7,7 @@ ingestion wiring lands in Phase 5.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -63,26 +64,41 @@ class ApiFootballProvider(BaseProvider):
     # --- parsers (pure, unit-testable) -------------------------------------
 
     @staticmethod
-    def parse_live(payload: dict[str, Any]) -> list[LiveFixtureDTO]:
+    def _parse_kickoff(raw: str | None) -> datetime:
+        if not raw:
+            return datetime.now(tz=UTC)
+        # API-Football emits ISO 8601 with a timezone offset.
+        parsed = datetime.fromisoformat(raw)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed
+
+    @classmethod
+    def parse_live(cls, payload: dict[str, Any]) -> list[LiveFixtureDTO]:
         fixtures: list[LiveFixtureDTO] = []
         for item in payload.get("response", []):
+            fixture = item.get("fixture", {})
             league = item.get("league", {})
             teams = item.get("teams", {})
             goals = item.get("goals", {})
-            status = item.get("fixture", {}).get("status", {})
+            status = fixture.get("status", {})
             fixtures.append(
                 LiveFixtureDTO(
                     provider="api_football",
+                    provider_fixture_id=str(fixture.get("id", "")),
                     league=LeagueRef(
                         raw_name=league.get("name", ""),
                         raw_code=str(league.get("id")) if league.get("id") else None,
                         country=league.get("country"),
                     ),
+                    season=str(league.get("season", "")),
                     home=TeamRef(raw_name=teams.get("home", {}).get("name", "")),
                     away=TeamRef(raw_name=teams.get("away", {}).get("name", "")),
+                    kickoff_at=cls._parse_kickoff(fixture.get("date")),
                     minute=int(status.get("elapsed") or 0),
                     home_score=int(goals.get("home") or 0),
                     away_score=int(goals.get("away") or 0),
+                    status=str(status.get("short", "LIVE")),
                 )
             )
         return fixtures
