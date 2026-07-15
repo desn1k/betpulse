@@ -104,6 +104,22 @@ splits chronologically by season (earlier seasons train, later seasons are out-o
 CSV export are expert-tier feature flags. The CSV holds match date, teams, league, season, bet,
 odds, outcome and running P/L — no internal IDs.
 
+### LLM match analysis (spec §8)
+
+`GET /matches/{id}/analysis` returns a plain-language narrative that **explains** the model outputs —
+never a source of probabilities (`not_a_probability_source: true` is a top-level field; the frontend
+renders a disclaimer under every narrative). The provider is any **OpenAI-compatible** endpoint,
+configured in one admin-managed `llm_config` row (`base_url`, `model`, an API key **encrypted at
+rest** with only a masked suffix returned, token budget, cache TTL, per-1k cost, `is_enabled`).
+
+Access is a cheap DB lookup, not a per-request computation: a midnight-UTC ARQ cron ranks today's
+scheduled fixtures by `model_agreement_pct × |edge_vs_market|` into `fixtures.fixture_llm_rank`, and
+the `llm` tier flag gates on it — guest → none, free → match of the day (rank 1), pro → top 5,
+expert → any. Analyses are cached per `(fixture, model)` (regenerated once older than the TTL,
+`cached` flag on the response); a per-UTC-day Redis token budget hard-stops generation
+(`budget_exhausted` + `resets_at`). Token counts and computed cost are stored per analysis for the
+admin spend view. The prompt is English-only; the response language follows the caller's locale.
+
 ### Training & model governance
 
 ```bash

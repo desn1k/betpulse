@@ -17,6 +17,7 @@ from app.core.config import get_settings
 from app.workers.tasks import (
     poll_live_task,
     push_task,
+    rank_llm_fixtures_task,
     recompute_fixture_task,
     reevaluate_champions_task,
     train_all_task,
@@ -51,6 +52,11 @@ class WorkerSettings:
         poll_live_task,
         recompute_fixture_task,
         push_task,
+        rank_llm_fixtures_task,
     ]
-    cron_jobs = [cron(reevaluate_champions_task, hour=_hour, minute=_minute)]
+    cron_jobs = [
+        cron(reevaluate_champions_task, hour=_hour, minute=_minute),
+        # LLM-analysis ranking of today's fixtures, recomputed at UTC midnight.
+        cron(rank_llm_fixtures_task, hour=0, minute=0),
+    ]
     on_startup = _bootstrap_live_loop

@@ -76,6 +76,11 @@ class Fixture(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # "data delayed" badge, so quota exhaustion surfaces without exposing internals.
     last_polled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Daily LLM-analysis rank among today's scheduled fixtures (1 = match of the
+    # day). Recomputed each midnight by an ARQ cron; null = not ranked today. Lets
+    # the tier gate be a DB lookup instead of a per-request computation (spec §8).
+    fixture_llm_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
 
 class FixtureStats(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "fixture_stats"

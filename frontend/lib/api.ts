@@ -3,6 +3,7 @@
 
 import { authHeader } from "@/lib/auth/store";
 import type { BacktestResult, RunRequest } from "@/types/backtester";
+import type { AnalysisResult } from "@/types/llm";
 import type { MatchDetail, MatchList, MatchListParams } from "@/types/match";
 
 class ApiError extends Error {
@@ -43,6 +44,11 @@ export function fetchMatches(params: MatchListParams): Promise<MatchList> {
 
 export function fetchMatch(id: string): Promise<MatchDetail> {
   return getJson<MatchDetail>(`/api/matches/${encodeURIComponent(id)}`);
+}
+
+export function fetchAnalysis(id: string, language: string): Promise<AnalysisResult> {
+  const query = new URLSearchParams({ language }).toString();
+  return getJson<AnalysisResult>(`/api/matches/${encodeURIComponent(id)}/analysis?${query}`);
 }
 
 export interface RedeemEffect {
