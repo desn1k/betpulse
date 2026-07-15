@@ -70,7 +70,13 @@ DEFAULT_TIERS: dict[str, TierDefaults] = {
     FREE: TierDefaults(
         price=0.0,
         period=None,
-        feature_flags={"methods": "consensus", "per_half_totals": False, "live_recompute": False},
+        feature_flags={
+            "methods": "consensus",
+            "per_half_totals": False,
+            "live_recompute": False,
+            "backtester_save": False,
+            "backtester_export": False,
+        },
         limits={"matches_per_day": 10, "pushes_per_day": 1, "backtester_runs_per_day": 3},
         is_public=True,
         sort_order=1,
@@ -78,7 +84,13 @@ DEFAULT_TIERS: dict[str, TierDefaults] = {
     PRO: TierDefaults(
         price=9.99,
         period="month",
-        feature_flags={"methods": "all", "per_half_totals": True, "live_recompute": True},
+        feature_flags={
+            "methods": "all",
+            "per_half_totals": True,
+            "live_recompute": True,
+            "backtester_save": False,
+            "backtester_export": False,
+        },
         limits={"matches_per_day": -1, "pushes_per_day": 10, "backtester_runs_per_day": 50},
         is_public=True,
         sort_order=2,
@@ -86,7 +98,13 @@ DEFAULT_TIERS: dict[str, TierDefaults] = {
     EXPERT: TierDefaults(
         price=19.99,
         period="month",
-        feature_flags={"methods": "all_weights", "per_half_totals": True, "live_recompute": True},
+        feature_flags={
+            "methods": "all_weights",
+            "per_half_totals": True,
+            "live_recompute": True,
+            "backtester_save": True,
+            "backtester_export": True,
+        },
         limits={"matches_per_day": -1, "pushes_per_day": -1, "backtester_runs_per_day": -1},
         is_public=True,
         sort_order=3,
@@ -114,6 +132,16 @@ class ResolvedTier:
 
     def shows_weights(self) -> bool:
         return self.methods_visibility() == "all_weights"
+
+    def backtester_runs_per_day(self) -> int:
+        value = self.limits.get("backtester_runs_per_day", 0)
+        return int(value) if isinstance(value, (int, float)) else 0
+
+    def can_save_strategies(self) -> bool:
+        return bool(self.feature_flags.get("backtester_save", False))
+
+    def can_export(self) -> bool:
+        return bool(self.feature_flags.get("backtester_export", False))
 
 
 async def seed_default_tiers(session: AsyncSession) -> None:

@@ -88,6 +88,24 @@ async def consume_match_view(
     return limit - count
 
 
+async def consume_backtester_run(
+    redis: Redis, *, user_id: uuid.UUID, limit: int, now: datetime | None = None
+) -> None:
+    """Count one backtester run against the day's budget (spec §7). Key
+    ``limits:backtester:{user_id}:{YYYY-MM-DD}``, reset at UTC midnight. Raises
+    :class:`LimitExceeded` when the budget is spent (``-1`` = unlimited)."""
+    if limit == UNLIMITED:
+        return
+    now = now or datetime.now(UTC)
+    key = f"limits:backtester:{user_id}:{now.astimezone(UTC):%Y-%m-%d}"
+    count = int(await redis.incr(key))
+    if count == 1:
+        await redis.expire(key, seconds_until_utc_midnight(now))
+    if count > limit:
+        await redis.decr(key)
+        raise LimitExceeded
+
+
 async def match_views_remaining(
     redis: Redis, *, identity: str, limit: int, now: datetime | None = None
 ) -> int | None:

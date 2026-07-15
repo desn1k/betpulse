@@ -2,6 +2,7 @@
 // TanStack Query hooks in lib/queries.ts.
 
 import { authHeader } from "@/lib/auth/store";
+import type { BacktestResult, RunRequest } from "@/types/backtester";
 import type { MatchDetail, MatchList, MatchListParams } from "@/types/match";
 
 class ApiError extends Error {
@@ -61,6 +62,23 @@ export async function redeemPromo(code: string): Promise<RedeemEffect> {
     throw new ApiError(`redeem failed: ${res.status}`, res.status, body);
   }
   return ((await res.json()) as { effect: RedeemEffect }).effect;
+}
+
+export async function runBacktest(
+  request: RunRequest,
+  walkForward = false,
+): Promise<BacktestResult> {
+  const url = `/api/backtester/run${walkForward ? "?walk_forward=true" : ""}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json", ...authHeader() },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new ApiError(`backtest failed: ${res.status}`, res.status, body);
+  }
+  return (await res.json()) as BacktestResult;
 }
 
 export { ApiError };

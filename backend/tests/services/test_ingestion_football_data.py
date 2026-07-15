@@ -37,7 +37,7 @@ async def test_ingestion_is_idempotent(session: AsyncSession) -> None:
     assert first.fixtures_inserted == 10
     assert first.teams_created == 20  # matchday 1 → 20 distinct teams
     assert first.leagues_created == 1
-    assert first.odds_inserted == 30  # 10 fixtures x 3 outcomes
+    assert first.odds_inserted == 50  # 10 fixtures x (3 1X2 + 2 over/under)
 
     # Re-running the same CSV inserts nothing new.
     second = await ingest_dtos(session, dtos, league_code="EPL")
@@ -46,7 +46,7 @@ async def test_ingestion_is_idempotent(session: AsyncSession) -> None:
     assert second.teams_created == 0
 
     assert await _count(session, Fixture) == 10
-    assert await _count(session, Odds) == 30
+    assert await _count(session, Odds) == 50
     assert await _count(session, Team) == 20
 
 
@@ -58,7 +58,7 @@ async def test_verify_history_reports_counts(session: AsyncSession) -> None:
     rows, ok = await verify_history(session, leagues=["EPL"], seasons=["2023-2024"])
     assert ok is True
     assert rows[0].fixture_count == 10
-    assert rows[0].odds_count == 30
+    assert rows[0].odds_count == 50
 
     # A configured league with no data fails the check.
     rows2, ok2 = await verify_history(session, leagues=["LALIGA"], seasons=["2023-2024"])

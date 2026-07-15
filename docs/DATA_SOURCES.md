@@ -65,9 +65,12 @@ handled by fallbacks:
 | shots / on target | `HS`,`AS` / `HST`,`AST` |
 | corners | `HC`, `AC` |
 | **Pinnacle closing 1X2** | `PSCH`,`PSCD`,`PSCA` → fallback `PSH`,`PSD`,`PSA` |
+| **Pinnacle closing O/U 2.5** | `PC>2.5`,`PC<2.5` → fallback `P>2.5`,`P<2.5` |
 
-Closing odds are stored in the `odds` hypertable as `bookmaker='pinnacle'`, `market='1x2'`,
-`outcome in {home,draw,away}`, `ts = kickoff`, `is_closing = true`.
+Closing odds are stored in the `odds` hypertable as `bookmaker='pinnacle'`, `ts = kickoff`,
+`is_closing = true`: the 1X2 market as `market='1x2'`, `outcome in {home,draw,away}`, and the goals
+total as `market='ou_2.5'`, `outcome in {over,under}`. The over/under market feeds the strategy
+backtester's totals bets (spec §6).
 
 **ID mapping (seed behaviour).** football-data.co.uk is the **canonical seed source**: the first time
 a team/league name is seen it creates the canonical `teams`/`leagues` row (keyed by normalized name /

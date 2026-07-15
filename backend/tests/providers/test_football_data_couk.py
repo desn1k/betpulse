@@ -37,12 +37,19 @@ def test_scores_and_halftime_are_correct() -> None:
 def test_pinnacle_closing_odds_are_extracted() -> None:
     fixtures = _load()
     bur = next(f for f in fixtures if f.home.raw_name == "Burnley")
-    by_outcome = {o.outcome: o for o in bur.odds}
-    assert set(by_outcome) == {"home", "draw", "away"}
-    assert all(o.bookmaker == "pinnacle" and o.market == "1x2" for o in bur.odds)
-    assert by_outcome["home"].price == Decimal("7.50")
-    assert by_outcome["away"].price == Decimal("1.45")
-    assert by_outcome["home"].is_closing is True
+    assert all(o.bookmaker == "pinnacle" for o in bur.odds)
+
+    x12 = {o.outcome: o for o in bur.odds if o.market == "1x2"}
+    assert set(x12) == {"home", "draw", "away"}
+    assert x12["home"].price == Decimal("7.50")
+    assert x12["away"].price == Decimal("1.45")
+    assert x12["home"].is_closing is True
+
+    # Over/under 2.5 closing odds are parsed into the ou_2.5 market.
+    ou = {o.outcome: o for o in bur.odds if o.market == "ou_2.5"}
+    assert set(ou) == {"over", "under"}
+    assert ou["over"].price == Decimal("1.62")
+    assert ou["under"].price == Decimal("2.38")
 
 
 def test_stats_are_extracted() -> None:
