@@ -15,11 +15,23 @@
   },
   "list": {
     "empty": "No matches for the selected filters.",
-    "error": "Could not load matches. Please try again later."
+    "error": "Could not load matches. Please try again later.",
+    "matchesLeft": "{count} matches left today"
   },
   "detail": {
     "error": "Could not load the match.",
-    "backToList": "Back to matches"
+    "backToList": "Back to matches",
+    "limitReached": "Daily match limit reached",
+    "limitReachedBody": "Upgrade to the {tier} tier to view more matches today."
+  },
+  "auth": {
+    "login": "Log in",
+    "logout": "Log out",
+    "email": "Email",
+    "password": "Password",
+    "signingIn": "Signing in…",
+    "invalidCredentials": "Invalid email or password.",
+    "loginFailed": "Could not sign in. Please try again."
   },
   "card": {
     "scheduled": "Scheduled",
@@ -32,7 +44,8 @@
     "agreement": "Model agreement",
     "deltaVsMarket": "Delta vs market",
     "dataDelayed": "Data delayed",
-    "tierLocked": "Available on the {tier} tier"
+    "tierLocked": "Available on the {tier} tier",
+    "signInToView": "Sign in to view the full breakdown"
   },
   "methods": {
     "elo": "Elo",

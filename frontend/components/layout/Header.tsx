@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 
+import { AuthMenu } from "@/components/auth/AuthMenu";
+
 import { LanguageSwitcher } from "./LanguageSwitcher";
 
 export function Header() {
@@ -17,6 +19,7 @@ export function Header() {
             {t("nav.performance")}
           </Link>
           <LanguageSwitcher />
+          <AuthMenu />
         </nav>
       </div>
     </header>

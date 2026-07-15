@@ -18,8 +18,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
   const query = forwarded.toString();
 
+  // Forward the bearer token (if any) so the backend resolves the caller's tier.
+  const auth = request.headers.get("authorization");
+  const headers = auth ? { authorization: auth } : undefined;
+
   try {
-    const res = await backendGet(`/matches${query ? `?${query}` : ""}`);
+    const res = await backendGet(`/matches${query ? `?${query}` : ""}`, { headers });
     const body = await res.text();
     return new NextResponse(body, {
       status: res.status,

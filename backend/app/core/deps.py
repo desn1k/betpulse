@@ -17,6 +17,7 @@ from app.core.db import get_session
 from app.core.redis import get_redis
 from app.core.security import constant_time_equals, decode_access_token
 from app.models.user import User, UserRole
+from app.services.tiers import ResolvedTier, resolve_tier_context
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -77,6 +78,67 @@ async def get_current_user(
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+async def get_optional_user(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> User | None:
+    """Resolve the caller for a **public** endpoint, or ``None`` for a guest.
+
+    No credentials → guest. A present-but-invalid/expired token is also treated
+    as guest (best-effort) rather than 401, so a public page still renders for a
+    client whose access token has lapsed; the client refreshes out of band.
+    """
+    if credentials is None:
+        return None
+    try:
+        claims = decode_access_token(credentials.credentials)
+        user_id = uuid.UUID(claims["sub"])
+    except (jwt.PyJWTError, KeyError, ValueError):
+        return None
+    user = await session.get(User, user_id)
+    if user is None or not user.is_active:
+        return None
+    return user
+
+
+OptionalUser = Annotated[User | None, Depends(get_optional_user)]
+
+
+def client_ip_from_forwarded(request: Request) -> str:
+    """Client IP for guest rate-limiting: the first address in
+    ``X-Forwarded-For`` (the original client behind our reverse proxy), falling
+    back to the direct peer."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        first = forwarded.split(",")[0].strip()
+        if first:
+            return first
+    return get_client_ip(request)
+
+
+class TierContext:
+    """The caller's resolved tier plus the identity used for per-day limits."""
+
+    def __init__(self, tier: ResolvedTier, user: User | None, identity: str) -> None:
+        self.tier = tier
+        self.user = user
+        self.identity = identity
+
+
+async def get_tier_context(
+    request: Request,
+    user: OptionalUser,
+    session: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated[Redis, Depends(get_redis_dep)],
+) -> TierContext:
+    tier = await resolve_tier_context(session, redis, user)
+    identity = str(user.id) if user is not None else client_ip_from_forwarded(request)
+    return TierContext(tier=tier, user=user, identity=identity)
+
+
+TierContextDep = Annotated[TierContext, Depends(get_tier_context)]
 
 
 def require_role(

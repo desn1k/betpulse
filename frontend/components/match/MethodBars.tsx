@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import type { MethodPrediction } from "@/types/match";
 
 import { MethodBar } from "./MethodBar";
+import { ProbabilityBar } from "./ProbabilityBar";
 import { sortMethods } from "./methods";
 
 interface MethodBarsProps {
@@ -19,9 +20,14 @@ interface MethodBarsProps {
   tierRequired?: string;
 }
 
+// Placeholder bars rendered behind the lock when the tier hides the real ones,
+// so guests/free users see there is a premium breakdown to unlock.
+const PLACEHOLDER = [0.55, 0.28, 0.17];
+
 export function MethodBars({ methods, locked = false, tierRequired }: MethodBarsProps) {
   const t = useTranslations();
   const ordered = sortMethods(methods);
+  const rows = ordered.length > 0 ? ordered : null;
 
   return (
     <section aria-label={t("card.methods")} className="relative">
@@ -33,9 +39,19 @@ export function MethodBars({ methods, locked = false, tierRequired }: MethodBars
         )}
         aria-hidden={locked}
       >
-        {ordered.map((prediction) => (
-          <MethodBar key={prediction.method} prediction={prediction} />
-        ))}
+        {rows
+          ? rows.map((prediction) => (
+              <MethodBar key={prediction.method} prediction={prediction} />
+            ))
+          : ["a", "b", "c", "d"].map((k) => (
+              <div key={k} className="flex flex-col gap-1">
+                <div className="h-4 w-24 rounded bg-surface-muted" />
+                <ProbabilityBar
+                  probs={{ home: PLACEHOLDER[0], draw: PLACEHOLDER[1], away: PLACEHOLDER[2] }}
+                  label="locked"
+                />
+              </div>
+            ))}
       </div>
 
       {locked && (

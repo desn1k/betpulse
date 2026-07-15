@@ -20,17 +20,19 @@ from statistics import pstdev
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from redis.asyncio import Redis
 from sqlalchemy import ColumnElement, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.core.deps import get_db
+from app.core.deps import TierContextDep, get_db, get_redis_dep
 from app.ml.base import Method
 from app.models.fixture import Fixture, FixtureStatus
 from app.models.model_registry import ModelRegistry, ModelStatus
 from app.models.prediction import Prediction
 from app.models.reference import League, Team
 from app.schemas.matches import (
+    CardFlags,
     LeagueRef,
     MatchDetail,
     MatchList,
@@ -38,8 +40,27 @@ from app.schemas.matches import (
     MethodPrediction,
     Probs1x2,
 )
+from app.services import tiers as tiers_service
+from app.services.limits import LimitExceeded, consume_match_view, match_views_remaining
 
 router = APIRouter(tags=["matches"])
+
+# When a caller exhausts their daily match-view budget, the tier they must reach
+# to keep viewing. Pro/expert are unlimited and never reach this map.
+_LIMIT_UPGRADE = {tiers_service.GUEST: tiers_service.FREE, tiers_service.FREE: tiers_service.PRO}
+
+
+def _next_tier_for_limit(tier_name: str) -> str:
+    return _LIMIT_UPGRADE.get(tier_name, tiers_service.PRO)
+
+
+def _card_flags(flags: dict[str, object]) -> CardFlags:
+    return CardFlags(
+        methods=str(flags.get("methods", "blurred_consensus")),
+        per_half_totals=bool(flags.get("per_half_totals", False)),
+        live_recompute=bool(flags.get("live_recompute", False)),
+    )
+
 
 # A live fixture whose last successful poll is older than this is flagged
 # "data delayed" to the client (stalled polling / provider quota exhaustion).
@@ -170,6 +191,8 @@ def _summary(
 @router.get("/matches", response_model=MatchList)
 async def list_matches(
     session: Annotated[AsyncSession, Depends(get_db)],
+    tier_ctx: TierContextDep,
+    redis: Annotated[Redis, Depends(get_redis_dep)],
     league: Annotated[str | None, Query(max_length=32)] = None,
     match_status: Annotated[FixtureStatus | None, Query(alias="status")] = None,
     date: Annotated[str | None, Query(description="YYYY-MM-DD")] = None,
@@ -242,15 +265,36 @@ async def list_matches(
             )
         )
 
-    return MatchList(items=items, total=total, limit=limit, offset=offset)
+    remaining = await match_views_remaining(
+        redis, identity=tier_ctx.identity, limit=tier_ctx.tier.matches_per_day(), now=now
+    )
+
+    return MatchList(
+        items=items, total=total, limit=limit, offset=offset, matches_remaining=remaining
+    )
 
 
 @router.get("/matches/{fixture_id}", response_model=MatchDetail)
 async def get_match(
     fixture_id: uuid.UUID,
     session: Annotated[AsyncSession, Depends(get_db)],
+    tier_ctx: TierContextDep,
+    redis: Annotated[Redis, Depends(get_redis_dep)],
 ) -> MatchDetail:
     now = datetime.now(UTC)
+
+    # Enforce the per-day match-view budget before doing any work. Guests are
+    # counted per client IP, authenticated callers per user id (see get_tier_context).
+    try:
+        await consume_match_view(
+            redis, identity=tier_ctx.identity, limit=tier_ctx.tier.matches_per_day(), now=now
+        )
+    except LimitExceeded as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"tier_required": _next_tier_for_limit(tier_ctx.tier.name)},
+        ) from exc
+
     home_team = aliased(Team)
     away_team = aliased(Team)
 
@@ -271,19 +315,29 @@ async def get_match(
     visible = await _visible_methods(session)
     champion_method, champion_accuracy = await _champion(session)
 
-    # model_registry accuracy per method, for labelling the bars.
-    accuracy_by_method = {
-        m: (None if acc is None else float(acc))
-        for m, acc in (
-            await session.execute(select(ModelRegistry.method, ModelRegistry.accuracy_pct))
+    # model_registry accuracy + consensus weight per method (weight for expert).
+    registry = {
+        m: (None if acc is None else float(acc), float(weight))
+        for m, acc, weight in (
+            await session.execute(
+                select(
+                    ModelRegistry.method,
+                    ModelRegistry.accuracy_pct,
+                    ModelRegistry.display_weight,
+                )
+            )
         ).all()
     }
 
     consensus = _probs_from_outcomes(latest.get(Method.consensus.value, {}))
     market = _probs_from_outcomes(latest.get(Method.market.value, {}))
 
-    # Per-method bars: every visible method except the consensus (shown on its
-    # own) and the market benchmark (surfaced separately as delta-vs-market).
+    show_bars = tier_ctx.tier.shows_method_bars()
+    show_weights = tier_ctx.tier.shows_weights()
+
+    # Build the per-method bars (also the source of the agreement spread). The
+    # consensus and market benchmark are surfaced on their own, so they are
+    # excluded here.
     excluded = {Method.consensus.value, Method.market.value}
     methods: list[MethodPrediction] = []
     home_probs: list[float] = []
@@ -293,12 +347,14 @@ async def get_match(
         probs = _probs_from_outcomes(outcomes)
         if probs is None:
             continue
+        accuracy, weight = registry.get(method, (None, 0.0))
         methods.append(
             MethodPrediction(
                 method=method,
                 is_champion=method == champion_method,
-                accuracy_pct=accuracy_by_method.get(method),
+                accuracy_pct=accuracy,
                 probs=probs,
+                weight=weight if show_weights else None,
             )
         )
         home_probs.append(probs.home)
@@ -314,8 +370,12 @@ async def get_match(
     )
     return MatchDetail(
         **summary.model_dump(),
-        methods=methods,
+        # Per-method bars are gated to pro/expert; guest/free get an empty list
+        # plus the flags below (frontend blurs the consensus). Aggregate signals
+        # (agreement, delta) are computed from the full set and shown to everyone.
+        methods=methods if show_bars else [],
         market=market,
         model_agreement_pct=_model_agreement_pct(home_probs),
         delta_vs_market=delta_vs_market,
+        flags=_card_flags(tier_ctx.tier.feature_flags),
     )

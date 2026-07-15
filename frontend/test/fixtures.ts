@@ -28,4 +28,5 @@ export const detailFixture: MatchDetail = {
   model_agreement_pct: 97.5,
   delta_vs_market: 0.12,
   tier_required: "pro",
+  flags: { methods: "all", per_half_totals: true, live_recompute: true },
 };

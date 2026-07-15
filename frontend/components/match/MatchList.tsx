@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 
+import { Badge } from "@/components/ui/Badge";
 import { useMatches } from "@/lib/queries";
 import type { FixtureStatus } from "@/types/match";
 
@@ -18,14 +19,23 @@ export function MatchList() {
 
   const query = useMatches({ league, status, limit: 30 });
 
+  const remaining = query.data?.matches_remaining ?? null;
+
   return (
     <div className="flex flex-col gap-6">
-      <MatchFilters
-        league={league}
-        status={status}
-        onLeagueChange={setLeague}
-        onStatusChange={setStatus}
-      />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <MatchFilters
+          league={league}
+          status={status}
+          onLeagueChange={setLeague}
+          onStatusChange={setStatus}
+        />
+        {remaining !== null && (
+          <Badge variant="neutral" aria-live="polite">
+            {t("list.matchesLeft", { count: remaining })}
+          </Badge>
+        )}
+      </div>
 
       {query.isPending ? (
         <MatchListSkeleton />
