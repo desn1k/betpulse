@@ -7,6 +7,15 @@ from app.models.live import LiveUpdate, PushChannel, PushSubscription
 from app.models.market import Odds
 from app.models.model_registry import ModelRegistry, ModelRegistrySnapshot, ModelStatus
 from app.models.prediction import ModelRun, Prediction, PredictionLive
+from app.models.promo import (
+    PromoBatch,
+    PromoBatchStatus,
+    PromoCode,
+    PromoCodeStatus,
+    PromoCodeType,
+    PromoRedemption,
+    PromoRedemptionStatus,
+)
 from app.models.rating import RatingElo, RatingGlicko
 from app.models.reference import (
     League,
@@ -35,6 +44,13 @@ __all__ = [
     "Odds",
     "Prediction",
     "PredictionLive",
+    "PromoBatch",
+    "PromoBatchStatus",
+    "PromoCode",
+    "PromoCodeStatus",
+    "PromoCodeType",
+    "PromoRedemption",
+    "PromoRedemptionStatus",
     "ProviderAccount",
     "ProviderLeagueAlias",
     "ProviderRole",

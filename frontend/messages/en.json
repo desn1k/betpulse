@@ -33,6 +33,22 @@
     "invalidCredentials": "Invalid email or password.",
     "loginFailed": "Could not sign in. Please try again."
   },
+  "promo": {
+    "title": "Redeem a promo code",
+    "placeholder": "Promo code",
+    "submit": "Redeem",
+    "applied": "Promo applied — your tier is upgraded.",
+    "pendingPercent": "Your {value}% discount will apply at checkout.",
+    "pendingFixed": "A discount of {value} will apply at checkout.",
+    "errors": {
+      "invalid": "Invalid code.",
+      "expired": "This code has expired or been disabled.",
+      "used": "This code has already been used.",
+      "notYours": "This code isn't yours.",
+      "rateLimited": "Too many attempts. Please try again later.",
+      "generic": "Could not redeem the code."
+    }
+  },
   "card": {
     "scheduled": "Scheduled",
     "live": "Live",

@@ -13,6 +13,7 @@ guest. A limit of ``-1`` means unlimited (pro/expert) and is never counted.
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
 
 from redis.asyncio import Redis
@@ -22,6 +23,35 @@ UNLIMITED = -1
 
 class LimitExceeded(Exception):
     """Raised when a per-day usage limit is exhausted."""
+
+
+class RateLimited(Exception):
+    """Raised when a per-hour action rate limit is exceeded."""
+
+    def __init__(self, retry_after: int) -> None:
+        self.retry_after = retry_after
+        super().__init__("rate limited")
+
+
+def seconds_until_next_hour(now: datetime) -> int:
+    now = now.astimezone(UTC)
+    nxt = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+    return max(1, int((nxt - now).total_seconds()))
+
+
+async def enforce_promo_redeem_limit(
+    redis: Redis, *, user_id: uuid.UUID, limit: int, now: datetime | None = None
+) -> None:
+    """Per-user, per-hour promo-redemption limit. Key is bucketed by the clock
+    hour (``rate_limit:promo:{user_id}:{YYYY-MM-DD-HH}``) so it resets on the hour.
+    Raises :class:`RateLimited` with ``retry_after`` seconds when exceeded."""
+    now = now or datetime.now(UTC)
+    key = f"rate_limit:promo:{user_id}:{now.astimezone(UTC):%Y-%m-%d-%H}"
+    count = int(await redis.incr(key))
+    if count == 1:
+        await redis.expire(key, seconds_until_next_hour(now))
+    if count > limit:
+        raise RateLimited(seconds_until_next_hour(now))
 
 
 def seconds_until_utc_midnight(now: datetime) -> int:
