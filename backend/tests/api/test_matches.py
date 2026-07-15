@@ -7,13 +7,25 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from app.core.security import create_access_token
 from app.models.fixture import Fixture, FixtureStatus
 from app.models.model_registry import ModelRegistry, ModelStatus
 from app.models.prediction import Prediction
 from app.models.reference import League, Team
+from app.models.user import User, UserTier
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+
+async def _tier_headers(session: AsyncSession, tier: UserTier) -> dict[str, str]:
+    """Create a user on ``tier`` and return a bearer header for them."""
+    user = User(email=f"{uuid.uuid4()}@x.com", password_hash="x", tier=tier)
+    session.add(user)
+    await session.commit()
+    token = create_access_token(subject=str(user.id), role=user.role.value)
+    return {"Authorization": f"Bearer {token}"}
+
 
 # 1X2 probabilities per method, chosen so the home-win spread is easy to reason
 # about: elo/glicko2/dixon_coles/xg/lightgbm cluster near 0.5, market is 0.40,
@@ -187,9 +199,10 @@ async def test_detail_visible_methods_and_consensus(
 ) -> None:
     await _seed_registry(session)
     fixture = await _seed_match(session)
-    await session.commit()
+    # Method bars are pro/expert-gated; authenticate as pro to receive them.
+    headers = await _tier_headers(session, UserTier.pro)
 
-    resp = await client.get(f"/matches/{fixture.id}")
+    resp = await client.get(f"/matches/{fixture.id}", headers=headers)
     assert resp.status_code == 200
     body = resp.json()
 
@@ -207,6 +220,7 @@ async def test_detail_visible_methods_and_consensus(
     assert body["consensus"]["home"] == pytest.approx(0.52)
     assert body["market"]["home"] == pytest.approx(0.40)
     assert body["tier_required"] == "pro"
+    assert body["flags"]["methods"] == "all"
     # delta = consensus.home - market.home = 0.52 - 0.40.
     assert body["delta_vs_market"] == pytest.approx(0.12)
     # Methods cluster tightly → high agreement.

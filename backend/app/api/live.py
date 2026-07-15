@@ -22,24 +22,33 @@ from app.core.config import Settings
 from app.core.db import get_read_session, get_session
 from app.core.deps import (
     CurrentUser,
+    get_db,
     get_redis_dep,
     get_settings_dep,
 )
 from app.models.live import PushSubscription
-from app.models.user import User, UserTier
+from app.models.user import User
 from app.schemas.live import PushSubscribeIn, PushSubscribeOut
 from app.services.live.events import (
     format_sse,
     replay_since,
     subscribe_live_updates,
 )
+from app.services.tiers import resolve_tier_context
 
 router = APIRouter(tags=["live"])
 
 
-async def require_streaming_tier(user: CurrentUser) -> User:
-    """Only paid tiers may open the live stream (guest already blocked by auth)."""
-    if not UserTier(user.tier).can_stream_live:
+async def require_streaming_tier(
+    user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated[Redis, Depends(get_redis_dep)],
+) -> User:
+    """Only tiers with the ``live_recompute`` feature flag may open the live
+    stream (guest is already blocked by auth). Same single source of truth as the
+    rest of the tier gating — flags in ``tiers``, resolved via subscriptions."""
+    tier = await resolve_tier_context(session, redis, user)
+    if not bool(tier.feature_flags.get("live_recompute", False)):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Live streaming requires a Pro or Expert subscription",

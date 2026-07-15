@@ -1,12 +1,14 @@
 // Browser-side fetchers for the same-origin match proxy routes. Consumed by the
 // TanStack Query hooks in lib/queries.ts.
 
+import { authHeader } from "@/lib/auth/store";
 import type { MatchDetail, MatchList, MatchListParams } from "@/types/match";
 
 class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly body: unknown = null,
   ) {
     super(message);
     this.name = "ApiError";
@@ -14,9 +16,11 @@ class ApiError extends Error {
 }
 
 async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { headers: { accept: "application/json" } });
+  // Attach the bearer token (when signed in) so the backend resolves the tier.
+  const res = await fetch(url, { headers: { accept: "application/json", ...authHeader() } });
   if (!res.ok) {
-    throw new ApiError(`request failed: ${res.status}`, res.status);
+    const body = await res.json().catch(() => null);
+    throw new ApiError(`request failed: ${res.status}`, res.status, body);
   }
   return (await res.json()) as T;
 }

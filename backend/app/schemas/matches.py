@@ -38,6 +38,18 @@ class MethodPrediction(BaseModel):
     is_champion: bool
     accuracy_pct: float | None
     probs: Probs1x2
+    # Consensus blend weight (%), exposed only to the expert tier (all_weights).
+    weight: float | None = None
+
+
+class CardFlags(BaseModel):
+    """The caller's effective feature flags, mirrored to the frontend for UX
+    (blur/lock). Authorization itself is already enforced server-side."""
+
+    # blurred_consensus | consensus | all | all_weights
+    methods: str
+    per_half_totals: bool
+    live_recompute: bool
 
 
 class MatchSummary(BaseModel):
@@ -66,10 +78,17 @@ class MatchList(BaseModel):
     total: int
     limit: int
     offset: int
+    # Match-detail views left for the caller today; null = unlimited (pro/expert).
+    matches_remaining: int | None = None
 
 
 class MatchDetail(MatchSummary):
-    """Full match card: every visible method bar plus the consensus context."""
+    """Full match card: every visible method bar plus the consensus context.
+
+    The per-method ``methods`` list is populated only for tiers that may see the
+    breakdown (pro/expert); guest/free receive an empty list plus ``flags`` so the
+    frontend renders the blur/lock over the consensus. Enforcement is server-side.
+    """
 
     methods: list[MethodPrediction]
     market: Probs1x2 | None
@@ -78,5 +97,7 @@ class MatchDetail(MatchSummary):
     model_agreement_pct: float | None
     # consensus.home − market.home; null when no market/odds prediction exists.
     delta_vs_market: float | None
-    # Tier required to see the method bars un-blurred (Phase 7 enforces it).
+    # Tier required to see the method bars un-blurred.
     tier_required: str = METHODS_TIER_REQUIRED
+    # The caller's effective feature flags (frontend mirrors for blur/lock).
+    flags: CardFlags

@@ -19,6 +19,15 @@ export interface MethodPrediction {
   is_champion: boolean;
   accuracy_pct: number | null;
   probs: Probs1x2;
+  weight?: number | null;
+}
+
+export type MethodsVisibility = "blurred_consensus" | "consensus" | "all" | "all_weights";
+
+export interface CardFlags {
+  methods: MethodsVisibility;
+  per_half_totals: boolean;
+  live_recompute: boolean;
 }
 
 export interface MatchSummary {
@@ -43,6 +52,7 @@ export interface MatchList {
   total: number;
   limit: number;
   offset: number;
+  matches_remaining: number | null;
 }
 
 export interface MatchDetail extends MatchSummary {
@@ -51,6 +61,7 @@ export interface MatchDetail extends MatchSummary {
   model_agreement_pct: number | null;
   delta_vs_market: number | null;
   tier_required: string;
+  flags: CardFlags;
 }
 
 export interface MatchListParams {

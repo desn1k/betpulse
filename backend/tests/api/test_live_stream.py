@@ -20,12 +20,17 @@ def _user(tier: UserTier) -> User:
 
 
 @pytest.mark.asyncio
-async def test_streaming_tier_dependency_blocks_free_allows_pro() -> None:
+async def test_streaming_tier_dependency_blocks_free_allows_pro(session: AsyncSession) -> None:
+    from app.core.redis import get_redis
+
+    redis = get_redis()
+    # No subscriptions seeded → tier resolves from users.tier, flags from the
+    # code defaults (live_recompute: free=False, pro=True).
     with pytest.raises(HTTPException) as exc:
-        await require_streaming_tier(_user(UserTier.free))
+        await require_streaming_tier(_user(UserTier.free), session, redis)
     assert exc.value.status_code == 403
 
-    allowed = await require_streaming_tier(_user(UserTier.pro))
+    allowed = await require_streaming_tier(_user(UserTier.pro), session, redis)
     assert allowed.tier == UserTier.pro
 
 

@@ -6,10 +6,11 @@ export function backendBaseUrl(): string {
   return process.env.API_BASE_URL ?? "http://localhost:8000";
 }
 
-export async function backendGet(path: string): Promise<Response> {
+export async function backendGet(path: string, init?: RequestInit): Promise<Response> {
   return fetch(`${backendBaseUrl()}${path}`, {
     // Public read endpoints: always fetch fresh (live scores, in-play probs).
     cache: "no-store",
-    headers: { accept: "application/json" },
+    headers: { accept: "application/json", ...(init?.headers ?? {}) },
+    ...init,
   });
 }

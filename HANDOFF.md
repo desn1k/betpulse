@@ -64,8 +64,9 @@ mlflow_utils), `app/workers` (arq_app, tasks), `app/api` (health, auth, admin, p
 | 3 | Domain model + migrations + provider abstraction + ID mapping + football-data.co.uk ingestion | ✅ merged |
 | 4 | 6 ML methods + consensus + calibration + MLflow→MinIO + model registry + `/performance` | ✅ merged |
 | 5 | API-Football live ingestion + in-play recompute + SSE streaming + push notifications | ✅ merged |
-| 6 | Frontend: design system + match list/card (all method bars + consensus) + light sporty theme + skeletons + i18n RU/EN | 🚧 in progress (`claude/phase-6-frontend-plan-0ot2yj`) |
-| 7–16 | (per §14) | ⬜ not started |
+| 6 | Frontend: design system + match list/card (all method bars + consensus) + light sporty theme + skeletons + i18n RU/EN | ✅ merged |
+| 7 | Tiers + feature flags + server-side limit enforcement + guest blur/lock + minimal login | 🚧 in progress (`claude/tiers-phase-7`) |
+| 8–16 | (per §14) | ⬜ not started |
 
 ## 5. CI — the 9 required checks
 
@@ -159,6 +160,32 @@ Owner-confirmed design decisions: add `users.tier` now as the SSE gating seam; u
 no monotonic id); Telegram via Bot HTTP API (not aiogram); self-rescheduling ARQ task under a Redis
 lock; unmapped API-Football team/league during live → structured warning + skip the fixture
 (resolver stays strict; alias seeding is an admin task, seeded in tests).
+
+## 9b. Phase 7 notes (tiers + enforcement)
+
+- **Tiers are data with a code fallback.** `tiers` rows (`feature_flags` + `limits` JSONB) are the
+  source of truth; `app/services/tiers.py::DEFAULT_TIERS` seeds them (migration `0007` + idempotent
+  `seed_default_tiers`) and is also the fallback when a row is missing, so resolution never fails
+  closed. Resolved tiers are cached in Redis 60s; admin `PATCH /admin/tiers/{id}` invalidates the
+  cache so edits land on the next request. **Tests use the code fallback** (they don't run the
+  migration), so tier logic works without seeding; admin tests call `seed_default_tiers` explicitly.
+- **Effective tier** = most-privileged active (non-expired) subscription → else `users.tier` → else
+  `guest`. `guest` is a real tier row (the unauthenticated baseline).
+- **Method-bar gating is server-side.** `GET /matches/{id}` returns per-method bars only for
+  pro/expert (`flags.methods` in `all`/`all_weights`); guest/free get `methods: []` + `flags` so the
+  frontend renders the blur/lock. Aggregate signals (consensus, agreement %, delta) are shown to all.
+- **matches/day** counts `GET /matches/{id}` per caller (user id, or guest IP from the first
+  `X-Forwarded-For`). Redis key `limits:{id}:{YYYY-MM-DD}`, TTL = seconds to next **UTC midnight**
+  (not rolling 24h). Over budget → `403 {tier_required}` (guest→free, free→pro). The list is free and
+  reports `matches_remaining`.
+- **SSE gating** now reads the same `live_recompute` flag (was the `UserTier.can_stream_live` enum).
+- **Frontend auth is minimal** (spec allows): access token in a Zustand store (memory only), refresh
+  token in the backend's httpOnly cookie. `/api/auth/*` route handlers proxy to the backend and relay
+  Set-Cookie; the proxy rewrites the refresh cookie `Path=/auth/refresh` → `/` so logout/refresh work
+  same-origin. No registration form — test with a seeded/bootstrapped account. Silent refresh on
+  mount restores the session after reload.
+- **Billing seam**: `app/services/billing.py::PaymentProvider` (abstract, no impl); `subscriptions.
+  source = payment` reserved. Promo codes are Phase 8.
 
 ## 10. How to resume
 

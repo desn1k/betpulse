@@ -17,6 +17,7 @@ from app.models.reference import (
     Team,
 )
 from app.models.refresh_token import RefreshToken
+from app.models.tier import Subscription, SubscriptionSource, Tier
 from app.models.user import User, UserRole, UserTier
 
 __all__ = [
@@ -44,7 +45,10 @@ __all__ = [
     "RatingGlicko",
     "RefreshToken",
     "Shot",
+    "Subscription",
+    "SubscriptionSource",
     "Team",
+    "Tier",
     "User",
     "UserRole",
     "UserTier",

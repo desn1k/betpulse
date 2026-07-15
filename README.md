@@ -53,8 +53,26 @@ The frontend match list and match card read two public (no-auth) endpoints:
 - `GET /matches/{id}` — the full card: per-method 1X2 bars for `is_visible` methods, the
   consensus, `model_agreement_pct` (how tightly the methods cluster on the home-win
   probability), and `delta_vs_market` (consensus minus market-implied home probability, null
-  when no odds exist). A `tier_required` flag lets the frontend render the tier lock/blur;
-  server-side enforcement lands in Phase 7.
+  when no odds exist).
+
+### Tiers & enforcement (spec §7)
+
+Tiers are **data**, not hardcode: the `tiers` table holds `feature_flags` + `limits` (JSONB) that
+drive server-side authorization and the frontend blur/lock. An admin edits them at runtime
+(`GET`/`PATCH /admin/tiers` — 60s Redis cache, invalidated on write); the code-defined defaults
+seed the rows and act as a fallback. A caller's effective tier is their most-privileged active
+subscription, else their base `users.tier`, else `guest`.
+
+- **Method bars** are returned by `GET /matches/{id}` only for pro/expert; guest/free get an empty
+  `methods` list plus a `flags` object (`{methods, per_half_totals, live_recompute}`) so the
+  frontend blurs/locks. Enforcement is server-side; the frontend only mirrors flags.
+- **Daily match limit**: `GET /matches/{id}` counts one view per caller (user id, or guest IP from
+  the first `X-Forwarded-For`) in Redis, keyed by UTC date and reset at UTC midnight. Over the tier
+  budget → `403 {tier_required}`. `GET /matches` is free and reports `matches_remaining`.
+- **Auth (minimal)**: email+password login returns a short-lived JWT (held in browser memory) and
+  sets a rotating refresh token in an httpOnly cookie. The billing layer (`PaymentProvider`) is
+  stubbed so online payments plug in later without a schema change; monetization today is manual
+  grants and (Phase 8) promo codes.
 
 ### Training & model governance
 
