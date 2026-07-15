@@ -46,6 +46,15 @@ LEAGUE_CODE_MAP: dict[str, str] = {
     "LIGUE1": "F1",
 }
 
+# Pinnacle closing over/under 2.5 goals columns, newest first (closing, then
+# generic). Stored as market ``ou_2.5`` with outcomes over/under — the totals
+# market the backtester bets on.
+_PINNACLE_OU_25: list[tuple[str, str]] = [
+    ("PC>2.5", "PC<2.5"),
+    ("P>2.5", "P<2.5"),
+]
+_OU_25_LINE = "2.5"
+
 # Pinnacle closing 1X2 columns, newest first; older files used PSH/PSD/PSA.
 _PINNACLE_CLOSING: list[tuple[str, str, str]] = [
     ("PSCH", "PSCD", "PSCA"),
@@ -130,6 +139,7 @@ class FootballDataCoUkProvider(BaseProvider):
                 continue
 
             odds = self._parse_pinnacle_closing(row, kickoff)
+            odds.extend(self._parse_pinnacle_ou(row, kickoff))
             fixtures.append(
                 FixtureDTO(
                     provider=self.name,
@@ -178,6 +188,20 @@ class FootballDataCoUkProvider(BaseProvider):
                 return [
                     BookmakerOddsDTO(bookmaker="pinnacle", market="1x2", outcome=o, price=p, ts=ts)
                     for o, p in (("home", h), ("draw", d), ("away", a))
+                ]
+        return []
+
+    @staticmethod
+    def _parse_pinnacle_ou(row: pd.Series, ts: datetime) -> list[BookmakerOddsDTO]:
+        for over_col, under_col in _PINNACLE_OU_25:
+            over = _to_decimal(row.get(over_col))
+            under = _to_decimal(row.get(under_col))
+            if over and under:
+                return [
+                    BookmakerOddsDTO(
+                        bookmaker="pinnacle", market=f"ou_{_OU_25_LINE}", outcome=o, price=p, ts=ts
+                    )
+                    for o, p in (("over", over), ("under", under))
                 ]
         return []
 

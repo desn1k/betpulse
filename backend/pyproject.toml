@@ -82,7 +82,7 @@ files = ["app", "tests"]
 module = [
     "pandas", "pandas.*", "joblib",
     "lightgbm", "lightgbm.*", "statsmodels", "statsmodels.*",
-    "sklearn", "sklearn.*",
+    "sklearn", "sklearn.*", "scipy", "scipy.*",
 ]
 ignore_missing_imports = true
 

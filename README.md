@@ -88,6 +88,22 @@ redemption the billing seam reads at checkout. Redemption claims an activation s
 guarded `UPDATE … WHERE activations_used < max_activations`, so concurrent redemptions of a one-use
 code can never both win (the loser gets `409`).
 
+### Strategy backtester (spec §6)
+
+A precomputed feature store (`backtest_features`, one indexed row per finished fixture with as-of
+Elo / rolling xG / rest days / form and a closing-odds snapshot) powers `POST /backtester/run`.
+Whitelisted, typed filters (league, season, odds range, Elo-diff range, …) become ORM bound
+parameters — never string-interpolated. Bet types are **1X2** and **over/under 2.5** (the markets
+with stored closing odds); the response lists `available_bet_types` for the filtered dataset.
+
+Results carry matched count, win-rate, **ROI on closing odds**, an equity curve, max drawdown, a
+**Wilson 95 % CI**, and per-league/season breakdowns. `roi_disclaimer` is always set, and
+`small_sample_warning` fires below 100 matches (the UI shows a yellow card). `?walk_forward=true`
+splits chronologically by season (earlier seasons train, later seasons are out-of-sample) and adds
+`out_of_sample_roi`. Runs are limited per tier (`backtester_runs_per_day`); saving strategies and
+CSV export are expert-tier feature flags. The CSV holds match date, teams, league, season, bet,
+odds, outcome and running P/L — no internal IDs.
+
 ### Training & model governance
 
 ```bash

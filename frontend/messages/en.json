@@ -88,5 +88,43 @@
     "privacy": "Privacy Policy",
     "responsible": "Responsible Gaming",
     "disclaimer": "Disclaimer"
+  },
+  "backtester": {
+    "title": "Strategy backtester",
+    "subtitle": "Test a betting rule against historical closing odds.",
+    "loginRequired": "Log in to run the backtester.",
+    "betType": "Bet type",
+    "pick": "Selection",
+    "league": "League (code)",
+    "season": "Season",
+    "oddsMin": "Min odds",
+    "oddsMax": "Max odds",
+    "eloDiffMin": "Min Elo diff",
+    "eloDiffMax": "Max Elo diff",
+    "walkForward": "Walk-forward validation",
+    "run": "Run backtest",
+    "running": "Running…",
+    "save": "Save strategy",
+    "saved": "Strategy saved",
+    "export": "Export CSV",
+    "saveUpgrade": "Saving strategies requires the expert tier.",
+    "limitReached": "Daily backtest limit reached — upgrade to the {tier} tier.",
+    "empty": "No matches met these filters.",
+    "smallSample": "Small sample: only {count} matches matched. Results below are not statistically reliable — past performance does not predict future results.",
+    "roiDisclaimerInline": "Past performance does not predict future results.",
+    "metrics": {
+      "matched": "Matched matches",
+      "winRate": "Win rate",
+      "roi": "ROI (closing odds)",
+      "drawdown": "Max drawdown",
+      "ci": "Win-rate 95% CI",
+      "outOfSample": "Out-of-sample ROI"
+    },
+    "equity": "Equity curve",
+    "byLeague": "By league",
+    "bySeason": "By season",
+    "picks": {
+      "home": "Home", "draw": "Draw", "away": "Away", "over": "Over 2.5", "under": "Under 2.5"
+    }
   }
 }

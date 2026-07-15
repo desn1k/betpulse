@@ -15,6 +15,9 @@ export function Header() {
           <span className="hidden text-sm text-muted sm:inline">{t("brand.tagline")}</span>
         </Link>
         <nav className="flex items-center gap-4">
+          <Link href="/backtester" className="text-sm font-semibold text-muted-strong hover:text-foreground">
+            {t("backtester.title")}
+          </Link>
           <Link href="/performance" className="text-sm font-semibold text-muted-strong hover:text-foreground">
             {t("nav.performance")}
           </Link>
