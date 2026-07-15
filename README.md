@@ -72,7 +72,21 @@ subscription, else their base `users.tier`, else `guest`.
 - **Auth (minimal)**: email+password login returns a short-lived JWT (held in browser memory) and
   sets a rotating refresh token in an httpOnly cookie. The billing layer (`PaymentProvider`) is
   stubbed so online payments plug in later without a schema change; monetization today is manual
-  grants and (Phase 8) promo codes.
+  grants and promo codes.
+
+### Promo codes (spec §7)
+
+Admins generate code **batches in multiples of 500** (`POST /admin/promo/batches`). Codes are stored
+only as an HMAC `code_hash` (keyed by `DATA_ENCRYPTION_KEY`); the plaintext is returned **once** at
+generation and never again — the CSV export (`GET /admin/promo/batches/{id}/export.csv`) is metadata
+only. Types: `percent` · `fixed` · `trial` (N days of a tier) · `upgrade` (grant a tier); optional
+per-batch user binding, `max_activations`, `expires_at`, and an atomic kill-switch.
+
+Users redeem at `POST /promo/redeem` (rate-limited per user/hour). A `trial`/`upgrade` creates a
+`promo` subscription immediately (`status=applied`); a `percent`/`fixed` code records a `pending`
+redemption the billing seam reads at checkout. Redemption claims an activation slot with a single
+guarded `UPDATE … WHERE activations_used < max_activations`, so concurrent redemptions of a one-use
+code can never both win (the loser gets `409`).
 
 ### Training & model governance
 

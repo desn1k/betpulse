@@ -65,8 +65,9 @@ mlflow_utils), `app/workers` (arq_app, tasks), `app/api` (health, auth, admin, p
 | 4 | 6 ML methods + consensus + calibration + MLflow→MinIO + model registry + `/performance` | ✅ merged |
 | 5 | API-Football live ingestion + in-play recompute + SSE streaming + push notifications | ✅ merged |
 | 6 | Frontend: design system + match list/card (all method bars + consensus) + light sporty theme + skeletons + i18n RU/EN | ✅ merged |
-| 7 | Tiers + feature flags + server-side limit enforcement + guest blur/lock + minimal login | 🚧 in progress (`claude/tiers-phase-7`) |
-| 8–16 | (per §14) | ⬜ not started |
+| 7 | Tiers + feature flags + server-side limit enforcement + guest blur/lock + minimal login | ✅ merged |
+| 8 | Promo codes (500-multiple batches, binding, kill-switch, CSV) + redemption + billing seam | 🚧 in progress (`claude/promo-phase-8`) |
+| 9–16 | (per §14) | ⬜ not started |
 
 ## 5. CI — the 9 required checks
 
@@ -186,6 +187,31 @@ lock; unmapped API-Football team/league during live → structured warning + ski
   mount restores the session after reload.
 - **Billing seam**: `app/services/billing.py::PaymentProvider` (abstract, no impl); `subscriptions.
   source = payment` reserved. Promo codes are Phase 8.
+
+## 9c. Phase 8 notes (promo codes)
+
+- **Codes never stored in plaintext.** Only an HMAC-SHA256 ``code_hash`` (keyed by
+  ``DATA_ENCRYPTION_KEY`` — no new secret) is persisted; the plaintext is returned **once** at
+  generation (`POST /admin/promo/batches` → `codes` + `warning: plaintext_codes_shown_once`). The
+  later `export.csv` is **metadata only** (code_id, status, activations_used, bound_user_id,
+  created_at) — plaintext can't be re-derived. Batch size must be a multiple of 500.
+- **Double-spend is impossible.** Redemption claims a slot with one guarded statement —
+  `UPDATE promo_codes SET activations_used = activations_used + 1 WHERE id=:id AND status='active'
+  AND activations_used < max_activations RETURNING …` — and 409s when it affects no row. No
+  read-then-write. Verified by a concurrent-redemption test (`asyncio.gather`, one 200 + one 409).
+  `max_activations` is denormalised onto `promo_codes` so this stays a single-row update.
+- **Redemption effects** (`POST /promo/redeem`): `trial` → subscription with `expires_at = now +
+  value days`; `upgrade` → subscription (perpetual or batch expiry) — both `status=applied`. `percent`/
+  `fixed` → a `promo_redemptions` row with `status=pending` (the billing seam reads it at checkout;
+  no subscription). The response's `effect: {type, value, status}` drives the frontend message.
+- **Kill-switch** is atomic: `UPDATE promo_codes SET status='disabled' WHERE batch_id=:id` (+ the
+  batch row), one statement, not a loop.
+- **Rate limit**: per-user, per-hour, key `rate_limit:promo:{user_id}:{YYYY-MM-DD-HH}` → 429 +
+  `Retry-After`. Hash comparisons use `hmac.compare_digest`, never `==`.
+- **Frontend**: a "Redeem" popover in the header (signed-in) posts through `/api/promo/redeem`;
+  on success it invalidates the match queries so a trial/upgrade unblurs the card immediately.
+- Admin generation is API-only this phase; the admin UI lands in Phase 12. (Note: hitting the admin
+  promo endpoints over real HTTP needs an admin who passed 2FA; tests mint the admin token directly.)
 
 ## 10. How to resume
 

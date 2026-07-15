@@ -44,4 +44,23 @@ export function fetchMatch(id: string): Promise<MatchDetail> {
   return getJson<MatchDetail>(`/api/matches/${encodeURIComponent(id)}`);
 }
 
+export interface RedeemEffect {
+  type: "percent" | "fixed" | "trial" | "upgrade";
+  value: string | null;
+  status: "applied" | "pending" | "expired";
+}
+
+export async function redeemPromo(code: string): Promise<RedeemEffect> {
+  const res = await fetch("/api/promo/redeem", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json", ...authHeader() },
+    body: JSON.stringify({ code }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new ApiError(`redeem failed: ${res.status}`, res.status, body);
+  }
+  return ((await res.json()) as { effect: RedeemEffect }).effect;
+}
+
 export { ApiError };
