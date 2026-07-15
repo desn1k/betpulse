@@ -69,6 +69,13 @@ class Fixture(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     source: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    # Wall-clock time of the last successful live poll that touched this fixture.
+    # Set on every poll by the live-ingestion upsert; stays null for fixtures that
+    # have only ever been loaded from the historical CSV plane. The read API turns
+    # a stale value (older than the client's freshness window) into a user-facing
+    # "data delayed" badge, so quota exhaustion surfaces without exposing internals.
+    last_polled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
 
 class FixtureStats(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "fixture_stats"

@@ -9,6 +9,7 @@ from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.api.health import router as health_router
 from app.api.live import router as live_router
+from app.api.matches import router as matches_router
 from app.api.performance import router as performance_router
 from app.core.config import get_settings
 
@@ -38,6 +39,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_router)
     app.include_router(performance_router)
     app.include_router(live_router)
+    app.include_router(matches_router)
     return app
 
 

@@ -1,16 +1,28 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { renderWithProviders } from "@/test/test-utils";
+import { summaryFixture } from "@/test/fixtures";
 
 import HomePage from "./page";
 
 describe("HomePage", () => {
-  it("renders the product name", () => {
-    render(<HomePage />);
-    expect(screen.getByRole("heading", { name: "BetPulse" })).toBeInTheDocument();
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ items: [summaryFixture], total: 1, limit: 30, offset: 0 }),
+      ),
+    );
   });
 
-  it("shows the responsible-use disclaimer", () => {
-    render(<HomePage />);
-    expect(screen.getByText(/18\+/)).toBeInTheDocument();
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("renders the matches heading and loads a card", async () => {
+    renderWithProviders(<HomePage />, { locale: "en" });
+    expect(screen.getByRole("heading", { name: "Matches" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Arsenal")).toBeInTheDocument());
   });
 });

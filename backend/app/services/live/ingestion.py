@@ -15,6 +15,7 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 
+from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -136,10 +137,15 @@ async def _upsert_live_fixture(
             status=FixtureStatus.live,
             minute=dto.minute,
             source=dto.provider,
+            last_polled_at=func.now(),
         )
         .on_conflict_do_update(
             constraint="uq_fixture_identity",
-            set_={"status": FixtureStatus.live, "minute": dto.minute},
+            set_={
+                "status": FixtureStatus.live,
+                "minute": dto.minute,
+                "last_polled_at": func.now(),
+            },
         )
         .returning(Fixture.id)
     )

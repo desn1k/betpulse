@@ -1,12 +1,18 @@
+import { useTranslations } from "next-intl";
+
+import { MatchList } from "@/components/match/MatchList";
+
 export default function HomePage() {
+  const t = useTranslations();
   return (
-    <main>
-      <h1>BetPulse</h1>
-      <p>Football Analytics &amp; ML Prediction Platform.</p>
-      <p>
-        Analytical and informational purposes only. Predictions are statistical
-        estimates and are not gambling advice. 18+.
-      </p>
-    </main>
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
+          {t("home.title")}
+        </h1>
+        <p className="text-muted-strong">{t("home.subtitle")}</p>
+      </div>
+      <MatchList />
+    </div>
   );
 }
