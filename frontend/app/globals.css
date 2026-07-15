@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+/*
+ * BetPulse design tokens — the single source of truth for the light, energetic,
+ * sporty theme (spec §0: light theme, green/lime accent, large cards). Tailwind
+ * v4 reads the @theme block below to generate utilities (bg-brand, text-muted,
+ * rounded-card, shadow-card, …), so components stay declarative and consistent.
+ */
+@theme {
+  /* Brand — energetic green/lime accent. */
+  --color-brand: #16a34a;
+  --color-brand-strong: #15803d;
+  --color-brand-soft: #dcfce7;
+  --color-lime: #84cc16;
+
+  /* Surfaces (light theme). */
+  --color-background: #f6f8f5;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f1f5f0;
+  --color-border: #e3e8e3;
+
+  /* Text. */
+  --color-foreground: #0f172a;
+  --color-muted: #64748b;
+  --color-muted-strong: #475569;
+
+  /* Outcome accents for the 1X2 bars. */
+  --color-home: #16a34a;
+  --color-draw: #94a3b8;
+  --color-away: #6366f1;
+
+  /* Status / feedback. */
+  --color-live: #ef4444;
+  --color-warn: #d97706;
+
+  /* Radii & shadows — large, soft cards. */
+  --radius-card: 1rem;
+  --radius-pill: 9999px;
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.06);
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Respect users who ask for reduced motion (skeleton shimmer, transitions). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

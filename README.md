@@ -40,6 +40,22 @@ Rolling 90-day **Brier / log-loss / ROI-vs-closing-line** are published per meth
 the highest accuracy is auto-promoted to **champion** by a nightly ARQ job; admins can override
 weights manually.
 
+### Public match feed
+
+The frontend match list and match card read two public (no-auth) endpoints:
+
+- `GET /matches` — upcoming/live fixtures that have at least one prediction. Filters: `league`
+  (code), `status` (`scheduled|live|finished`), `date` (`YYYY-MM-DD`); `limit`/`offset`
+  pagination (default 20, max 50). Default window is today plus the next two days,
+  scheduled + live. Each item carries the calibrated consensus, the champion method and its
+  accuracy %, and a `data_delayed` flag (set when a live fixture's last poll is older than
+  five minutes — a user-facing signal of stalled polling / provider quota exhaustion).
+- `GET /matches/{id}` — the full card: per-method 1X2 bars for `is_visible` methods, the
+  consensus, `model_agreement_pct` (how tightly the methods cluster on the home-win
+  probability), and `delta_vs_market` (consensus minus market-implied home probability, null
+  when no odds exist). A `tier_required` flag lets the frontend render the tier lock/blur;
+  server-side enforcement lands in Phase 7.
+
 ### Training & model governance
 
 ```bash

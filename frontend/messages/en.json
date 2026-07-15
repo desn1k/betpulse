@@ -1,0 +1,63 @@
+{
+  "brand": {
+    "tagline": "Football analytics & ML predictions"
+  },
+  "nav": {
+    "performance": "Model performance"
+  },
+  "home": {
+    "title": "Matches",
+    "subtitle": "1X2 and totals predictions from six methods plus a calibrated consensus."
+  },
+  "filters": {
+    "allStatuses": "All",
+    "allLeagues": "All leagues"
+  },
+  "list": {
+    "empty": "No matches for the selected filters.",
+    "error": "Could not load matches. Please try again later."
+  },
+  "detail": {
+    "error": "Could not load the match.",
+    "backToList": "Back to matches"
+  },
+  "card": {
+    "scheduled": "Scheduled",
+    "live": "Live",
+    "finished": "Finished",
+    "consensus": "Consensus",
+    "noConsensus": "Prediction unavailable",
+    "methods": "Methods",
+    "champion": "Champion",
+    "agreement": "Model agreement",
+    "deltaVsMarket": "Delta vs market",
+    "dataDelayed": "Data delayed",
+    "tierLocked": "Available on the {tier} tier"
+  },
+  "methods": {
+    "elo": "Elo",
+    "glicko2": "Glicko-2",
+    "dixon_coles": "Dixon–Coles",
+    "xg": "Own xG",
+    "lightgbm": "LightGBM",
+    "market": "Market",
+    "consensus": "Consensus"
+  },
+  "disclaimer": {
+    "label": "Disclaimer",
+    "expand": "Show",
+    "collapse": "Collapse",
+    "text": "Analytical and informational purposes only. Predictions are statistical estimates, guarantee nothing, and are not gambling advice or a financial recommendation. 18+."
+  },
+  "ageGate": {
+    "title": "Are you 18 or older?",
+    "body": "This content is for adults aged 18+ and is analytical in nature. By continuing you confirm your age.",
+    "accept": "I am 18 or older"
+  },
+  "footer": {
+    "terms": "Terms of Use",
+    "privacy": "Privacy Policy",
+    "responsible": "Responsible Gaming",
+    "disclaimer": "Disclaimer"
+  }
+}

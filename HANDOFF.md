@@ -63,8 +63,9 @@ mlflow_utils), `app/workers` (arq_app, tasks), `app/api` (health, auth, admin, p
 | 2 | Auth: Argon2id, JWT + rotating refresh (reuse detection), RBAC, admin TOTP 2FA, CSRF, lockout | ✅ merged |
 | 3 | Domain model + migrations + provider abstraction + ID mapping + football-data.co.uk ingestion | ✅ merged |
 | 4 | 6 ML methods + consensus + calibration + MLflow→MinIO + model registry + `/performance` | ✅ merged |
-| 5 | API-Football live ingestion + in-play recompute + SSE streaming + push notifications | 🚧 in progress (`claude/live-phase-5`) |
-| 6–16 | (per §14) | ⬜ not started |
+| 5 | API-Football live ingestion + in-play recompute + SSE streaming + push notifications | ✅ merged |
+| 6 | Frontend: design system + match list/card (all method bars + consensus) + light sporty theme + skeletons + i18n RU/EN | 🚧 in progress (`claude/phase-6-frontend-plan-0ot2yj`) |
+| 7–16 | (per §14) | ⬜ not started |
 
 ## 5. CI — the 9 required checks
 
@@ -79,6 +80,10 @@ committed CSV fixture; then pytest with `--cov-fail-under=80`. MLflow uses a tem
 CI (`MLFLOW_TRACKING_URI=file://…`, `MLFLOW_ALLOW_FILE_STORE=true`) — Postgres+MinIO only in
 dev/prod. `make train` is deliberately **not** in CI (LightGBM on real data takes minutes; the
 fixture pipeline test covers the full path instead — see the comment in `ci.yml`).
+
+**Playwright e2e is deferred** — add it in the Phase 13 security hardening pass or as a standalone
+task. Phase 6's frontend is covered by Vitest + React Testing Library (component, i18n, age-gate,
+disclaimer, language-switcher); the CI frontend job stays `eslint · tsc · vitest · build`.
 
 ## 6. Conventions that bite if ignored
 
