@@ -25,11 +25,15 @@ def test_parse_live_maps_to_dtos() -> None:
     assert len(live) == 2
     first = live[0]
     assert first.provider == "api_football"
+    assert first.provider_fixture_id == "1035037"
     assert first.home.raw_name == "Arsenal"
     assert first.away.raw_name == "Chelsea"
     assert first.minute == 67
     assert (first.home_score, first.away_score) == (2, 1)
     assert first.league.raw_name == "Premier League"
+    assert first.league.raw_code == "39"
+    assert first.season == "2025"
+    assert first.kickoff_at.year == 2026
 
 
 def test_parse_quota_computes_remaining() -> None:

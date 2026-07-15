@@ -20,6 +20,20 @@ class UserRole(enum.StrEnum):
     admin = "admin"
 
 
+class UserTier(enum.StrEnum):
+    """Subscription tier. Gates access to premium features such as the live SSE
+    stream (guest = unauthenticated, and ``free`` cannot stream). Phase 7 wires
+    billing to move users between tiers; Phase 5 only needs the seam."""
+
+    free = "free"
+    pro = "pro"
+    expert = "expert"
+
+    @property
+    def can_stream_live(self) -> bool:
+        return self in (UserTier.pro, UserTier.expert)
+
+
 class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "users"
 
@@ -27,6 +41,9 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(
         Enum(UserRole, name="user_role"), default=UserRole.user, nullable=False
+    )
+    tier: Mapped[UserTier] = mapped_column(
+        Enum(UserTier, name="user_tier"), default=UserTier.free, nullable=False
     )
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

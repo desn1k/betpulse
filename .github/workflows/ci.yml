@@ -100,6 +100,11 @@ jobs:
         # tests/ml/test_training_pipeline.py — features → train → MLflow log →
         # predictions written → model_registry upserted — where LightGBM and the
         # consensus stack are (asserted to be) skipped on the tiny dataset.
+        #
+        # Live polling is likewise tested against a recorded API-Football fixture
+        # (tests/fixtures/api_football/live.json) — no API key in CI; the real key
+        # runs on the VPS. Redis pub/sub fan-out, SSE replay and push rate-limiting
+        # run against the CI Redis/Postgres service containers.
         run: python -m pytest
 
   frontend:

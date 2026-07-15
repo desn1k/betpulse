@@ -3,6 +3,7 @@
 from app.models.audit_log import AuditLog
 from app.models.email_verification_token import EmailVerificationToken
 from app.models.fixture import Fixture, FixtureStats, FixtureStatus, Shot
+from app.models.live import LiveUpdate, PushChannel, PushSubscription
 from app.models.market import Odds
 from app.models.model_registry import ModelRegistry, ModelRegistrySnapshot, ModelStatus
 from app.models.prediction import ModelRun, Prediction, PredictionLive
@@ -16,7 +17,7 @@ from app.models.reference import (
     Team,
 )
 from app.models.refresh_token import RefreshToken
-from app.models.user import User, UserRole
+from app.models.user import User, UserRole, UserTier
 
 __all__ = [
     "AuditLog",
@@ -25,6 +26,7 @@ __all__ = [
     "FixtureStats",
     "FixtureStatus",
     "League",
+    "LiveUpdate",
     "ModelRegistry",
     "ModelRegistrySnapshot",
     "ModelRun",
@@ -36,6 +38,8 @@ __all__ = [
     "ProviderLeagueAlias",
     "ProviderRole",
     "ProviderTeamAlias",
+    "PushChannel",
+    "PushSubscription",
     "RatingElo",
     "RatingGlicko",
     "RefreshToken",
@@ -43,4 +47,5 @@ __all__ = [
     "Team",
     "User",
     "UserRole",
+    "UserTier",
 ]

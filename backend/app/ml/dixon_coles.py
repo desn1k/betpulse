@@ -68,6 +68,56 @@ def total_over_under(matrix: np.ndarray, line: float) -> dict[str, float]:
     return {"over": float(over), "under": float(under)}
 
 
+def in_play_score_matrix(
+    lam_home: float,
+    lam_away: float,
+    rho: float,
+    minute: int,
+    match_minutes: int = 90,
+    max_goals: int = MAX_GOALS,
+) -> np.ndarray:
+    """Score matrix for the goals *remaining* in the match.
+
+    In-play, only the unplayed fraction of the match is still uncertain: the
+    pre-match rates are scaled by the share of time left, so at the final
+    whistle the remaining-goals distribution collapses to a certain 0-0 and the
+    outcome is fully determined by the current score.
+    """
+    remaining = max(match_minutes - minute, 0) / match_minutes
+    return score_matrix(lam_home * remaining, lam_away * remaining, rho, max_goals)
+
+
+def in_play_one_x_two(
+    lam_home: float,
+    lam_away: float,
+    rho: float,
+    home_score: int,
+    away_score: int,
+    minute: int,
+    match_minutes: int = 90,
+) -> Probs1x2:
+    """1X2 probabilities given the current score and elapsed minute.
+
+    Convolves the current (certain) score with the distribution of the goals
+    still to come.
+    """
+    matrix = in_play_score_matrix(lam_home, lam_away, rho, minute, match_minutes)
+    size = matrix.shape[0]
+    home = draw = away = 0.0
+    for i in range(size):
+        for j in range(size):
+            final_home = home_score + i
+            final_away = away_score + j
+            prob = float(matrix[i, j])
+            if final_home > final_away:
+                home += prob
+            elif final_home == final_away:
+                draw += prob
+            else:
+                away += prob
+    return {Outcome.home: home, Outcome.draw: draw, Outcome.away: away}
+
+
 @dataclass(slots=True)
 class DixonColesParams:
     attack: dict[str, float] = field(default_factory=dict)

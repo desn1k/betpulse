@@ -4,14 +4,24 @@
   "results": 2,
   "response": [
     {
-      "fixture": { "id": 1035037, "status": { "long": "Second Half", "elapsed": 67 } },
-      "league": { "id": 39, "name": "Premier League", "country": "England" },
+      "fixture": {
+        "id": 1035037,
+        "date": "2026-07-14T18:00:00+00:00",
+        "timestamp": 1784052000,
+        "status": { "long": "Second Half", "short": "2H", "elapsed": 67 }
+      },
+      "league": { "id": 39, "name": "Premier League", "country": "England", "season": 2025 },
       "teams": { "home": { "name": "Arsenal" }, "away": { "name": "Chelsea" } },
       "goals": { "home": 2, "away": 1 }
     },
     {
-      "fixture": { "id": 1035038, "status": { "long": "First Half", "elapsed": 23 } },
-      "league": { "id": 140, "name": "La Liga", "country": "Spain" },
+      "fixture": {
+        "id": 1035038,
+        "date": "2026-07-14T18:30:00+00:00",
+        "timestamp": 1784053800,
+        "status": { "long": "First Half", "short": "1H", "elapsed": 23 }
+      },
+      "league": { "id": 140, "name": "La Liga", "country": "Spain", "season": 2025 },
       "teams": { "home": { "name": "Real Madrid" }, "away": { "name": "Sevilla" } },
       "goals": { "home": 0, "away": 0 }
     }

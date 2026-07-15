@@ -96,6 +96,40 @@ class Settings(BaseSettings):
     # crashed worker never holds the lock forever (see reevaluate_champions_task).
     champion_reeval_max_runtime_seconds: int = 600
 
+    # --- Live provider (API-Football) --------------------------------------
+    # Dev/CI fallback only; production keys are entered in Admin → Providers and
+    # stored encrypted at rest (never read from the environment in prod).
+    api_football_key: str = ""
+    api_football_base_url: str = "https://v3.football.api-sports.io"
+
+    # --- Live ingestion / in-play recompute --------------------------------
+    live_poll_interval_seconds: int = 60
+    # A live recompute enqueues a push job only when a probability moves by more
+    # than this (absolute) versus the previous in-play row.
+    probability_swing_push_threshold: float = 0.10
+    # SSE reconnect replay window: on `Last-Event-ID` we replay at most this many
+    # seconds of buffered live updates (spec: no more than 5 minutes).
+    live_replay_window_seconds: int = 300
+    # Redis pub/sub channel that fans out live updates between API replicas.
+    live_events_channel: str = "live:events"
+
+    # --- Push notifications -------------------------------------------------
+    telegram_bot_token: str = ""
+    telegram_api_base_url: str = "https://api.telegram.org"
+    # Web Push (VAPID). Keys are base64url-encoded EC P-256 (prime256v1); the
+    # contact becomes the ``mailto:`` subject required by the Web Push protocol.
+    webpush_vapid_private_key: str = ""
+    webpush_vapid_public_key: str = ""
+    webpush_contact_email: str = "admin@example.com"
+    # At most one push per fixture per this many seconds (spec: 5 minutes).
+    push_rate_limit_seconds: int = 300
+    # On a delivery failure, retry exactly once after this delay, then discard.
+    push_retry_delay_seconds: int = 30
+
+    @property
+    def vapid_subject(self) -> str:
+        return f"mailto:{self.webpush_contact_email}"
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.cors_allowed_origins.split(",") if o.strip()]

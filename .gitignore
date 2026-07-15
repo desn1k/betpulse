@@ -34,3 +34,6 @@ next-env.d.ts
 *.swp
 .idea/
 .vscode/
+
+# Redis dump artifact (created when running redis-server locally)
+*.rdb
