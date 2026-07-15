@@ -120,7 +120,8 @@ API-Football is an admin task). After each poll a per-fixture recompute (Dixon-C
 the current score + elapsed minute) runs **only when the score/minute changed**, writes
 `predictions_live`, and appends a `live_updates` event (its `BIGSERIAL` id is the SSE
 `Last-Event-ID`). A probability swing over `PROBABILITY_SWING_PUSH_THRESHOLD` enqueues a push
-(Telegram Bot API + Web Push/VAPID), rate-limited to one per fixture per `PUSH_RATE_LIMIT_SECONDS`.
+(Telegram Bot API + Web Push/VAPID), rate-limited to one per (user, fixture) per
+`PUSH_RATE_LIMIT_SECONDS`.
 Browsers subscribe over SSE at `GET /live/stream` (Pro/Expert tiers only); Redis pub/sub fans
 updates out across API replicas.
 

@@ -1,9 +1,9 @@
 """Push notifications on a probability swing (queue: push).
 
 Two channels: Telegram (Bot HTTP API) and Web Push (VAPID). Delivery is
-rate-limited to at most one push per fixture per window in Redis, skipped
-entirely when a user has no subscription, and retried exactly once on failure
-before being logged and discarded. The Web Push payload is a VAPID-authenticated
+rate-limited per subscriber to at most one push per (user, fixture) per window
+in Redis, skipped entirely when a user has no subscription, and retried exactly
+once on failure before being logged and discarded. The Web Push payload is a VAPID-authenticated
 data-less tickle; encrypting a payload body (RFC 8291) can be added later without
 changing this trigger path.
 """
@@ -41,7 +41,8 @@ class PushError(Exception):
 
 @dataclass(slots=True)
 class PushDispatchResult:
-    rate_limited: bool = False
+    # Number of subscriptions suppressed by the per-(user, fixture) rate limit.
+    rate_limited: int = 0
     delivered: int = 0
     failed: int = 0
     skipped_no_subscription: bool = False
@@ -135,19 +136,23 @@ async def dispatch_push(
     settings: Settings,
     sleep: SleepFn = asyncio.sleep,
 ) -> PushDispatchResult:
-    """Deliver a swing notification to every subscription, once per fixture/window."""
-    rl_key = f"push:rl:{fixture_id}"
-    acquired = await redis.set(rl_key, "1", nx=True, ex=settings.push_rate_limit_seconds)
-    if not acquired:
-        logger.info("push suppressed by rate limit for fixture %s", fixture_id)
-        return PushDispatchResult(rate_limited=True)
-
+    """Deliver a swing notification to each subscription, once per (user, fixture)/window."""
     subs = list((await session.execute(select(PushSubscription))).scalars())
     if not subs:
         return PushDispatchResult(skipped_no_subscription=True)
 
     result = PushDispatchResult()
     for sub in subs:
+        # Rate-limit per subscriber: a given user gets at most one push per
+        # fixture per window, checked before we attempt delivery to them.
+        rl_key = f"push:rl:{sub.user_id}:{fixture_id}"
+        acquired = await redis.set(rl_key, "1", nx=True, ex=settings.push_rate_limit_seconds)
+        if not acquired:
+            result.rate_limited += 1
+            logger.info(
+                "push suppressed by rate limit for user %s fixture %s", sub.user_id, fixture_id
+            )
+            continue
         try:
             await _deliver_one(settings, sub, text)
             result.delivered += 1

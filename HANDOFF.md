@@ -140,7 +140,7 @@ Branch `claude/live-phase-5`, off merged `main`. Scope & design (owner-approved 
    `live_updates` log, ≤ 5 minutes; Redis pub/sub fan-out between API replicas.
 4. **Push** (queue `push`) — Telegram via `TELEGRAM_BOT_TOKEN` (Bot HTTP API on httpx) + Web Push
    via VAPID; skip if no `push_subscriptions` row; on failure log+discard, one retry after 30s;
-   rate limit ≤ 1 push per fixture per 5 minutes in Redis.
+   rate limit ≤ 1 push per (user, fixture) per 5 minutes in Redis.
 5. **Migration `0005_live_push`** — `push_subscriptions`, `live_updates` (BIGSERIAL id =
    `Last-Event-ID`), `users.tier` enum (free/pro/expert, default free). `predictions_live` already
    exists.

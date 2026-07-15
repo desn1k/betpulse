@@ -67,9 +67,33 @@ async def test_rate_limit_allows_one_push_per_window(session: AsyncSession) -> N
         session, redis, fixture_id=fixture_id, text="hi", settings=settings
     )
 
-    assert first.delivered == 1 and first.rate_limited is False
-    assert second.rate_limited is True and second.delivered == 0
+    assert first.delivered == 1 and first.rate_limited == 0
+    assert second.rate_limited == 1 and second.delivered == 0
     assert route.call_count == 1
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_rate_limit_is_per_user_not_global(session: AsyncSession) -> None:
+    # Two users subscribed to the same fixture both receive the push — one
+    # user's window does not suppress another's.
+    route = respx.post(TELEGRAM_URL).mock(return_value=httpx.Response(200))
+    user_a = await _make_user(session)
+    user_b = await _make_user(session)
+    session.add_all(
+        [
+            PushSubscription(user_id=user_a, channel=PushChannel.telegram, endpoint="111"),
+            PushSubscription(user_id=user_b, channel=PushChannel.telegram, endpoint="222"),
+        ]
+    )
+    await session.flush()
+
+    result = await dispatch_push(
+        session, get_redis(), fixture_id=uuid.uuid4(), text="hi", settings=_settings()
+    )
+    assert result.delivered == 2
+    assert result.rate_limited == 0
+    assert route.call_count == 2
 
 
 @pytest.mark.asyncio
