@@ -207,7 +207,14 @@ async def rollback_diff(session: AsyncSession, snapshot_id: uuid.UUID) -> list[d
             continue
         cur_status, new_status = row.status.value, item["status"]
         cur_weight, new_weight = float(row.display_weight), float(item["display_weight"])
-        if cur_status == new_status and abs(cur_weight - new_weight) < 0.01:
+        cur_enabled, new_enabled = row.is_enabled, item["is_enabled"]
+        cur_visible, new_visible = row.is_visible, item["is_visible"]
+        if (
+            cur_status == new_status
+            and abs(cur_weight - new_weight) < 0.01
+            and cur_enabled == new_enabled
+            and cur_visible == new_visible
+        ):
             continue
         changes.append(
             {
@@ -217,6 +224,10 @@ async def rollback_diff(session: AsyncSession, snapshot_id: uuid.UUID) -> list[d
                 "status_to": new_status,
                 "weight_from": round(cur_weight, 2),
                 "weight_to": round(new_weight, 2),
+                "enabled_from": cur_enabled,
+                "enabled_to": new_enabled,
+                "visible_from": cur_visible,
+                "visible_to": new_visible,
             }
         )
     return changes

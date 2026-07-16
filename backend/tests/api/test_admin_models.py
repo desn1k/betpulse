@@ -227,6 +227,10 @@ async def test_promote_demote_snapshot_and_rollback(
     diff = (await client.get(f"/admin/models/snapshots/{snap_id}/diff", headers=headers)).json()
     methods_changed = {c["method"] for c in diff["changes"]}
     assert {"elo", "xg"} & methods_changed  # a champion change is previewed
+    # Diff carries status, weight, enabled and visible before→after.
+    assert all(
+        {"status_to", "weight_to", "enabled_to", "visible_to"} <= c.keys() for c in diff["changes"]
+    )
 
     # Roll back → the original champion (elo) is restored.
     assert (

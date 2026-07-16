@@ -248,6 +248,10 @@ export function ModelsView() {
                 {diff.changes.map((c) => (
                   <li key={`${c.method}-${c.version}`} className="tabular-nums text-muted-strong">
                     {c.method}: {c.status_from} → {c.status_to} · {c.weight_from} → {c.weight_to}
+                    {c.enabled_from !== c.enabled_to &&
+                      ` · enabled ${c.enabled_from} → ${c.enabled_to}`}
+                    {c.visible_from !== c.visible_to &&
+                      ` · visible ${c.visible_from} → ${c.visible_to}`}
                   </li>
                 ))}
               </ul>

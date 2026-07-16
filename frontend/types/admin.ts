@@ -95,6 +95,10 @@ export interface RollbackChange {
   status_to: string;
   weight_from: number;
   weight_to: number;
+  enabled_from: boolean;
+  enabled_to: boolean;
+  visible_from: boolean;
+  visible_to: boolean;
 }
 
 export interface RollbackDiff {
