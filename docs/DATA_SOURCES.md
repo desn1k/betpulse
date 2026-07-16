@@ -179,6 +179,23 @@ and media are copyrighted by their owners.
 
 ---
 
+## LLM analysis provider (spec §8) — not a data plane
+
+The LLM that writes the plain-language match analysis is **not** a football-data provider and is kept
+separate from `provider_accounts`: it does not ingest data, it only *explains* the model outputs (it is
+never a source of probabilities). It is any **OpenAI-compatible** chat-completions endpoint.
+
+- **Config lives in `llm_config`** (a single admin-managed row), edited in the admin UI / `PATCH
+  /admin/llm-config`: `base_url`, `model`, the API key (**encrypted at rest**, only a `••••1234`
+  suffix ever shown — the full key is never logged), `max_tokens`, `daily_token_budget`,
+  `cache_ttl_seconds`, `cost_per_1k_in` / `cost_per_1k_out`, and `is_enabled` (default **off**).
+- **Budget & cost.** Generation hard-stops for the UTC day once `daily_token_budget` is spent
+  (`budget_exhausted` with a reset time); token counts and computed cost are stored per analysis for
+  the admin spend view.
+- **Prompt is English-only**; the response language follows the caller's locale (`?language=ru|en`).
+- **No key committed anywhere** — like every provider key, it exists in the DB (encrypted) or, for
+  local dev / CI only, as an env fallback.
+
 ## 3. Optional future sources
 
 | Source | Role | Why you might add it |

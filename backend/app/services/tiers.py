@@ -62,6 +62,7 @@ DEFAULT_TIERS: dict[str, TierDefaults] = {
             "methods": "blurred_consensus",
             "per_half_totals": False,
             "live_recompute": False,
+            "llm": "none",
         },
         limits={"matches_per_day": 3, "pushes_per_day": 0, "backtester_runs_per_day": 0},
         is_public=False,
@@ -76,6 +77,7 @@ DEFAULT_TIERS: dict[str, TierDefaults] = {
             "live_recompute": False,
             "backtester_save": False,
             "backtester_export": False,
+            "llm": "match_of_day",
         },
         limits={"matches_per_day": 10, "pushes_per_day": 1, "backtester_runs_per_day": 3},
         is_public=True,
@@ -90,6 +92,7 @@ DEFAULT_TIERS: dict[str, TierDefaults] = {
             "live_recompute": True,
             "backtester_save": False,
             "backtester_export": False,
+            "llm": "top5",
         },
         limits={"matches_per_day": -1, "pushes_per_day": 10, "backtester_runs_per_day": 50},
         is_public=True,
@@ -104,6 +107,7 @@ DEFAULT_TIERS: dict[str, TierDefaults] = {
             "live_recompute": True,
             "backtester_save": True,
             "backtester_export": True,
+            "llm": "any",
         },
         limits={"matches_per_day": -1, "pushes_per_day": -1, "backtester_runs_per_day": -1},
         is_public=True,
@@ -142,6 +146,10 @@ class ResolvedTier:
 
     def can_export(self) -> bool:
         return bool(self.feature_flags.get("backtester_export", False))
+
+    def llm_access(self) -> str:
+        """LLM analysis access level: none | match_of_day | top5 | any."""
+        return str(self.feature_flags.get("llm", "none"))
 
 
 async def seed_default_tiers(session: AsyncSession) -> None:

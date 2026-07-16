@@ -67,8 +67,9 @@ mlflow_utils), `app/workers` (arq_app, tasks), `app/api` (health, auth, admin, p
 | 6 | Frontend: design system + match list/card (all method bars + consensus) + light sporty theme + skeletons + i18n RU/EN | ✅ merged |
 | 7 | Tiers + feature flags + server-side limit enforcement + guest blur/lock + minimal login | ✅ merged |
 | 8 | Promo codes (500-multiple batches, binding, kill-switch, CSV) + redemption + billing seam | ✅ merged |
-| 9 | Strategy backtester (filters, matched count, ROI, equity, drawdown, Wilson CI, walk-forward, save/export) | 🚧 in progress (`claude/backtester-phase-9`) |
-| 10–16 | (per §14) | ⬜ not started |
+| 9 | Strategy backtester (filters, matched count, ROI, equity, drawdown, Wilson CI, walk-forward, save/export) | ✅ merged |
+| 10 | LLM match analysis (OpenAI-compatible, tier-gated by daily rank, token budget + cost, admin config) | 🚧 in progress (`claude/llm-phase-10`) |
+| 11–16 | (per §14) | ⬜ not started |
 
 ## 5. CI — the 9 required checks
 
@@ -240,6 +241,40 @@ lock; unmapped API-Football team/league during live → structured warning + ski
   Redis UTC-day counter; **save** and **export** are the `backtester_save`/`backtester_export` feature
   flags (expert only). Migration `0009` also patches the flags onto the tier rows seeded by `0007`.
   CSV export carries no internal UUIDs (date, teams, league, season, bet, odds, outcome, P/L, cum P/L).
+
+## 9e. Phase 10 notes (LLM analysis)
+
+- **Purpose, not source of truth.** The LLM *explains* the model outputs in plain language — it is
+  never the source of the probabilities. `not_a_probability_source: true` is a **top-level** field on
+  the analysis response (not buried in the text), and the frontend renders a disclaimer under every
+  narrative regardless of what the model wrote.
+- **Provider config is a singleton.** `llm_config` (migration `0010`) is one admin-managed row: any
+  OpenAI-compatible `base_url` + `model`, an API key **encrypted at rest** (Fernet, same as provider
+  keys — only a masked `••••1234` suffix is ever returned, the full key is never logged), plus
+  `max_tokens`, `daily_token_budget`, `cache_ttl_seconds`, `cost_per_1k_in/out`, `is_enabled`
+  (default off). Kept deliberately separate from `provider_accounts` (data providers) — different
+  concern. Admin: `GET/PATCH /admin/llm-config` (RBAC + audit `llm_config.update`, secret value never
+  in the audit meta — only the field names).
+- **Tier gate is a DB lookup, not a runtime computation.** An ARQ cron (`rank_llm_fixtures_task`,
+  midnight UTC) ranks today's scheduled fixtures by `model_agreement_pct × |edge_vs_market|`
+  (confidence × edge) and writes `fixtures.fixture_llm_rank` (1 = match of the day; null = not ranked
+  today). The `llm` feature flag gates on that rank: guest `none` → 403; free `match_of_day` → rank 1;
+  pro `top5` → ranks 1–5; expert `any` → any fixture. Migration `0010` patches the `llm` flag onto the
+  tier rows seeded by `0007`.
+- **Cache + budget + cost.** Analyses are cached per `(fixture_id, model)` (unique constraint); a
+  cached row older than `cache_ttl_seconds` is regenerated, never served stale (`cached: true/false`
+  on the response). A per-UTC-day Redis counter `llm:budget:{YYYY-MM-DD}` hard-stops generation once
+  `daily_token_budget` is spent → `{"status": "budget_exhausted", "resets_at": "<UTC midnight ISO>"}`.
+  Both token counts **and** computed cost (`cost_per_1k_*`) are stored on `llm_analyses` for the
+  admin spend dashboard (Phase 12). Token/cost are **not** exposed on the public response.
+- **Prompt is English-only** (spec §8); the response language is a request param (`?language=ru|en`,
+  driven by the user's locale) appended as "Respond in {language}." — nothing hard-coded to Russian.
+  `generate_completion` is the only function that touches the network, isolated so tests monkeypatch
+  it (no live key needed).
+- **Frontend**: `AnalysisBlock` on the match detail page renders the narrative + always-on
+  disclaimer, a match-of-the-day badge, a tier lock/CTA on 403, and a "resets at HH:MM" message on
+  `budget_exhausted`; hidden entirely when disabled/no-data. Same-origin proxy
+  `GET /api/matches/[id]/analysis` forwards the bearer + locale.
 
 ## 10. How to resume
 

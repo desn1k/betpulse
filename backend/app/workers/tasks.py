@@ -21,6 +21,7 @@ from app.services.live.ingestion import poll_live
 from app.services.live.provider import build_live_provider
 from app.services.live.push import dispatch_push
 from app.services.live.recompute import get_base_rates, recompute_fixture
+from app.services.llm.ranking import rank_today_fixtures
 
 logger = logging.getLogger("workers.tasks")
 
@@ -180,3 +181,25 @@ async def reevaluate_champions_task(ctx: dict[str, Any]) -> str | None:
     finally:
         if await redis.get(CHAMPION_LOCK_KEY) == token:
             await redis.delete(CHAMPION_LOCK_KEY)
+
+
+LLM_RANK_LOCK_KEY = "lock:llm_rank"
+
+
+async def rank_llm_fixtures_task(ctx: dict[str, Any]) -> int:
+    """Midnight LLM-analysis ranking of today's scheduled fixtures. A Redis lock
+    with a TTL guarantees a single runner."""
+    redis = get_redis()
+    token = secrets.token_hex(16)
+    acquired = await redis.set(LLM_RANK_LOCK_KEY, token, nx=True, ex=600)
+    if not acquired:
+        logger.info("llm ranking skipped: lock held by another worker")
+        return 0
+    try:
+        async with _write_sessionmaker()() as session:
+            ranked = await rank_today_fixtures(session)
+            await session.commit()
+        return ranked
+    finally:
+        if await redis.get(LLM_RANK_LOCK_KEY) == token:
+            await redis.delete(LLM_RANK_LOCK_KEY)

@@ -72,6 +72,13 @@
     "market": "Market",
     "consensus": "Consensus"
   },
+  "analysis": {
+    "title": "AI analysis",
+    "matchOfTheDay": "Match of the day",
+    "locked": "Available on the {tier} tier — upgrade to unlock the AI breakdown of this match.",
+    "budgetExhausted": "Today's AI analysis quota is used up. Available again at {time}.",
+    "disclaimer": "The AI commentary interprets the model outputs — it is not a source of probabilities or betting advice."
+  },
   "disclaimer": {
     "label": "Disclaimer",
     "expand": "Show",

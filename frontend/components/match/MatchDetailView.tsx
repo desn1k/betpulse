@@ -9,6 +9,7 @@ import { DisclaimerBanner } from "@/components/legal/DisclaimerBanner";
 import { ApiError } from "@/lib/api";
 import { useMatch } from "@/lib/queries";
 
+import { AnalysisBlock } from "./AnalysisBlock";
 import { ConsensusBar } from "./ConsensusBar";
 import { MatchStatus } from "./MatchStatus";
 import { MethodBars } from "./MethodBars";
@@ -92,6 +93,8 @@ export function MatchDetailView({ id }: { id: string }) {
           tierRequired={match.tier_required}
         />
       </Card>
+
+      <AnalysisBlock id={id} />
 
       <DisclaimerBanner />
     </div>

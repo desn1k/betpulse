@@ -5,6 +5,7 @@ from app.models.backtester import BacktestFeature, Strategy
 from app.models.email_verification_token import EmailVerificationToken
 from app.models.fixture import Fixture, FixtureStats, FixtureStatus, Shot
 from app.models.live import LiveUpdate, PushChannel, PushSubscription
+from app.models.llm import LlmAnalysis, LlmConfig
 from app.models.market import Odds
 from app.models.model_registry import ModelRegistry, ModelRegistrySnapshot, ModelStatus
 from app.models.prediction import ModelRun, Prediction, PredictionLive
@@ -39,6 +40,8 @@ __all__ = [
     "FixtureStatus",
     "League",
     "LiveUpdate",
+    "LlmAnalysis",
+    "LlmConfig",
     "ModelRegistry",
     "ModelRegistrySnapshot",
     "ModelRun",

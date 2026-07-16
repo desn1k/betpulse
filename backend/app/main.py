@@ -10,6 +10,8 @@ from app.api.auth import router as auth_router
 from app.api.backtester import router as backtester_router
 from app.api.health import router as health_router
 from app.api.live import router as live_router
+from app.api.llm import admin_router as llm_admin_router
+from app.api.llm import router as llm_router
 from app.api.matches import router as matches_router
 from app.api.performance import router as performance_router
 from app.api.promo import admin_router as promo_admin_router
@@ -43,6 +45,8 @@ def create_app() -> FastAPI:
     app.include_router(performance_router)
     app.include_router(live_router)
     app.include_router(matches_router)
+    app.include_router(llm_router)
+    app.include_router(llm_admin_router)
     app.include_router(promo_router)
     app.include_router(promo_admin_router)
     app.include_router(backtester_router)
