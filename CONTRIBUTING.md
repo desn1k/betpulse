@@ -48,6 +48,34 @@ mypy
 python -m pytest
 ```
 
+### Migrations — model must equal migration
+
+**Every new table's columns must exactly match its Alembic migration — verify
+this before every commit.** The tests build the schema with
+`Base.metadata.create_all` (straight from the models), while CI and production
+build it with `alembic upgrade head`. So a column that a model declares but the
+migration omits — or vice versa — **passes locally and only fails in CI**.
+
+The classic trap: adding `TimestampMixin` (or any mixin that contributes
+columns, e.g. `created_at` / `updated_at`) to a model without adding those exact
+columns to the migration. The ORM then emits `RETURNING ... updated_at` against a
+table that has no such column and errors with `UndefinedColumnError` — but only
+on a migration-built database.
+
+Before committing a new or changed model, check both directions:
+
+- Every mapped column on the model (including columns pulled in by mixins) exists
+  in the migration's `create_table` / `add_column`.
+- Every column in the migration exists on the model.
+- If a model does not need a column a mixin would add, drop the mixin and declare
+  the columns you do want explicitly (e.g. a join/follow row that is only ever
+  created or deleted needs `created_at` but not `updated_at`).
+
+Fastest way to be sure: run the suite against a **migration-built** database, not
+just the `create_all` one — e.g. `alembic upgrade head` into a scratch DB, then
+insert a row for the new table through the ORM. Migrations must also round-trip
+(`upgrade → downgrade → upgrade`) cleanly.
+
 ### Frontend
 
 ```bash
