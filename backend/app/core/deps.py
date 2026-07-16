@@ -141,6 +141,23 @@ async def get_tier_context(
 TierContextDep = Annotated[TierContext, Depends(get_tier_context)]
 
 
+async def require_push_tier(
+    user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated[Redis, Depends(get_redis_dep)],
+) -> User:
+    """Only tiers that may receive pushes (Pro/Expert, ``pushes_per_day != 0``)
+    can subscribe, follow, or link Telegram. Guest is already blocked by auth;
+    free is blocked here. Single source of truth: the ``pushes_per_day`` limit."""
+    tier = await resolve_tier_context(session, redis, user)
+    if not tier.can_receive_push():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "push_requires_upgrade", "tier_required": "pro"},
+        )
+    return user
+
+
 def require_role(
     *roles: UserRole,
 ) -> Callable[[User], Awaitable[User]]:

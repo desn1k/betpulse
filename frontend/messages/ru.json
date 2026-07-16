@@ -3,7 +3,34 @@
     "tagline": "Футбольная аналитика и ML-прогнозы"
   },
   "nav": {
-    "performance": "Точность моделей"
+    "performance": "Точность моделей",
+    "settings": "Настройки"
+  },
+  "notify": {
+    "notifyMe": "Уведомить",
+    "following": "Уведомляем",
+    "locked": "Pro"
+  },
+  "settings": {
+    "title": "Настройки",
+    "notifications": "Уведомления",
+    "signInRequired": "Войдите, чтобы управлять уведомлениями.",
+    "webPush": "Push в браузере",
+    "webPushHint": "Получайте уведомление при скачке вероятностей в матче, за которым следите.",
+    "webPushUnsupported": "Не поддерживается в этом браузере",
+    "telegram": "Telegram",
+    "telegramHint": "Подключите Telegram, чтобы получать оповещения в чат (Pro/Expert).",
+    "telegramConnected": "Подключено.",
+    "telegramOpen": "Откройте Telegram, чтобы завершить подключение →",
+    "enable": "Включить",
+    "disable": "Выключить",
+    "connect": "Подключить",
+    "disconnect": "Отключить",
+    "errors": {
+      "denied": "Разрешение на уведомления отклонено.",
+      "unsupported": "Push не поддерживается в этом браузере.",
+      "generic": "Что-то пошло не так. Попробуйте ещё раз."
+    }
   },
   "home": {
     "title": "Матчи",

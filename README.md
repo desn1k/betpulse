@@ -120,6 +120,22 @@ expert → any. Analyses are cached per `(fixture, model)` (regenerated once old
 (`budget_exhausted` + `resets_at`). Token counts and computed cost are stored per analysis for the
 admin spend view. The prompt is English-only; the response language follows the caller's locale.
 
+### Push notifications on probability swings (spec §11)
+
+When an in-play recompute moves a probability past `probability_swing_push_threshold`, the push worker
+notifies the **followers of that fixture** — users opt in per match (`push_follows`), so nobody is
+spammed for matches they didn't choose. Push is a Pro/Expert feature (`pushes_per_day`: guest/free 0,
+pro 10, expert ∞); the daily budget is a Redis UTC-day counter, peeked before delivery and counted
+only on success, with the Phase-5 per-(user, fixture) window rate-limit still in place. Dead Web Push
+endpoints (404/410) are pruned automatically.
+
+Two channels: **Web Push** (VAPID) delivers a data-less tickle that the service worker turns into a
+notification by fetching the public `GET /live/push/latest/{id}` snapshot; **Telegram** is connected
+via a one-time deep link (`t.me/<bot>?start=<token>`, hashed single-use token) whose `/start` reaches
+a webhook authenticated by a constant-time `X-Telegram-Bot-Api-Secret-Token` check — a bad/missing
+secret is logged and answered `200 OK` so Telegram never retries. The frontend adds a tier-locked
+"notify me" toggle on the match page and a `/settings` Notifications panel.
+
 ### Training & model governance
 
 ```bash

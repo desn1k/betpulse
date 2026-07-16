@@ -79,7 +79,7 @@ DEFAULT_TIERS: dict[str, TierDefaults] = {
             "backtester_export": False,
             "llm": "match_of_day",
         },
-        limits={"matches_per_day": 10, "pushes_per_day": 1, "backtester_runs_per_day": 3},
+        limits={"matches_per_day": 10, "pushes_per_day": 0, "backtester_runs_per_day": 3},
         is_public=True,
         sort_order=1,
     ),
@@ -127,6 +127,15 @@ class ResolvedTier:
     def matches_per_day(self) -> int:
         value = self.limits.get("matches_per_day", 0)
         return int(value) if isinstance(value, (int, float)) else 0
+
+    def pushes_per_day(self) -> int:
+        """Delivered pushes allowed per UTC day. ``-1`` = unlimited, ``0`` = none."""
+        value = self.limits.get("pushes_per_day", 0)
+        return int(value) if isinstance(value, (int, float)) else 0
+
+    def can_receive_push(self) -> bool:
+        """Whether this tier may subscribe to / receive pushes at all (Pro/Expert)."""
+        return self.pushes_per_day() != 0
 
     def methods_visibility(self) -> str:
         return str(self.feature_flags.get("methods", "blurred_consensus"))

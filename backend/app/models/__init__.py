@@ -4,7 +4,13 @@ from app.models.audit_log import AuditLog
 from app.models.backtester import BacktestFeature, Strategy
 from app.models.email_verification_token import EmailVerificationToken
 from app.models.fixture import Fixture, FixtureStats, FixtureStatus, Shot
-from app.models.live import LiveUpdate, PushChannel, PushSubscription
+from app.models.live import (
+    LiveUpdate,
+    PushChannel,
+    PushFollow,
+    PushSubscription,
+    TelegramLinkToken,
+)
 from app.models.llm import LlmAnalysis, LlmConfig
 from app.models.market import Odds
 from app.models.model_registry import ModelRegistry, ModelRegistrySnapshot, ModelStatus
@@ -61,6 +67,7 @@ __all__ = [
     "ProviderRole",
     "ProviderTeamAlias",
     "PushChannel",
+    "PushFollow",
     "PushSubscription",
     "RatingElo",
     "RatingGlicko",
@@ -70,6 +77,7 @@ __all__ = [
     "Subscription",
     "SubscriptionSource",
     "Team",
+    "TelegramLinkToken",
     "Tier",
     "User",
     "UserRole",

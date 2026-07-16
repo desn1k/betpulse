@@ -116,3 +116,34 @@ async def match_views_remaining(
     used = await redis.get(_key(identity, now))
     used_count = int(used) if used is not None else 0
     return max(0, limit - used_count)
+
+
+def _push_key(user_id: uuid.UUID, now: datetime) -> str:
+    return f"limits:push:{user_id}:{now.astimezone(UTC):%Y-%m-%d}"
+
+
+async def push_budget_remaining(
+    redis: Redis, *, user_id: uuid.UUID, limit: int, now: datetime | None = None
+) -> int | None:
+    """Delivered pushes left today for a user (spec §7, Phase 11), without
+    consuming any. ``None`` = unlimited; ``0`` = exhausted (or a no-push tier).
+    The budget is a hard-stop checked **before** delivery so we never overspend."""
+    if limit == UNLIMITED:
+        return None
+    now = now or datetime.now(UTC)
+    used = await redis.get(_push_key(user_id, now))
+    used_count = int(used) if used is not None else 0
+    return max(0, limit - used_count)
+
+
+async def record_push_delivered(
+    redis: Redis, *, user_id: uuid.UUID, now: datetime | None = None
+) -> None:
+    """Count one **delivered** push against the user's UTC-day budget (TTL to the
+    next UTC midnight). Called only after a successful delivery, so failed pushes
+    never consume the budget."""
+    now = now or datetime.now(UTC)
+    key = _push_key(user_id, now)
+    count = int(await redis.incr(key))
+    if count == 1:
+        await redis.expire(key, seconds_until_utc_midnight(now))

@@ -68,8 +68,9 @@ mlflow_utils), `app/workers` (arq_app, tasks), `app/api` (health, auth, admin, p
 | 7 | Tiers + feature flags + server-side limit enforcement + guest blur/lock + minimal login | ✅ merged |
 | 8 | Promo codes (500-multiple batches, binding, kill-switch, CSV) + redemption + billing seam | ✅ merged |
 | 9 | Strategy backtester (filters, matched count, ROI, equity, drawdown, Wilson CI, walk-forward, save/export) | ✅ merged |
-| 10 | LLM match analysis (OpenAI-compatible, tier-gated by daily rank, token budget + cost, admin config) | 🚧 in progress (`claude/llm-phase-10`) |
-| 11–16 | (per §14) | ⬜ not started |
+| 10 | LLM match analysis (OpenAI-compatible, tier-gated by daily rank, token budget + cost, admin config) | ✅ merged |
+| 11 | Push (Telegram + Web Push) on probability swings: per-match follow, tier-gated, `pushes_per_day` | ✅ implemented (`claude/push-phase-11`) |
+| 12–16 | (per §14) | ⬜ not started |
 
 ## 5. CI — the 9 required checks
 
@@ -276,6 +277,41 @@ lock; unmapped API-Football team/league during live → structured warning + ski
   `budget_exhausted`; hidden entirely when disabled/no-data. Same-origin proxy
   `GET /api/matches/[id]/analysis` forwards the bearer + locale.
 
+## 9f. Phase 11 notes (push on probability swings)
+
+- **Builds on the Phase 5 delivery core** (VAPID JWT, `send_telegram`/`send_webpush`, one-retry
+  dispatch). Phase 11 makes it a real product: per-match targeting, tier gating, a daily budget, and
+  the frontend.
+- **Per-match follow, not broadcast.** `push_follows` (migration `0011`, unique `(user, fixture)`)
+  records who follows a fixture; `dispatch_push` now joins subscriptions to **followers of that
+  fixture** and delivers to nobody else. `PUT/DELETE /live/push/follow/{id}` + `GET
+  /live/push/follows` drive the "notify me" toggle.
+- **Push is Pro/Expert only.** `pushes_per_day` becomes the gate: guest 0 / **free 0** / pro 10 /
+  expert ∞. Migration `0011` patches the free tier row (was 1). `ResolvedTier.can_receive_push()`
+  (`pushes_per_day != 0`) guards subscribe / follow / Telegram-link via the shared `require_push_tier`
+  dependency. `DEFAULT_TIERS` free updated to match.
+- **Daily budget hard-stop, count deliveries.** A per-UTC-day Redis counter
+  (`limits:push:{user}:{day}`) is *peeked before* delivery (never overspend) and *incremented only on
+  a successful* delivery — a failed push does not consume the budget. The per-(user, fixture) window
+  rate-limit from Phase 5 is unchanged.
+- **Web Push = tickle + fetch (no payload crypto).** The push body is the fixture id; the service
+  worker (`frontend/public/sw.js`) fetches the public `GET /live/push/latest/{id}` snapshot and
+  renders the notification, then opens `/matches/{id}` on click. RFC 8291 payload encryption is
+  intentionally avoided.
+- **Dead endpoints are pruned.** A Web Push `404/410` raises `PushGone`; `dispatch_push` deletes that
+  subscription row so it is not retried forever.
+- **Telegram deep-link.** `telegram_link_tokens` (SHA-256 hash only, single-use `used_at`, 15-min
+  expiry — the DB row is the sole source of truth, no Redis copy). `POST /push/telegram/link` mints
+  `t.me/<bot>?start=<token>` (Pro/Expert); Telegram's `/start` hits `POST /push/telegram/webhook`,
+  authenticated by `X-Telegram-Bot-Api-Secret-Token` compared with `hmac.compare_digest`. A
+  missing/wrong secret is logged and answered **200 OK (empty)** so Telegram never retries; only a
+  valid `/start <token>` records the chat id as a Telegram `PushSubscription`. `DELETE /push/telegram`
+  disconnects.
+- **Frontend.** `NotifyToggle` on the match detail (tier-locked chip for guest/free, follow/unfollow
+  otherwise, flips to a lock on a 403); `/settings` → Notifications (enable/disable browser push,
+  connect/disconnect Telegram). Same-origin proxies under `/api/push/*` and `/api/live/push/*`.
+  RU/EN. New settings: `telegram_bot_username`, `telegram_webhook_secret`.
+
 ## 10. How to resume
 
 1. Read this file + the spec §14 for the current phase.
@@ -284,3 +320,13 @@ lock; unmapped API-Football team/league during live → structured warning + ski
    history).
 3. Confirm the previous phase is green in CI before starting the next one.
 4. Post the phase plan, wait for "go", then implement → tests → CI green → PR. The owner merges.
+
+## 11. Parked work (owner-requested, not yet scheduled)
+
+- **Custom user alerts** (a *separate* phase, to be scheduled **after Phase 12**). User-defined alert
+  rules that trigger a push delivery to Telegram / Web Push when their condition is met on a live
+  fixture. Conditions combine: **minute**, **score**, **probability threshold**, **probability
+  swing**, and **edge vs market**. Per-tier caps: **Pro up to 5 alerts, Expert up to 50**. Builds on
+  the Phase 11 push-delivery + per-match-follow plumbing (reuse `dispatch_push`, the `pushes_per_day`
+  counter, and the subscription channels). Not in scope for Phase 11 — recorded here so it is not
+  forgotten.

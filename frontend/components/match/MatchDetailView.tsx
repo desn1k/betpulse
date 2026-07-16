@@ -9,6 +9,8 @@ import { DisclaimerBanner } from "@/components/legal/DisclaimerBanner";
 import { ApiError } from "@/lib/api";
 import { useMatch } from "@/lib/queries";
 
+import { NotifyToggle } from "@/components/push/NotifyToggle";
+
 import { AnalysisBlock } from "./AnalysisBlock";
 import { ConsensusBar } from "./ConsensusBar";
 import { MatchStatus } from "./MatchStatus";
@@ -69,6 +71,7 @@ export function MatchDetailView({ id }: { id: string }) {
             </span>
             <div className="flex items-center gap-2">
               {match.data_delayed && <Badge variant="warn">{t("card.dataDelayed")}</Badge>}
+              <NotifyToggle id={id} />
               <MatchStatus match={match} />
             </div>
           </div>

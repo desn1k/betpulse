@@ -75,3 +75,47 @@ class PushSubscription(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # Web Push only: {"p256dh": ..., "auth": ...} browser public keys. Empty for
     # Telegram. These are public per the Web Push spec — not encrypted secrets.
     keys: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+
+
+class PushFollow(UUIDPrimaryKeyMixin, Base):
+    """A user following a fixture: swing pushes for that fixture go only to its
+    followers (Phase 11), rather than to every subscriber.
+
+    A follow is created or deleted, never updated — so only ``created_at`` is
+    stored (no ``updated_at``); the migration for ``push_follows`` matches this.
+    """
+
+    __tablename__ = "push_follows"
+    __table_args__ = (UniqueConstraint("user_id", "fixture_id", name="uq_push_follow"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    fixture_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("fixtures.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class TelegramLinkToken(UUIDPrimaryKeyMixin, Base):
+    """A one-time token for connecting a Telegram chat via a deep link.
+
+    Only the SHA-256 hash is stored; the plaintext lives only in the
+    ``t.me/<bot>?start=<token>`` link shown to the user once. Single-use
+    (``used_at``) with a short expiry (see the telegram-link service).
+    """
+
+    __tablename__ = "telegram_link_tokens"
+    __table_args__ = (UniqueConstraint("token_hash", name="uq_telegram_link_token_hash"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

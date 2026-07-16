@@ -21,6 +21,9 @@ export function Header() {
           <Link href="/performance" className="text-sm font-semibold text-muted-strong hover:text-foreground">
             {t("nav.performance")}
           </Link>
+          <Link href="/settings" className="text-sm font-semibold text-muted-strong hover:text-foreground">
+            {t("nav.settings")}
+          </Link>
           <LanguageSwitcher />
           <AuthMenu />
         </nav>
