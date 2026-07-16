@@ -68,8 +68,9 @@ mlflow_utils), `app/workers` (arq_app, tasks), `app/api` (health, auth, admin, p
 | 7 | Tiers + feature flags + server-side limit enforcement + guest blur/lock + minimal login | ✅ merged |
 | 8 | Promo codes (500-multiple batches, binding, kill-switch, CSV) + redemption + billing seam | ✅ merged |
 | 9 | Strategy backtester (filters, matched count, ROI, equity, drawdown, Wilson CI, walk-forward, save/export) | ✅ merged |
-| 10 | LLM match analysis (OpenAI-compatible, tier-gated by daily rank, token budget + cost, admin config) | 🚧 in progress (`claude/llm-phase-10`) |
-| 11–16 | (per §14) | ⬜ not started |
+| 10 | LLM match analysis (OpenAI-compatible, tier-gated by daily rank, token budget + cost, admin config) | ✅ merged |
+| 11 | Push (Telegram + Web Push) on probability swings: per-match follow, tier-gated, `pushes_per_day` | 🚧 in progress (`claude/push-phase-11`) |
+| 12–16 | (per §14) | ⬜ not started |
 
 ## 5. CI — the 9 required checks
 
@@ -284,3 +285,13 @@ lock; unmapped API-Football team/league during live → structured warning + ski
    history).
 3. Confirm the previous phase is green in CI before starting the next one.
 4. Post the phase plan, wait for "go", then implement → tests → CI green → PR. The owner merges.
+
+## 11. Parked work (owner-requested, not yet scheduled)
+
+- **Custom user alerts** (a *separate* phase, to be scheduled **after Phase 12**). User-defined alert
+  rules that trigger a push delivery to Telegram / Web Push when their condition is met on a live
+  fixture. Conditions combine: **minute**, **score**, **probability threshold**, **probability
+  swing**, and **edge vs market**. Per-tier caps: **Pro up to 5 alerts, Expert up to 50**. Builds on
+  the Phase 11 push-delivery + per-match-follow plumbing (reuse `dispatch_push`, the `pushes_per_day`
+  counter, and the subscription channels). Not in scope for Phase 11 — recorded here so it is not
+  forgotten.
