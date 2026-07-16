@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.fixture import Fixture
+from app.models.ingestion_run import IngestionRun, IngestionStatus
 from app.models.market import Odds
 from app.models.reference import League
 from app.providers.base import ProviderQuotaExhausted
@@ -86,6 +89,68 @@ async def bootstrap_history(
             summary.merge(await ingest_dtos(session, dtos, league_code=league_code))
 
     return summary
+
+
+async def run_recorded_ingestion(
+    session: AsyncSession,
+    *,
+    leagues: list[str],
+    seasons: list[str],
+    csv_source: CsvSource,
+    provider_name: str,
+    triggered_by: str | None = None,
+) -> list[IngestionRun]:
+    """Ingest each (league, season) pair, recording one ``ingestion_runs`` row per
+    pair (provider, league, season, status, counts, duration, error). A failure on
+    one pair is isolated in a savepoint and logged on its row; others still run.
+    """
+    runs: list[IngestionRun] = []
+    for league_code in leagues:
+        for season in seasons:
+            run = IngestionRun(
+                provider=provider_name,
+                league=league_code,
+                season=season,
+                status=IngestionStatus.running,
+                triggered_by=triggered_by,
+            )
+            session.add(run)
+            await session.flush()
+
+            started = time.monotonic()
+            try:
+                async with session.begin_nested():
+                    summary = await bootstrap_history(
+                        session,
+                        leagues=[league_code],
+                        seasons=[season],
+                        csv_source=csv_source,
+                    )
+                run.fixtures_ingested = summary.fixtures_inserted
+                run.odds_ingested = summary.odds_inserted
+                run.status = (
+                    IngestionStatus.success
+                    if summary.fixtures_seen > 0
+                    else IngestionStatus.partial
+                )
+            except Exception as exc:  # noqa: BLE001  (record any failure on the run)
+                run.status = IngestionStatus.failed
+                run.error = str(exc)[:2000]
+                logger.warning(
+                    json.dumps(
+                        {
+                            "event": "ingestion_run_failed",
+                            "league": league_code,
+                            "season": season,
+                            "error": str(exc),
+                        }
+                    )
+                )
+            run.finished_at = datetime.now(UTC)
+            run.duration_ms = int((time.monotonic() - started) * 1000)
+            await session.flush()
+            runs.append(run)
+    return runs
 
 
 @dataclass(slots=True)

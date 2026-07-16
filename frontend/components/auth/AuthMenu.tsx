@@ -1,6 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 
@@ -32,6 +33,14 @@ export function AuthMenu() {
         <span className="hidden max-w-[12rem] truncate text-sm text-muted-strong sm:inline">
           {user.email}
         </span>
+        {user.role === "admin" && (
+          <Link
+            href="/admin"
+            className="text-sm font-semibold text-muted-strong hover:text-foreground"
+          >
+            {t("admin.title")}
+          </Link>
+        )}
         <div className="relative">
           <Button size="sm" variant="ghost" onClick={() => setPromoOpen((v) => !v)} aria-expanded={promoOpen}>
             {t("promo.submit")}

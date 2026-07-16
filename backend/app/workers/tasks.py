@@ -16,6 +16,8 @@ from app.core.redis import get_redis
 from app.ml.evaluation import compute_rolling_metrics
 from app.ml.registry import apply_champion_selection
 from app.ml.training import TrainingSummary, run_training
+from app.providers.football_data_couk import FootballDataCoUkProvider
+from app.services.ingestion.runner import network_csv_source, run_recorded_ingestion
 from app.services.live.events import publish_live_update
 from app.services.live.ingestion import poll_live
 from app.services.live.provider import build_live_provider
@@ -203,3 +205,26 @@ async def rank_llm_fixtures_task(ctx: dict[str, Any]) -> int:
     finally:
         if await redis.get(LLM_RANK_LOCK_KEY) == token:
             await redis.delete(LLM_RANK_LOCK_KEY)
+
+
+async def ingest_history_task(
+    ctx: dict[str, Any],
+    leagues: list[str],
+    seasons: list[str],
+    triggered_by: str | None = None,
+) -> int:
+    """Admin-triggered historical re-scan (football-data). Records one
+    ``ingestion_runs`` row per (league, season) pair. Returns the run count."""
+    provider = FootballDataCoUkProvider()
+    source = network_csv_source(provider)
+    async with _write_sessionmaker()() as session:
+        runs = await run_recorded_ingestion(
+            session,
+            leagues=leagues,
+            seasons=seasons,
+            csv_source=source,
+            provider_name=provider.name,
+            triggered_by=triggered_by,
+        )
+        await session.commit()
+    return len(runs)

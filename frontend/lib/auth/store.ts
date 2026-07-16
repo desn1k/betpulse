@@ -10,6 +10,9 @@ interface AuthState {
   accessToken: string | null;
   user: AuthUser | null;
   pending: boolean;
+  // True once the initial silent-refresh attempt has settled (success or not),
+  // so guards can wait for a known auth state instead of flash-redirecting.
+  hydrated: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   hydrate: () => Promise<void>;
@@ -21,6 +24,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   accessToken: null,
   user: null,
   pending: false,
+  hydrated: false,
 
   login: async (email, password) => {
     set({ pending: true });
@@ -57,7 +61,10 @@ export const useAuthStore = create<AuthState>((set) => ({
   // present), exchange it for a fresh access token so a reload keeps the user
   // signed in without re-entering their password.
   hydrate: async () => {
-    if (readCookie(CSRF_COOKIE) === null) return;
+    if (readCookie(CSRF_COOKIE) === null) {
+      set({ hydrated: true });
+      return;
+    }
     try {
       const res = await fetch("/api/auth/refresh", {
         method: "POST",
@@ -69,6 +76,8 @@ export const useAuthStore = create<AuthState>((set) => ({
       }
     } catch {
       // No valid session — remain a guest.
+    } finally {
+      set({ hydrated: true });
     }
   },
 }));

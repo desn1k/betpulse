@@ -15,6 +15,7 @@ from arq.cron import cron
 
 from app.core.config import get_settings
 from app.workers.tasks import (
+    ingest_history_task,
     poll_live_task,
     push_task,
     rank_llm_fixtures_task,
@@ -53,6 +54,7 @@ class WorkerSettings:
         recompute_fixture_task,
         push_task,
         rank_llm_fixtures_task,
+        ingest_history_task,
     ]
     cron_jobs = [
         cron(reevaluate_champions_task, hour=_hour, minute=_minute),
