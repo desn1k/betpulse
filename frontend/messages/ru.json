@@ -6,6 +6,48 @@
     "performance": "Точность моделей",
     "settings": "Настройки"
   },
+  "admin": {
+    "title": "Админка",
+    "nav": { "providers": "Провайдеры", "ingestion": "Загрузка данных" },
+    "providers": {
+      "title": "Провайдеры",
+      "add": "Добавить провайдера",
+      "name": "Название",
+      "roles": "Роли",
+      "priority": "Приоритет",
+      "key": "API-ключ",
+      "apiKey": "API-ключ",
+      "requestsPerDay": "Запросов / день",
+      "enabled": "Активен",
+      "actions": "Действия",
+      "enable": "Включить",
+      "disable": "Выключить",
+      "delete": "Удалить",
+      "save": "Сохранить",
+      "empty": "Провайдеров пока нет."
+    },
+    "ingestion": {
+      "title": "Загрузка данных",
+      "rescan": "Пере-сканировать лигу",
+      "leagues": "Лиги",
+      "seasons": "Сезоны",
+      "seasonsHint": "Через запятую, напр. 2023-2024, 2024-2025",
+      "run": "Запустить",
+      "league": "Лига",
+      "season": "Сезон",
+      "status": "Статус",
+      "fixtures": "Матчи",
+      "odds": "Коэфф.",
+      "duration": "Длительность",
+      "empty": "Прогонов загрузки пока нет.",
+      "statusLabel": {
+        "running": "Выполняется",
+        "success": "Успех",
+        "partial": "Частично",
+        "failed": "Ошибка"
+      }
+    }
+  },
   "notify": {
     "notifyMe": "Уведомить",
     "following": "Уведомляем",

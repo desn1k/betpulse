@@ -6,6 +6,48 @@
     "performance": "Model performance",
     "settings": "Settings"
   },
+  "admin": {
+    "title": "Admin",
+    "nav": { "providers": "Providers", "ingestion": "Ingestion" },
+    "providers": {
+      "title": "Providers",
+      "add": "Add provider",
+      "name": "Name",
+      "roles": "Roles",
+      "priority": "Priority",
+      "key": "API key",
+      "apiKey": "API key",
+      "requestsPerDay": "Requests / day",
+      "enabled": "Enabled",
+      "actions": "Actions",
+      "enable": "Enable",
+      "disable": "Disable",
+      "delete": "Delete",
+      "save": "Save",
+      "empty": "No providers yet."
+    },
+    "ingestion": {
+      "title": "Ingestion",
+      "rescan": "Re-scan league",
+      "leagues": "Leagues",
+      "seasons": "Seasons",
+      "seasonsHint": "Comma-separated, e.g. 2023-2024, 2024-2025",
+      "run": "Run re-scan",
+      "league": "League",
+      "season": "Season",
+      "status": "Status",
+      "fixtures": "Fixtures",
+      "odds": "Odds",
+      "duration": "Duration",
+      "empty": "No ingestion runs yet.",
+      "statusLabel": {
+        "running": "Running",
+        "success": "Success",
+        "partial": "Partial",
+        "failed": "Failed"
+      }
+    }
+  },
   "notify": {
     "notifyMe": "Notify me",
     "following": "Notifying",

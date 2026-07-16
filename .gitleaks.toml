@@ -1,0 +1,21 @@
+# gitleaks configuration.
+#
+# Keep the full default ruleset for all application code, but allowlist the test
+# suites: test fixtures deliberately contain throwaway, non-real credential
+# literals (fake API keys, promo codes, VAPID scalars) so the code paths that
+# handle secrets can be exercised. This mirrors the ruff per-file-ignores for
+# S105/S106 (hardcoded-password) already applied to tests/**. Application code
+# is still fully scanned.
+
+title = "betpulse gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Throwaway credential literals in test fixtures are not real secrets."
+paths = [
+    '''backend/tests/.*''',
+    '''frontend/.*\.test\.tsx$''',
+    '''frontend/test/.*''',
+]

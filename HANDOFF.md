@@ -69,8 +69,9 @@ mlflow_utils), `app/workers` (arq_app, tasks), `app/api` (health, auth, admin, p
 | 8 | Promo codes (500-multiple batches, binding, kill-switch, CSV) + redemption + billing seam | ✅ merged |
 | 9 | Strategy backtester (filters, matched count, ROI, equity, drawdown, Wilson CI, walk-forward, save/export) | ✅ merged |
 | 10 | LLM match analysis (OpenAI-compatible, tier-gated by daily rank, token budget + cost, admin config) | ✅ merged |
-| 11 | Push (Telegram + Web Push) on probability swings: per-match follow, tier-gated, `pushes_per_day` | ✅ implemented (`claude/push-phase-11`) |
-| 12–16 | (per §14) | ⬜ not started |
+| 11 | Push (Telegram + Web Push) on probability swings: per-match follow, tier-gated, `pushes_per_day` | ✅ merged |
+| 12 | Admin dashboard (split into sub-PRs 12a–12d). 12a: providers + ingestion log + admin shell | 🚧 in progress (12a on `claude/admin-providers-phase-12a`) |
+| 13–16 | (per §14) | ⬜ not started |
 
 ## 5. CI — the 9 required checks
 
@@ -311,6 +312,32 @@ lock; unmapped API-Football team/league during live → structured warning + ski
   otherwise, flips to a lock on a 403); `/settings` → Notifications (enable/disable browser push,
   connect/disconnect Telegram). Same-origin proxies under `/api/push/*` and `/api/live/push/*`.
   RU/EN. New settings: `telegram_bot_username`, `telegram_webhook_secret`.
+
+## 9g. Phase 12 notes (admin dashboard)
+
+Phase 12 is delivered as **four sub-PRs**, each its own branch + diff summary, merged in order:
+**12a** providers + ingestion log (+ the admin shell), **12b** ML management, **12c** spend + users +
+promo/tier UI, **12d** system health + audit viewer + ops alerts.
+
+### 12a (providers + ingestion + admin shell)
+
+- **Admin shell** at `/admin/*` (`app/admin/layout.tsx`): sidebar nav + a **client** RBAC guard that
+  waits for auth to hydrate (new `hydrated` flag on the auth store) then bounces non-admins to `/`.
+  The backend enforces RBAC regardless (`require_admin`); this is only the UX guard. An "Admin" link
+  shows in the header for admins.
+- **Providers**: full CRUD + enable/disable over `provider_accounts` at `/admin/providers`
+  (`app/api/providers.py`, `services/providers.py`). Admin-only, every mutation audited. The API key
+  is write-only — only a masked `••••1234` suffix is returned, never the plaintext/ciphertext.
+- **Ingestion log**: new `ingestion_runs` table (migration `0012`) — one row per (provider, league,
+  season) run with status/counts/duration/error. `services/ingestion/runner.run_recorded_ingestion`
+  writes them (one row per pair, each pair isolated in a savepoint so one failure doesn't abort the
+  batch). `GET /admin/ingestion/runs` (paginated + status filter) drives the job log.
+- **Re-scan**: `POST /admin/ingestion/rescan` validates leagues against `LEAGUE_META`, then enqueues
+  the new `ingest_history_task` ARQ job (historical football-data only; live polling runs on its own
+  schedule). The API enqueues via a per-request ARQ pool (`app/core/arq.get_arq_pool`).
+- **Progress = polling, not SSE.** The ingestion page polls `/admin/ingestion/runs` on a configurable
+  interval (default 5s) and **stops automatically** once no run has `status=running`
+  (`nextPollInterval` helper → React Query `refetchInterval`). It never polls forever.
 
 ## 10. How to resume
 
