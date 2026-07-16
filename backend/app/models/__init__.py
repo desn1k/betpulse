@@ -15,6 +15,7 @@ from app.models.live import (
 from app.models.llm import LlmAnalysis, LlmConfig
 from app.models.market import Odds
 from app.models.model_registry import ModelRegistry, ModelRegistrySnapshot, ModelStatus
+from app.models.model_weighting import ModelWeighting, WeightingMode
 from app.models.prediction import ModelRun, Prediction, PredictionLive
 from app.models.promo import (
     PromoBatch,
@@ -55,6 +56,7 @@ __all__ = [
     "ModelRegistrySnapshot",
     "ModelRun",
     "ModelStatus",
+    "ModelWeighting",
     "Odds",
     "Prediction",
     "PredictionLive",
@@ -85,4 +87,5 @@ __all__ = [
     "User",
     "UserRole",
     "UserTier",
+    "WeightingMode",
 ]

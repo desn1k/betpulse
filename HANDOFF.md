@@ -70,7 +70,7 @@ mlflow_utils), `app/workers` (arq_app, tasks), `app/api` (health, auth, admin, p
 | 9 | Strategy backtester (filters, matched count, ROI, equity, drawdown, Wilson CI, walk-forward, save/export) | ✅ merged |
 | 10 | LLM match analysis (OpenAI-compatible, tier-gated by daily rank, token budget + cost, admin config) | ✅ merged |
 | 11 | Push (Telegram + Web Push) on probability swings: per-match follow, tier-gated, `pushes_per_day` | ✅ merged |
-| 12 | Admin dashboard (split into sub-PRs 12a–12d). 12a: providers + ingestion log + admin shell | 🚧 in progress (12a on `claude/admin-providers-phase-12a`) |
+| 12 | Admin dashboard (sub-PRs 12a–12d). 12a providers+ingestion+shell ✅ merged · 12b ML management | 🚧 in progress (12b on `claude/admin-ml-phase-12b`) |
 | 13–16 | (per §14) | ⬜ not started |
 
 ## 5. CI — the 9 required checks
@@ -338,6 +338,30 @@ promo/tier UI, **12d** system health + audit viewer + ops alerts.
 - **Progress = polling, not SSE.** The ingestion page polls `/admin/ingestion/runs` on a configurable
   interval (default 5s) and **stops automatically** once no run has `status=running`
   (`nextPollInterval` helper → React Query `refetchInterval`). It never polls forever.
+
+### 12b (ML model management, spec §16)
+
+- **Builds on existing governance** in `app/ml/registry.py` — `snapshot_registry` /
+  `rollback_to_snapshot` (atomic full-state restore), `_softmax_weights`, `apply_champion_selection`.
+  12b exposes it via `/admin/models` + a Models page; it does not rebuild the pipeline.
+- **Runtime weighting mode.** New singleton `model_weighting` (migration `0013`, `mode` auto|manual),
+  admin-editable — replaces the env `consensus_weight_mode` at the nightly re-eval, which now reads
+  the persisted mode (so **manual** weights survive the nightly run). `services/model_admin.py` holds
+  the orchestration. **auto** = softmax of `accuracy_pct` over visible methods (sum 100); **manual** =
+  admin weights, validated **sum = 100** (409 if not in manual mode, 422 if the sum is off). Flipping
+  back to auto **recomputes + persists softmax immediately** (owner requirement — no waiting for the
+  cron).
+- **Governance actions** (all admin-only, audited, snapshot-first where relevant): `PATCH
+  /admin/models/{id}` (enabled/visible/notes), `PUT /weighting`, `PUT /weights`, `POST
+  /{id}/promote|demote`, `GET /snapshots` + `GET /snapshots/{id}/diff` (rollback **diff preview**:
+  status/weight before→after) + `POST /rollback/{id}`, `POST /retrain` (enqueues `train_all_task`).
+- **Manual promote below threshold is allowed but traceable**: the response carries
+  `{"promoted": true, "warning": "below_min_samples"}` and the audit meta records `{"override": true}`.
+- **Weight unit note.** `display_weight` is a **percentage** (softmax already sums to 100); it is
+  surfaced for display/governance (matches card for expert, admin table) and is **not** read by the
+  live consensus math — changing it is safe. Frontend Models page: metrics table, enabled/visible
+  toggles, weight inputs (editable only in manual, Save gated to sum 100), mode toggle, promote/demote,
+  retrain, snapshots list + rollback with diff preview.
 
 ## 10. How to resume
 
