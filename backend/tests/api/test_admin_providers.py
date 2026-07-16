@@ -44,7 +44,7 @@ async def test_create_masks_key_and_audits(client: AsyncClient, session: AsyncSe
             "name": "api_football",
             "roles": ["live", "odds"],
             "priority": 10,
-            "api_key": "sk-live-wxyz9",
+            "api_key": "dummy-key-wxyz9",
             "requests_per_day": 7500,
         },
     )
@@ -53,13 +53,13 @@ async def test_create_masks_key_and_audits(client: AsyncClient, session: AsyncSe
     assert body["key_masked"] == "••••xyz9"
     assert body["roles"] == ["live", "odds"]
     assert "encrypted_key" not in body
-    assert "sk-live-wxyz9" not in resp.text
+    assert "dummy-key-wxyz9" not in resp.text
 
     # Stored encrypted, not plaintext.
     provider = (
         await session.execute(select(ProviderAccount).where(ProviderAccount.name == "api_football"))
     ).scalar_one()
-    assert provider.encrypted_key is not None and "sk-live-wxyz9" not in provider.encrypted_key
+    assert provider.encrypted_key is not None and "dummy-key-wxyz9" not in provider.encrypted_key
     assert provider.key_suffix == "xyz9"
 
     events = (
@@ -79,14 +79,14 @@ async def test_update_rotates_key_and_lists_masked(
         await client.post(
             "/admin/providers",
             headers=headers,
-            json={"name": "p1", "roles": ["live"], "api_key": "old-key-1111"},
+            json={"name": "p1", "roles": ["live"], "api_key": "dummy-old-1111"},
         )
     ).json()
 
     patched = await client.patch(
         f"/admin/providers/{created['id']}",
         headers=headers,
-        json={"api_key": "new-key-2222", "priority": 5},
+        json={"api_key": "dummy-new-2222", "priority": 5},
     )
     assert patched.status_code == 200
     assert patched.json()["key_masked"] == "••••2222"
