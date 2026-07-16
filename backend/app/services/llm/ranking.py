@@ -84,9 +84,7 @@ async def rank_today_fixtures(session: AsyncSession, *, now: datetime | None = N
 
     # Clear yesterday's ranks so only today's scheduled fixtures carry a rank.
     await session.execute(
-        update(Fixture)
-        .where(Fixture.fixture_llm_rank.is_not(None))
-        .values(fixture_llm_rank=None)
+        update(Fixture).where(Fixture.fixture_llm_rank.is_not(None)).values(fixture_llm_rank=None)
     )
 
     fixtures = (

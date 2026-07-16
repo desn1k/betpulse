@@ -141,9 +141,7 @@ async def test_only_today_scheduled_are_ranked(session: AsyncSession) -> None:
     }
 
     today = await _seed_fixture(session, kickoff=now.replace(hour=20), method_home=probs)
-    tomorrow = await _seed_fixture(
-        session, kickoff=now + timedelta(days=1), method_home=probs
-    )
+    tomorrow = await _seed_fixture(session, kickoff=now + timedelta(days=1), method_home=probs)
     finished = await _seed_fixture(
         session, kickoff=now.replace(hour=9), method_home=probs, status=FixtureStatus.finished
     )
@@ -190,9 +188,7 @@ async def test_rerank_clears_stale_ranks(session: AsyncSession) -> None:
         "market": 0.40,
     }
     # A fixture ranked yesterday whose kickoff is now in the past must lose its rank.
-    stale = await _seed_fixture(
-        session, kickoff=now - timedelta(days=1), method_home=probs
-    )
+    stale = await _seed_fixture(session, kickoff=now - timedelta(days=1), method_home=probs)
     stale_fx = await session.get(Fixture, stale)
     assert stale_fx is not None
     stale_fx.fixture_llm_rank = 1

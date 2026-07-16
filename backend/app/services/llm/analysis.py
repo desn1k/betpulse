@@ -119,9 +119,7 @@ async def build_context(session: AsyncSession, fixture_id: uuid.UUID) -> str | N
     return "\n".join(lines)
 
 
-async def generate_completion(
-    config: LlmConfig, *, system: str, user: str
-) -> tuple[str, int, int]:
+async def generate_completion(config: LlmConfig, *, system: str, user: str) -> tuple[str, int, int]:
     """Call the configured OpenAI-compatible endpoint. Returns (content, in, out).
     Isolated so tests can monkeypatch it (no live API key needed)."""
     client = AsyncOpenAI(

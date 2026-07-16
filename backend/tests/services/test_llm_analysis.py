@@ -17,11 +17,19 @@ from app.models.llm import LlmAnalysis, LlmConfig
 from app.models.prediction import Prediction
 from app.models.reference import League, Team
 from app.services.llm import analysis as analysis_service
-from app.services.llm.analysis import _budget_key, _cost, get_or_create_analysis
+from app.services.llm.analysis import (
+    _budget_key,
+    _cost,
+    _next_utc_midnight,
+    get_or_create_analysis,
+)
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-_NOW = datetime(2026, 7, 15, 12, 0, tzinfo=UTC)
+# Anchor to today at noon UTC so the budget key's expireat (next UTC midnight) is
+# always in the future — a fixed past date would make Redis drop the key the
+# instant the wall clock rolls past that date's midnight.
+_NOW = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0)
 
 
 async def _seed_config(
@@ -198,7 +206,7 @@ async def test_budget_exhausted_hard_stop(
 
     assert result.status == "budget_exhausted"
     assert result.content is None
-    assert result.resets_at == "2026-07-16T00:00:00+00:00"
+    assert result.resets_at == _next_utc_midnight(_NOW).isoformat()
     assert calls["n"] == 0  # never started a generation
     count = (
         await session.execute(

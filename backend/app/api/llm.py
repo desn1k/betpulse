@@ -82,9 +82,7 @@ async def get_analysis(
             detail={"error": "llm_requires_upgrade", "tier_required": _required_tier_for(rank)},
         )
 
-    result = await get_or_create_analysis(
-        session, redis, fixture_id=fixture_id, language=language
-    )
+    result = await get_or_create_analysis(session, redis, fixture_id=fixture_id, language=language)
     await session.commit()
     return AnalysisOut(
         status=result.status,
