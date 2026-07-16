@@ -77,9 +77,13 @@ class PushSubscription(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     keys: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
 
 
-class PushFollow(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+class PushFollow(UUIDPrimaryKeyMixin, Base):
     """A user following a fixture: swing pushes for that fixture go only to its
-    followers (Phase 11), rather than to every subscriber."""
+    followers (Phase 11), rather than to every subscriber.
+
+    A follow is created or deleted, never updated — so only ``created_at`` is
+    stored (no ``updated_at``); the migration for ``push_follows`` matches this.
+    """
 
     __tablename__ = "push_follows"
     __table_args__ = (UniqueConstraint("user_id", "fixture_id", name="uq_push_follow"),)
@@ -89,6 +93,9 @@ class PushFollow(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     fixture_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("fixtures.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 
