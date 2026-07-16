@@ -16,6 +16,7 @@ from app.api.matches import router as matches_router
 from app.api.performance import router as performance_router
 from app.api.promo import admin_router as promo_admin_router
 from app.api.promo import router as promo_router
+from app.api.push import router as push_router
 from app.core.config import get_settings
 
 
@@ -50,6 +51,7 @@ def create_app() -> FastAPI:
     app.include_router(promo_router)
     app.include_router(promo_admin_router)
     app.include_router(backtester_router)
+    app.include_router(push_router)
     return app
 
 

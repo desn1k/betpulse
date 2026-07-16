@@ -16,8 +16,10 @@ import json
 import logging
 import time
 import uuid
+from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
 import httpx
@@ -28,7 +30,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.models.live import PushChannel, PushSubscription
+from app.models.live import PushChannel, PushFollow, PushSubscription
+from app.models.user import User
+from app.services.limits import push_budget_remaining, record_push_delivered
+from app.services.tiers import resolve_tier_context
 
 logger = logging.getLogger("live.push")
 
@@ -39,12 +44,20 @@ class PushError(Exception):
     """Raised when a single push delivery fails."""
 
 
+class PushGone(PushError):
+    """The push endpoint is permanently gone (HTTP 404/410) — prune it."""
+
+
 @dataclass(slots=True)
 class PushDispatchResult:
-    # Number of subscriptions suppressed by the per-(user, fixture) rate limit.
+    # Number of users suppressed by the per-(user, fixture) rate-limit window.
     rate_limited: int = 0
     delivered: int = 0
     failed: int = 0
+    # Users skipped because their daily push budget (pushes_per_day) is spent.
+    budget_exhausted: int = 0
+    # Dead Web Push subscriptions (404/410) deleted from the DB.
+    pruned: int = 0
     skipped_no_subscription: bool = False
 
 
@@ -113,6 +126,9 @@ async def send_webpush(settings: Settings, endpoint: str) -> None:
     }
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(endpoint, headers=headers, content=b"")
+    if resp.status_code in (404, 410):
+        # The browser dropped this subscription; it will never work again.
+        raise PushGone(f"web push gone: {resp.status_code}")
     if resp.status_code >= 400:
         raise PushError(f"web push failed: {resp.status_code}")
 
@@ -127,6 +143,43 @@ async def _deliver_one(settings: Settings, sub: PushSubscription, text: str) -> 
 # --- Orchestration ----------------------------------------------------------
 
 
+async def _deliver_with_retry(
+    session: AsyncSession,
+    sub: PushSubscription,
+    text: str,
+    settings: Settings,
+    sleep: SleepFn,
+    result: PushDispatchResult,
+    fixture_id: uuid.UUID,
+) -> bool:
+    """Deliver to one subscription, retrying once. Prunes a gone (404/410) Web
+    Push endpoint. Returns True iff the notification was delivered."""
+    for attempt in (1, 2):
+        try:
+            await _deliver_one(settings, sub, text)
+            return True
+        except PushGone:
+            await session.delete(sub)
+            result.pruned += 1
+            return False
+        except PushError as exc:
+            if attempt == 1:
+                await sleep(settings.push_retry_delay_seconds)
+                continue
+            result.failed += 1
+            logger.warning(
+                json.dumps(
+                    {
+                        "event": "push_delivery_failed",
+                        "fixture_id": str(fixture_id),
+                        "channel": sub.channel.value,
+                        "error": str(exc),
+                    }
+                )
+            )
+    return False
+
+
 async def dispatch_push(
     session: AsyncSession,
     redis: Redis,
@@ -135,42 +188,65 @@ async def dispatch_push(
     text: str,
     settings: Settings,
     sleep: SleepFn = asyncio.sleep,
+    now: datetime | None = None,
 ) -> PushDispatchResult:
-    """Deliver a swing notification to each subscription, once per (user, fixture)/window."""
-    subs = list((await session.execute(select(PushSubscription))).scalars())
+    """Deliver a swing notification to the fixture's **followers** only.
+
+    Per user: at most one push per (user, fixture)/window, hard-stopped by the
+    per-UTC-day ``pushes_per_day`` budget (checked before delivery, counted only
+    on success). Dead Web Push endpoints are pruned.
+    """
+    now = now or datetime.now(UTC)
+    # Only users who follow this fixture, and only their reachable subscriptions.
+    subs = list(
+        (
+            await session.execute(
+                select(PushSubscription)
+                .join(PushFollow, PushFollow.user_id == PushSubscription.user_id)
+                .where(PushFollow.fixture_id == fixture_id)
+            )
+        ).scalars()
+    )
     if not subs:
         return PushDispatchResult(skipped_no_subscription=True)
 
-    result = PushDispatchResult()
+    by_user: dict[uuid.UUID, list[PushSubscription]] = defaultdict(list)
     for sub in subs:
-        # Rate-limit per subscriber: a given user gets at most one push per
-        # fixture per window, checked before we attempt delivery to them.
-        rl_key = f"push:rl:{sub.user_id}:{fixture_id}"
-        acquired = await redis.set(rl_key, "1", nx=True, ex=settings.push_rate_limit_seconds)
-        if not acquired:
+        by_user[sub.user_id].append(sub)
+
+    result = PushDispatchResult()
+    for user_id, user_subs in by_user.items():
+        # Rate-limit window: a user gets at most one push per fixture per window.
+        rl_key = f"push:rl:{user_id}:{fixture_id}"
+        if not await redis.set(rl_key, "1", nx=True, ex=settings.push_rate_limit_seconds):
             result.rate_limited += 1
-            logger.info(
-                "push suppressed by rate limit for user %s fixture %s", sub.user_id, fixture_id
-            )
             continue
-        try:
-            await _deliver_one(settings, sub, text)
+
+        # Daily budget hard-stop, checked before we attempt any delivery.
+        limit = await _pushes_per_day(session, redis, user_id)
+        remaining = await push_budget_remaining(redis, user_id=user_id, limit=limit, now=now)
+        if remaining is not None and remaining <= 0:
+            result.budget_exhausted += 1
+            await redis.delete(rl_key)  # did not deliver — free the window
+            continue
+
+        delivered = False
+        for sub in user_subs:
+            if await _deliver_with_retry(session, sub, text, settings, sleep, result, fixture_id):
+                delivered = True
+                break  # one channel per user per swing is enough
+        if delivered:
             result.delivered += 1
-        except PushError:
-            await sleep(settings.push_retry_delay_seconds)
-            try:
-                await _deliver_one(settings, sub, text)
-                result.delivered += 1
-            except PushError as exc:
-                result.failed += 1
-                logger.warning(
-                    json.dumps(
-                        {
-                            "event": "push_delivery_failed",
-                            "fixture_id": str(fixture_id),
-                            "channel": sub.channel.value,
-                            "error": str(exc),
-                        }
-                    )
-                )
+            await record_push_delivered(redis, user_id=user_id, now=now)
+        else:
+            await redis.delete(rl_key)  # nothing delivered — let a retry try again
     return result
+
+
+async def _pushes_per_day(session: AsyncSession, redis: Redis, user_id: uuid.UUID) -> int:
+    """Resolve a user's ``pushes_per_day`` limit (-1 unlimited / 0 none)."""
+    user = await session.get(User, user_id)
+    if user is None:
+        return 0
+    tier = await resolve_tier_context(session, redis, user)
+    return tier.pushes_per_day()

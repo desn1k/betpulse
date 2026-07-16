@@ -3,7 +3,34 @@
     "tagline": "Football analytics & ML predictions"
   },
   "nav": {
-    "performance": "Model performance"
+    "performance": "Model performance",
+    "settings": "Settings"
+  },
+  "notify": {
+    "notifyMe": "Notify me",
+    "following": "Notifying",
+    "locked": "Pro"
+  },
+  "settings": {
+    "title": "Settings",
+    "notifications": "Notifications",
+    "signInRequired": "Sign in to manage your notifications.",
+    "webPush": "Browser push",
+    "webPushHint": "Get a notification when probabilities swing on a match you follow.",
+    "webPushUnsupported": "Not supported in this browser",
+    "telegram": "Telegram",
+    "telegramHint": "Connect Telegram to receive alerts in chat (Pro/Expert).",
+    "telegramConnected": "Connected.",
+    "telegramOpen": "Open Telegram to finish connecting →",
+    "enable": "Enable",
+    "disable": "Disable",
+    "connect": "Connect",
+    "disconnect": "Disconnect",
+    "errors": {
+      "denied": "Notification permission was denied.",
+      "unsupported": "Push is not supported in this browser.",
+      "generic": "Something went wrong. Please try again."
+    }
   },
   "home": {
     "title": "Matches",

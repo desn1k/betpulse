@@ -116,6 +116,11 @@ class Settings(BaseSettings):
     # --- Push notifications -------------------------------------------------
     telegram_bot_token: str = ""
     telegram_api_base_url: str = "https://api.telegram.org"
+    # Bot @username used to build the deep link t.me/<username>?start=<token>.
+    telegram_bot_username: str = ""
+    # Shared secret Telegram echoes in ``X-Telegram-Bot-Api-Secret-Token`` on
+    # every webhook call; verified in constant time. Empty = webhook disabled.
+    telegram_webhook_secret: str = ""
     # Web Push (VAPID). Keys are base64url-encoded EC P-256 (prime256v1); the
     # contact becomes the ``mailto:`` subject required by the Web Push protocol.
     webpush_vapid_private_key: str = ""
