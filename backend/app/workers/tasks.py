@@ -24,6 +24,7 @@ from app.services.live.provider import build_live_provider
 from app.services.live.push import dispatch_push
 from app.services.live.recompute import get_base_rates, recompute_fixture
 from app.services.llm.ranking import rank_today_fixtures
+from app.services.model_admin import get_weighting
 
 logger = logging.getLogger("workers.tasks")
 
@@ -172,11 +173,14 @@ async def reevaluate_champions_task(ctx: dict[str, Any]) -> str | None:
         return None
     try:
         async with _write_sessionmaker()() as session:
+            # The weighting mode is admin-editable at runtime (Phase 12b); in
+            # manual mode the re-eval leaves the admin-set weights untouched.
+            mode = (await get_weighting(session)).mode
             champion = await reevaluate_champions(
                 session,
                 window_days=settings.accuracy_window_days,
                 min_samples=settings.champion_min_samples,
-                weight_mode=settings.consensus_weight_mode,
+                weight_mode=mode.value,
             )
             await session.commit()
         return champion

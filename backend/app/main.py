@@ -14,6 +14,7 @@ from app.api.live import router as live_router
 from app.api.llm import admin_router as llm_admin_router
 from app.api.llm import router as llm_router
 from app.api.matches import router as matches_router
+from app.api.models import router as models_router
 from app.api.performance import router as performance_router
 from app.api.promo import admin_router as promo_admin_router
 from app.api.promo import router as promo_router
@@ -56,6 +57,7 @@ def create_app() -> FastAPI:
     app.include_router(push_router)
     app.include_router(providers_router)
     app.include_router(ingestion_router)
+    app.include_router(models_router)
     return app
 
 

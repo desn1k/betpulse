@@ -48,3 +48,55 @@ export interface IngestionRuns {
   page: number;
   per_page: number;
 }
+
+export type ModelStatus = "challenger" | "champion" | "retired";
+export type WeightingMode = "auto" | "manual";
+
+export interface Model {
+  id: string;
+  method: string;
+  version: string;
+  status: ModelStatus;
+  accuracy_pct: number | null;
+  brier: number | null;
+  log_loss: number | null;
+  roi_vs_closing: number | null;
+  sample_count: number;
+  is_enabled: boolean;
+  is_visible: boolean;
+  display_weight: number;
+  min_samples: number;
+  notes: string | null;
+  last_trained_at: string | null;
+  last_evaluated_at: string | null;
+}
+
+export interface ModelsResponse {
+  models: Model[];
+  weighting_mode: WeightingMode;
+}
+
+export interface PromoteResult {
+  promoted: boolean;
+  warning: string | null;
+}
+
+export interface Snapshot {
+  id: string;
+  reason: string;
+  actor: string | null;
+  taken_at: string;
+}
+
+export interface RollbackChange {
+  method: string;
+  version: string;
+  status_from: string;
+  status_to: string;
+  weight_from: number;
+  weight_to: number;
+}
+
+export interface RollbackDiff {
+  changes: RollbackChange[];
+}

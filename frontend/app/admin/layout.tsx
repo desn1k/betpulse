@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 const NAV = [
   { href: "/admin/providers", key: "providers" },
   { href: "/admin/ingestion", key: "ingestion" },
+  { href: "/admin/models", key: "models" },
 ] as const;
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
