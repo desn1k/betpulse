@@ -83,12 +83,67 @@ describe("PromoView", () => {
 
   it("blocks generation when size is not a multiple of 500", async () => {
     const { findByLabelText, findByRole } = renderWithProviders(<PromoView />, { locale: "en" });
+    // upgrade needs a tier, so pick one to isolate the size rule.
     fireEvent.change(await findByLabelText("Name"), { target: { value: "X" } });
+    fireEvent.change(await findByLabelText("Target tier"), { target: { value: "t-pro" } });
     fireEvent.change(await findByLabelText("Size"), { target: { value: "600" } });
     const generate = await findByRole("button", { name: "Generate" });
     expect(generate).toBeDisabled();
 
     fireEvent.change(await findByLabelText("Size"), { target: { value: "1000" } });
+    expect(generate).toBeEnabled();
+  });
+
+  // Each code type requires the fields that make it meaningful (Codex P2).
+  it("requires a tier for upgrade codes", async () => {
+    const { findByLabelText, findByRole } = renderWithProviders(<PromoView />, { locale: "en" });
+    fireEvent.change(await findByLabelText("Name"), { target: { value: "X" } });
+    const generate = await findByRole("button", { name: "Generate" });
+    // Default type is upgrade, size 500 valid, but no tier → disabled.
+    expect(generate).toBeDisabled();
+    fireEvent.change(await findByLabelText("Target tier"), { target: { value: "t-pro" } });
+    expect(generate).toBeEnabled();
+  });
+
+  it("requires a tier and positive integer days for trial codes", async () => {
+    const { findByLabelText, findByRole } = renderWithProviders(<PromoView />, { locale: "en" });
+    fireEvent.change(await findByLabelText("Name"), { target: { value: "X" } });
+    fireEvent.change(await findByLabelText("Code type"), { target: { value: "trial" } });
+    const generate = await findByRole("button", { name: "Generate" });
+    expect(generate).toBeDisabled(); // no tier, no value
+
+    fireEvent.change(await findByLabelText("Target tier"), { target: { value: "t-pro" } });
+    expect(generate).toBeDisabled(); // still no value
+
+    fireEvent.change(await findByLabelText("Value"), { target: { value: "0" } });
+    expect(generate).toBeDisabled(); // days must be > 0
+
+    fireEvent.change(await findByLabelText("Value"), { target: { value: "7" } });
+    expect(generate).toBeEnabled();
+  });
+
+  it("requires a 1..100 value for percent codes", async () => {
+    const { findByLabelText, findByRole } = renderWithProviders(<PromoView />, { locale: "en" });
+    fireEvent.change(await findByLabelText("Name"), { target: { value: "X" } });
+    fireEvent.change(await findByLabelText("Code type"), { target: { value: "percent" } });
+    const generate = await findByRole("button", { name: "Generate" });
+    expect(generate).toBeDisabled(); // no value
+
+    fireEvent.change(await findByLabelText("Value"), { target: { value: "150" } });
+    expect(generate).toBeDisabled(); // out of range
+
+    fireEvent.change(await findByLabelText("Value"), { target: { value: "25" } });
+    expect(generate).toBeEnabled();
+  });
+
+  it("requires a positive value for fixed codes", async () => {
+    const { findByLabelText, findByRole } = renderWithProviders(<PromoView />, { locale: "en" });
+    fireEvent.change(await findByLabelText("Name"), { target: { value: "X" } });
+    fireEvent.change(await findByLabelText("Code type"), { target: { value: "fixed" } });
+    const generate = await findByRole("button", { name: "Generate" });
+    expect(generate).toBeDisabled(); // no value
+
+    fireEvent.change(await findByLabelText("Value"), { target: { value: "5" } });
     expect(generate).toBeEnabled();
   });
 
