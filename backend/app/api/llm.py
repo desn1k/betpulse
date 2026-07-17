@@ -33,10 +33,19 @@ from app.core.deps import (
 from app.models.fixture import Fixture
 from app.models.llm import LlmConfig
 from app.models.user import User
-from app.schemas.llm import AnalysisOut, Language, LlmConfigOut, LlmConfigUpdate
+from app.schemas.llm import (
+    AnalysisOut,
+    DailySpendOut,
+    FixtureSpendOut,
+    Language,
+    LlmConfigOut,
+    LlmConfigUpdate,
+    SpendOut,
+)
 from app.services.audit import record_event
 from app.services.llm.analysis import get_or_create_analysis
 from app.services.llm.config import get_config, mask_key, update_config
+from app.services.llm.spend import get_spend
 from app.services.tiers import EXPERT, FREE, PRO
 
 router = APIRouter(tags=["llm"])
@@ -110,6 +119,46 @@ async def read_llm_config(
     config = await get_config(session)
     await session.commit()
     return _config_out(config)
+
+
+@admin_router.get("/llm/spend", response_model=SpendOut)
+async def read_llm_spend(
+    _admin: Annotated[User, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+    days: Annotated[int, Query(ge=1, le=90, description="Trailing window in days")] = 30,
+) -> SpendOut:
+    report = await get_spend(session, days=days)
+    await session.commit()
+    return SpendOut(
+        days=report.days,
+        since=report.since,
+        daily=[
+            DailySpendOut(
+                day=d.day,
+                tokens_in=d.tokens_in,
+                tokens_out=d.tokens_out,
+                cost=d.cost,
+                count=d.count,
+            )
+            for d in report.daily
+        ],
+        top_fixtures=[
+            FixtureSpendOut(
+                fixture_id=f.fixture_id,
+                home=f.home,
+                away=f.away,
+                league=f.league,
+                cost=f.cost,
+                tokens_in=f.tokens_in,
+                tokens_out=f.tokens_out,
+                count=f.count,
+            )
+            for f in report.top_fixtures
+        ],
+        daily_token_budget=report.daily_token_budget,
+        total_cost=report.total_cost,
+        total_tokens=report.total_tokens,
+    )
 
 
 @admin_router.patch("/llm-config", response_model=LlmConfigOut)

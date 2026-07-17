@@ -104,3 +104,164 @@ export interface RollbackChange {
 export interface RollbackDiff {
   changes: RollbackChange[];
 }
+
+// --- LLM spend (Phase 12c) ---------------------------------------------------
+
+export interface DailySpend {
+  day: string; // UTC calendar day, ISO date
+  tokens_in: number;
+  tokens_out: number;
+  cost: string;
+  count: number;
+}
+
+export interface FixtureSpend {
+  fixture_id: string;
+  home: string;
+  away: string;
+  league: string;
+  cost: string;
+  tokens_in: number;
+  tokens_out: number;
+  count: number;
+}
+
+export interface SpendReport {
+  days: number;
+  since: string;
+  daily: DailySpend[];
+  top_fixtures: FixtureSpend[];
+  daily_token_budget: number;
+  total_cost: string;
+  total_tokens: number;
+}
+
+export interface LlmConfig {
+  base_url: string;
+  model: string;
+  key_masked: string | null;
+  max_tokens: number;
+  daily_token_budget: number;
+  cache_ttl_seconds: number;
+  cost_per_1k_in: string;
+  cost_per_1k_out: string;
+  is_enabled: boolean;
+}
+
+export interface LlmConfigUpdate {
+  base_url?: string;
+  model?: string;
+  api_key?: string;
+  max_tokens?: number;
+  daily_token_budget?: number;
+  cache_ttl_seconds?: number;
+  cost_per_1k_in?: string;
+  cost_per_1k_out?: string;
+  is_enabled?: boolean;
+}
+
+// --- user management (Phase 12c) --------------------------------------------
+
+export type UserTier = "free" | "pro" | "expert";
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  role: "user" | "admin";
+  base_tier: UserTier;
+  effective_tier: string;
+  tier_expires_at: string | null;
+  is_active: boolean;
+  is_verified: boolean;
+  created_at: string;
+}
+
+export interface AdminUserList {
+  users: AdminUser[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
+export interface UserMutationResult {
+  id: string;
+  is_active: boolean;
+  effective_tier: string;
+  tier_expires_at: string | null;
+}
+
+export interface DisableResult {
+  id: string;
+  is_active: boolean;
+  revoked_tokens: number;
+}
+
+export type PromoCodeType = "percent" | "fixed" | "trial" | "upgrade";
+export type PromoRedemptionStatus = "applied" | "pending" | "expired";
+
+export interface Redemption {
+  id: string;
+  batch_id: string;
+  code_type: PromoCodeType;
+  value: string | null;
+  status: PromoRedemptionStatus;
+  redeemed_at: string;
+}
+
+// --- promo (Phase 12c) ------------------------------------------------------
+
+export type PromoBatchStatus = "active" | "disabled";
+
+export interface PromoBatch {
+  id: string;
+  name: string;
+  code_type: PromoCodeType;
+  value: string | null;
+  tier_id: string | null;
+  bound_user_id: string | null;
+  max_activations: number;
+  size: number;
+  stackable: boolean;
+  expires_at: string | null;
+  status: PromoBatchStatus;
+  created_at: string;
+}
+
+export interface PromoBatchInput {
+  name: string;
+  code_type: PromoCodeType;
+  size: number;
+  value?: string | null;
+  tier_id?: string | null;
+  bound_user_id?: string | null;
+  max_activations: number;
+  expires_at?: string | null;
+  stackable: boolean;
+}
+
+export interface PromoBatchCreated {
+  batch: PromoBatch;
+  codes: string[];
+  warning: string;
+}
+
+// --- tiers (Phase 12c) ------------------------------------------------------
+
+export interface Tier {
+  id: string;
+  name: string;
+  price: string;
+  period: string | null;
+  feature_flags: Record<string, unknown>;
+  limits: Record<string, unknown>;
+  is_public: boolean;
+  sort_order: number;
+}
+
+export interface TierUpdate {
+  price?: string;
+  period?: string | null;
+  feature_flags?: Record<string, unknown>;
+  limits?: Record<string, unknown>;
+  is_public?: boolean;
+}

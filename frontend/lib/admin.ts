@@ -5,13 +5,25 @@
 import { ApiError } from "@/lib/api";
 import { authHeader } from "@/lib/auth/store";
 import type {
+  AdminUserList,
+  DisableResult,
   IngestionRuns,
+  LlmConfig,
+  LlmConfigUpdate,
   ModelsResponse,
+  PromoBatch,
+  PromoBatchCreated,
+  PromoBatchInput,
   PromoteResult,
   Provider,
   ProviderInput,
+  Redemption,
   RollbackDiff,
   Snapshot,
+  SpendReport,
+  Tier,
+  TierUpdate,
+  UserMutationResult,
   WeightingMode,
 } from "@/types/admin";
 
@@ -124,4 +136,84 @@ export function rollbackSnapshot(id: string): Promise<void> {
 
 export function retrainModels(): Promise<void> {
   return request("/api/admin/models/retrain", { method: "POST" });
+}
+
+// --- LLM spend + config -----------------------------------------------------
+
+export function fetchSpend(days: number): Promise<SpendReport> {
+  return request<SpendReport>(`/api/admin/llm/spend?days=${days}`);
+}
+
+export function fetchLlmConfig(): Promise<LlmConfig> {
+  return request<LlmConfig>("/api/admin/llm-config");
+}
+
+export function updateLlmConfig(changes: LlmConfigUpdate): Promise<LlmConfig> {
+  return request<LlmConfig>("/api/admin/llm-config", { method: "PATCH", ...jsonBody(changes) });
+}
+
+// --- users ------------------------------------------------------------------
+
+export function fetchUsers(params: {
+  email?: string;
+  tier?: string;
+  page?: number;
+}): Promise<AdminUserList> {
+  const q = new URLSearchParams();
+  if (params.email) q.set("email", params.email);
+  if (params.tier) q.set("tier", params.tier);
+  if (params.page) q.set("page", String(params.page));
+  const query = q.toString();
+  return request<AdminUserList>(`/api/admin/users${query ? `?${query}` : ""}`);
+}
+
+export function assignTier(
+  id: string,
+  body: { tier_id: string; expires_at?: string | null },
+): Promise<UserMutationResult> {
+  return request<UserMutationResult>(`/api/admin/users/${encodeURIComponent(id)}/tier`, {
+    method: "POST",
+    ...jsonBody(body),
+  });
+}
+
+export function fetchRedemptions(id: string): Promise<Redemption[]> {
+  return request<Redemption[]>(`/api/admin/users/${encodeURIComponent(id)}/redemptions`);
+}
+
+export function setUserActive(id: string, active: boolean): Promise<DisableResult> {
+  const action = active ? "enable" : "disable";
+  return request<DisableResult>(`/api/admin/users/${encodeURIComponent(id)}/${action}`, {
+    method: "POST",
+  });
+}
+
+// --- promo ------------------------------------------------------------------
+
+export function fetchBatches(): Promise<PromoBatch[]> {
+  return request<PromoBatch[]>("/api/admin/promo/batches");
+}
+
+export function createBatch(input: PromoBatchInput): Promise<PromoBatchCreated> {
+  return request<PromoBatchCreated>("/api/admin/promo/batches", {
+    method: "POST",
+    ...jsonBody(input),
+  });
+}
+
+export function killBatch(id: string): Promise<unknown> {
+  return request(`/api/admin/promo/batches/${encodeURIComponent(id)}/kill`, { method: "POST" });
+}
+
+// --- tiers ------------------------------------------------------------------
+
+export function fetchTiers(): Promise<Tier[]> {
+  return request<Tier[]>("/api/admin/tiers");
+}
+
+export function updateTier(id: string, changes: TierUpdate): Promise<Tier> {
+  return request<Tier>(`/api/admin/tiers/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    ...jsonBody(changes),
+  });
 }
