@@ -70,7 +70,7 @@ mlflow_utils), `app/workers` (arq_app, tasks), `app/api` (health, auth, admin, p
 | 9 | Strategy backtester (filters, matched count, ROI, equity, drawdown, Wilson CI, walk-forward, save/export) | ✅ merged |
 | 10 | LLM match analysis (OpenAI-compatible, tier-gated by daily rank, token budget + cost, admin config) | ✅ merged |
 | 11 | Push (Telegram + Web Push) on probability swings: per-match follow, tier-gated, `pushes_per_day` | ✅ merged |
-| 12 | Admin dashboard (sub-PRs 12a–12d). 12a providers+ingestion+shell ✅ merged · 12b ML management | 🚧 in progress (12b on `claude/admin-ml-phase-12b`) |
+| 12 | Admin dashboard (sub-PRs 12a–12d). 12a shell+providers+ingestion ✅ · 12b ML management ✅ · 12c spend+users+promo/tiers | 🚧 in progress (12c on `claude/admin-users-phase-12c`; 12d next) |
 | 13–16 | (per §14) | ⬜ not started |
 
 ## 5. CI — the 9 required checks
@@ -362,6 +362,37 @@ promo/tier UI, **12d** system health + audit viewer + ops alerts.
   live consensus math — changing it is safe. Frontend Models page: metrics table, enabled/visible
   toggles, weight inputs (editable only in manual, Save gated to sum 100), mode toggle, promote/demote,
   retrain, snapshots list + rollback with diff preview.
+
+### 12c (LLM spend + user management + promo/tier UI)
+
+- **No migration** — every table already exists (`llm_analyses`, `subscriptions`, `promo_batches`,
+  `refresh_tokens`, `tiers`). All new endpoints are admin-only (`require_admin`) and every mutation is
+  audited.
+- **LLM spend** (`GET /admin/llm/spend?days=N`, `services/llm/spend.py`): daily token/cost buckets
+  aggregated in SQL with an **explicit UTC anchor** — `date_trunc('day', created_at AT TIME ZONE
+  'UTC')` — so day boundaries are deterministic regardless of server timezone (tests seed explicit UTC
+  timestamps, never `datetime.now()`). Plus the **top-20 fixtures by cost** (team/league labelled) and
+  the current `daily_token_budget`. `days` is validated **1..90 (422 outside)** — no arbitrarily large
+  windows. The Spend page (Recharts bar chart of daily tokens with a budget reference line + per-fixture
+  table) also embeds the **LLM config editor** over the existing `/admin/llm-config` (the API key stays
+  write-only / masked-suffix).
+- **User management** (`/admin/users`, `services/user_admin.py`): list with **email search + effective-
+  tier filter + pagination** — the effective tier (most-privileged active subscription, else base
+  `users.tier`) is resolved **in SQL** (window-function subquery) so the filter and page counts stay
+  consistent. `POST /{id}/tier` grants a tier by creating a **`source=manual` subscription** (upsert on
+  `uq_subscription_user_tier`, optional `expires_at`) — it **never touches `users.tier`**. `GET
+  /{id}/redemptions` lists a user's promo history. `POST /{id}/disable` sets `is_active=False` **and
+  revokes every one of the user's refresh tokens (`revoked=True`) in the same transaction** — the
+  15-minute access-token window is too long for a security disable; `POST /{id}/enable` reactivates.
+- **Promo UI** (`/admin/promo`) over the existing 12a-era `/admin/promo/batches` endpoints: batch list +
+  kill-switch + a full generate form (name, code_type, size, value, tier, max_activations, expires_at,
+  stackable, optional bind-to-user). Client validation mirrors the server: **size multiple of 500**;
+  the **value field is hidden for `upgrade` codes** (value unused); the **bound-user field only appears
+  when "bind to user" is checked**. Plaintext codes are shown **once** after generation and offered as a
+  client-side CSV download — they are never stored or re-fetchable.
+- **Tiers UI** (`/admin/tiers`) over `/admin/tiers`: edit price / is_public / `feature_flags` /
+  `limits` (JSON editors with parse validation) per tier; the backend PATCH invalidates the resolved-
+  tier cache so edits take effect within seconds.
 
 ## 10. How to resume
 

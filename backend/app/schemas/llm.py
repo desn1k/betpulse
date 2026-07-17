@@ -9,6 +9,8 @@ masked suffix.
 
 from __future__ import annotations
 
+import uuid
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
@@ -63,3 +65,41 @@ class LlmConfigUpdate(BaseModel):
     cost_per_1k_in: Decimal | None = Field(default=None, ge=0)
     cost_per_1k_out: Decimal | None = Field(default=None, ge=0)
     is_enabled: bool | None = None
+
+
+# --- admin: spend dashboard (§9) --------------------------------------------
+
+
+class DailySpendOut(BaseModel):
+    """Spend for one UTC calendar day."""
+
+    day: date
+    tokens_in: int
+    tokens_out: int
+    cost: Decimal
+    count: int
+
+
+class FixtureSpendOut(BaseModel):
+    """One of the most expensive fixtures in the window."""
+
+    fixture_id: uuid.UUID
+    home: str
+    away: str
+    league: str
+    cost: Decimal
+    tokens_in: int
+    tokens_out: int
+    count: int
+
+
+class SpendOut(BaseModel):
+    """Trailing-window LLM spend for the admin dashboard."""
+
+    days: int
+    since: datetime
+    daily: list[DailySpendOut]
+    top_fixtures: list[FixtureSpendOut]
+    daily_token_budget: int
+    total_cost: Decimal
+    total_tokens: int

@@ -1,0 +1,11 @@
+import { NextRequest, NextResponse } from "next/server";
+
+import { proxyAuth } from "@/lib/server/authProxy";
+
+export function GET(request: NextRequest): Promise<NextResponse> {
+  return proxyAuth(request, "/admin/llm-config");
+}
+
+export function PATCH(request: NextRequest): Promise<NextResponse> {
+  return proxyAuth(request, "/admin/llm-config");
+}
