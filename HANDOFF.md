@@ -19,7 +19,7 @@ independent methods plus a calibrated consensus. The full brief is
 
 1. **Language.** All code, comments, commit messages, identifiers and docs are in **English**.
    Chat replies to the project owner are in **Russian**.
-2. **Phase order.** Build strictly in the §14 phase order (16 phases). **Do not start a phase
+2. **Phase order.** Build strictly in the §14 phase order (14 phases). **Do not start a phase
    until the previous phase's tests are green in GitHub Actions.**
 3. **Plan first.** Before writing code for a phase, post a short plan (files, schema changes,
    tests) and **wait for the owner's explicit "go" on the plan.**
@@ -73,7 +73,6 @@ mlflow_utils), `app/workers` (arq_app, tasks), `app/api` (health, auth, admin, p
 | 12 | Admin dashboard (sub-PRs 12a–12d). 12a shell+providers+ingestion ✅ · 12b ML management ✅ · 12c spend+users+promo/tiers ✅ · 12d-core system health/audit/test ops alerts ✅ · 12d follow-ups tracked below | 🚧 follow-up hardening pending |
 | 13 | Security hardening: headers/CSP, sensitive rate limits, CORS, dependency/security scanners, DAST docs/gates | ⬜ not started |
 | 14 | Release workflow → GHCR → `make deploy`; production Caddy/Compose; rollback; backup/restore drills + ops alerts | ⬜ not started |
-| 15–16 | (per §14) | ⬜ not started |
 
 ## 5. CI — the 9 required checks
 
