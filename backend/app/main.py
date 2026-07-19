@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import RequestResponseEndpoint
 
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
@@ -24,6 +26,19 @@ from app.api.system import audit_router
 from app.api.system import router as system_router
 from app.api.users import admin_router as users_admin_router
 from app.core.config import get_settings
+from app.core.deps import get_client_ip
+from app.core.redis import get_redis
+from app.core.security_headers import SECURITY_HEADERS
+from app.services.rate_limit import RateLimitExceeded, enforce_admin_mutation_ip_limit
+
+_ADMIN_MUTATION_METHODS = frozenset({"DELETE", "PATCH", "POST", "PUT"})
+
+
+def _with_security_headers(response: Response) -> Response:
+    for header, value in SECURITY_HEADERS.items():
+        if header not in response.headers:
+            response.headers[header] = value
+    return response
 
 
 def create_app() -> FastAPI:
@@ -45,6 +60,29 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def add_security_headers(
+        request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
+        if request.url.path.startswith("/admin") and request.method in _ADMIN_MUTATION_METHODS:
+            try:
+                await enforce_admin_mutation_ip_limit(
+                    get_redis(),
+                    ip=get_client_ip(request),
+                    limit=settings.rate_limit_admin_mutation_per_minute,
+                )
+            except RateLimitExceeded as exc:
+                return _with_security_headers(
+                    JSONResponse(
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        content={"detail": "Too many admin mutation attempts"},
+                        headers={"Retry-After": str(exc.retry_after)},
+                    )
+                )
+
+        response = await call_next(request)
+        return _with_security_headers(response)
 
     app.include_router(health_router)
     app.include_router(auth_router)
