@@ -1,16 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { LOCALE_COOKIE, LOCALE_COOKIE_MAX_AGE, resolveLocale } from "./i18n/config";
+import {
+  buildContentSecurityPolicy,
+  createCspNonce,
+  withCspRequestHeaders,
+} from "./lib/server/csp";
+
+function isApiPath(pathname: string): boolean {
+  return pathname === "/api" || pathname.startsWith("/api/");
+}
 
 /**
- * Locale-persistence middleware. The active locale is resolved cookie-first,
- * then from the Accept-Language header (see `resolveLocale`). On the first visit
- * — when no cookie exists yet — we write the resolved locale into the cookie so
- * every later request (and SSR) is stable and header-independent. An existing
- * cookie is always respected and never overwritten here.
+ * Apply per-request CSP to rendered pages and persist the active locale.
+ *
+ * The CSP nonce is forwarded to Next.js through request headers and returned to
+ * the browser on the response. API routes keep the locale behavior but do not
+ * receive a document-only CSP header.
  */
 export function middleware(request: NextRequest): NextResponse {
-  const response = NextResponse.next();
+  let response: NextResponse;
+
+  if (isApiPath(request.nextUrl.pathname)) {
+    response = NextResponse.next();
+  } else {
+    const nonce = createCspNonce();
+    const contentSecurityPolicy = buildContentSecurityPolicy(
+      nonce,
+      process.env.NODE_ENV === "development",
+    );
+    const requestHeaders = withCspRequestHeaders(request.headers, nonce, contentSecurityPolicy);
+
+    response = NextResponse.next({
+      request: {
+        headers: requestHeaders,
+      },
+    });
+    response.headers.set("Content-Security-Policy", contentSecurityPolicy);
+  }
 
   const existing = request.cookies.get(LOCALE_COOKIE)?.value;
   if (!existing) {
