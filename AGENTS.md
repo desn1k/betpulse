@@ -1,5 +1,12 @@
 # Repository instructions
 
+## Communication and implementation language
+
+- Communicate with the user in Russian.
+- Discuss development plans, trade-offs, progress updates, and blockers in Russian.
+- Write implementation prompts in English.
+- After completing development, report in Russian what was changed and how it was validated.
+
 ## Pull request completion checklist
 
 Before declaring a pull request ready to merge or the related work complete:
