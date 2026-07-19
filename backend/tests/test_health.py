@@ -27,4 +27,8 @@ async def test_readiness_reports_ready() -> None:
         response = await client.get("/health/ready")
 
     assert response.status_code == 200
-    assert response.json()["status"] == "ready"
+    body = response.json()
+    assert body["status"] == "ready"
+    components = {component["name"]: component for component in body["components"]}
+    assert components["postgres"]["status"] == "ok"
+    assert components["redis"]["status"] == "ok"

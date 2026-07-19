@@ -15,7 +15,9 @@
       "spend": "LLM spend",
       "users": "Users",
       "promo": "Promo codes",
-      "tiers": "Tiers"
+      "tiers": "Tiers",
+      "system": "System",
+      "audit": "Audit"
     },
     "spend": {
       "title": "LLM spend",
@@ -124,8 +126,14 @@
       "noSnapshots": "No snapshots yet.",
       "diffTitle": "This rollback would change:",
       "noChanges": "No changes.",
-      "statusLabel": { "champion": "Champion", "challenger": "Challenger", "retired": "Retired" },
-      "warning": { "below_min_samples": "Promoted below the minimum sample count — recorded as an override." }
+      "statusLabel": {
+        "champion": "Champion",
+        "challenger": "Challenger",
+        "retired": "Retired"
+      },
+      "warning": {
+        "below_min_samples": "Promoted below the minimum sample count — recorded as an override."
+      }
     },
     "providers": {
       "title": "Providers",
@@ -164,6 +172,38 @@
         "partial": "Partial",
         "failed": "Failed"
       }
+    },
+    "system": {
+      "title": "System health",
+      "subtitle": "Operational checks for core services and alerting.",
+      "latency": "Latency",
+      "testAlert": "Send test alert",
+      "message": "Message",
+      "send": "Send test alert",
+      "sent": "Test alert sent.",
+      "notConfigured": "Ops alerts are not configured.",
+      "error": "Could not load system health.",
+      "status": {
+        "ok": "OK",
+        "degraded": "Degraded",
+        "error": "Error",
+        "not_configured": "Not configured"
+      }
+    },
+    "audit": {
+      "title": "Audit log",
+      "subtitle": "Security and admin events with filters and pagination.",
+      "search": "Search",
+      "action": "Action",
+      "time": "Time",
+      "actor": "Actor",
+      "target": "Target",
+      "meta": "Metadata",
+      "loading": "Loading audit events…",
+      "empty": "No audit events match the filters.",
+      "total": "{total} events",
+      "prev": "Previous",
+      "next": "Next"
     }
   },
   "notify": {
@@ -318,7 +358,11 @@
     "byLeague": "By league",
     "bySeason": "By season",
     "picks": {
-      "home": "Home", "draw": "Draw", "away": "Away", "over": "Over 2.5", "under": "Under 2.5"
+      "home": "Home",
+      "draw": "Draw",
+      "away": "Away",
+      "over": "Over 2.5",
+      "under": "Under 2.5"
     }
   }
 }

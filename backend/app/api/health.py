@@ -1,19 +1,23 @@
 """Health probe endpoints.
 
 - ``/health``       — liveness: the process is up and can serve requests.
-- ``/health/ready`` — readiness: the app is ready to receive traffic. In later
-  phases this will also check Postgres and Redis connectivity; for now it only
-  reports the process as ready so orchestration has a stable contract.
+- ``/health/ready`` — readiness: Postgres and Redis are reachable, so the app
+  can receive traffic.
 """
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, Response, status
 from pydantic import BaseModel
+from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.deps import get_db, get_redis_dep
+from app.schemas.system import ComponentHealth
+from app.services.system_health import check_database, check_redis
 
 router = APIRouter(tags=["health"])
 
@@ -26,6 +30,7 @@ class HealthResponse(BaseModel):
 
 class ReadinessResponse(BaseModel):
     status: Literal["ready", "not_ready"]
+    components: list[ComponentHealth]
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -40,10 +45,14 @@ async def health() -> HealthResponse:
 
 
 @router.get("/health/ready", response_model=ReadinessResponse)
-async def readiness() -> ReadinessResponse:
-    """Readiness probe.
-
-    Dependency checks (Postgres, Redis) are added alongside those services in
-    later phases; today the process being reachable is sufficient.
-    """
-    return ReadinessResponse(status="ready")
+async def readiness(
+    response: Response,
+    session: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated[Redis, Depends(get_redis_dep)],
+) -> ReadinessResponse:
+    """Readiness probe backed by core dependency checks."""
+    components = [await check_database(session), await check_redis(redis)]
+    ready = all(component.status == "ok" for component in components)
+    if not ready:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return ReadinessResponse(status="ready" if ready else "not_ready", components=components)
