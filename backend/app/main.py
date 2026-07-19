@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import RequestResponseEndpoint
 
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
@@ -24,6 +25,7 @@ from app.api.system import audit_router
 from app.api.system import router as system_router
 from app.api.users import admin_router as users_admin_router
 from app.core.config import get_settings
+from app.core.security_headers import SECURITY_HEADERS
 
 
 def create_app() -> FastAPI:
@@ -45,6 +47,16 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def add_security_headers(
+        request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
+        response = await call_next(request)
+        for header, value in SECURITY_HEADERS.items():
+            if header not in response.headers:
+                response.headers[header] = value
+        return response
 
     app.include_router(health_router)
     app.include_router(auth_router)
