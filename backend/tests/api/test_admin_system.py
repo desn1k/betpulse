@@ -176,6 +176,65 @@ async def test_ops_alert_send_is_audited(
 
 
 @pytest.mark.asyncio
+async def test_ops_alert_delivery_failure_returns_502_without_audit(
+    client: AsyncClient, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.core.config import get_settings
+    from app.services import ops_alerts
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "telegram_bot_token", "token")
+    monkeypatch.setattr(settings, "telegram_alert_chat_id", "chat")
+
+    async def fake_send(settings: object, message: str) -> None:
+        raise ops_alerts.OpsAlertDeliveryFailed("telegram send failed: ConnectError")
+
+    monkeypatch.setattr(ops_alerts, "send_ops_alert", fake_send)
+    headers = await _admin_headers(session)
+    resp = await client.post(
+        "/admin/system/alerts/test", headers=headers, json={"message": "Phase 12d smoke"}
+    )
+    assert resp.status_code == 502
+    assert resp.json() == {"detail": "telegram send failed: ConnectError"}
+    events = (
+        (await session.execute(select(AuditLog).where(AuditLog.action == "ops_alert.test")))
+        .scalars()
+        .all()
+    )
+    assert events == []
+
+
+@pytest.mark.asyncio
+async def test_ops_alert_http_error_becomes_delivery_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import httpx
+    from app.core.config import Settings
+    from app.services import ops_alerts
+
+    class ErrorResponse:
+        status_code = 500
+
+    class ErrorClient:
+        def __init__(self, *, timeout: float) -> None:
+            self.timeout = timeout
+
+        async def __aenter__(self) -> ErrorClient:
+            return self
+
+        async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+            return None
+
+        async def post(self, url: str, *, json: dict[str, str]) -> ErrorResponse:
+            return ErrorResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", ErrorClient)
+    settings = Settings(telegram_bot_token="token", telegram_alert_chat_id="chat")
+    with pytest.raises(ops_alerts.OpsAlertDeliveryFailed, match="500"):
+        await ops_alerts.send_ops_alert(settings, "hello")
+
+
+@pytest.mark.asyncio
 async def test_ops_alert_transport_error_becomes_delivery_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
