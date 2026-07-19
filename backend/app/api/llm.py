@@ -23,11 +23,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import Settings
 from app.core.deps import (
     TierContextDep,
     get_client_ip,
     get_db,
     get_redis_dep,
+    get_settings_dep,
     require_admin,
 )
 from app.models.fixture import Fixture
@@ -46,6 +48,7 @@ from app.services.audit import record_event
 from app.services.llm.analysis import get_or_create_analysis
 from app.services.llm.config import get_config, mask_key, update_config
 from app.services.llm.spend import get_spend
+from app.services.rate_limit import RateLimitExceeded, enforce_llm_analysis_limit
 from app.services.tiers import EXPERT, FREE, PRO
 
 router = APIRouter(tags=["llm"])
@@ -78,8 +81,20 @@ async def get_analysis(
     tier_ctx: TierContextDep,
     session: Annotated[AsyncSession, Depends(get_db)],
     redis: Annotated[Redis, Depends(get_redis_dep)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
     language: Annotated[Language, Query(description="Response language")] = "en",
 ) -> AnalysisOut:
+    try:
+        await enforce_llm_analysis_limit(
+            redis, identity=tier_ctx.identity, limit=settings.rate_limit_llm_analysis_per_minute
+        )
+    except RateLimitExceeded as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many LLM analysis requests",
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from exc
+
     fixture = await session.get(Fixture, fixture_id)
     if fixture is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Match not found")
