@@ -11,7 +11,7 @@ COMPOSE      := docker compose --env-file .env -f infra/docker-compose.yml
 COMPOSE_PROD := docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.prod.yml
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps build test test-backend test-frontend lint lint-backend lint-frontend \
+.PHONY: help dev up down logs ps build test test-backend test-frontend lint lint-backend lint-frontend \
         migrate seed bootstrap-history verify-history train backup restore-drill deploy
 
 help: ## Show this help
@@ -19,6 +19,8 @@ help: ## Show this help
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
 ## --- Stack ------------------------------------------------------------------
+
+dev: up ## Start the local development stack (alias for up)
 
 up: ## Start the local stack (detached)
 	$(COMPOSE) up -d --build
@@ -70,10 +72,10 @@ verify-history: ## Print per league/season fixture+odds counts; fail on gaps
 train: ## Train all enabled ML methods and register them (MLflow + model_registry)
 	cd backend && python -m app.cli train
 
-backup: ## On-demand encrypted backup (Phase 17 track)
+backup: ## On-demand encrypted backup (Phase 14)
 	@echo "backup: not implemented yet"
 
-restore-drill: ## Restore latest backup into a throwaway container (Phase 17 track)
+restore-drill: ## Restore latest backup into a throwaway container (Phase 14)
 	@echo "restore-drill: not implemented yet"
 
 deploy: ## Pull GHCR images, migrate, up -d, health-check (Phase 14)
