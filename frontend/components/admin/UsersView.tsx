@@ -41,7 +41,13 @@ export function UsersView() {
   });
   const grant = useMutation({
     mutationFn: ({ id, tier_id, expires_at }: { id: string; tier_id: string; expires_at: string }) =>
-      assignTier(id, { tier_id, expires_at: expires_at || null }),
+      assignTier(id, {
+        tier_id,
+        // The <input type="date"> yields a date-only string ("2026-07-17");
+        // send a full tz-aware UTC timestamp so it lands unambiguously in the
+        // timestamptz column (matches PromoView's serialization).
+        expires_at: expires_at ? new Date(expires_at).toISOString() : null,
+      }),
     onSuccess: invalidate,
   });
 

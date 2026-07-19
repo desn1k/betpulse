@@ -66,7 +66,14 @@
       "size": "Size",
       "sizeHint": "Size must be a positive multiple of 500.",
       "value": "Value",
+      "valueHint": {
+        "percent": "Discount percent (1–100).",
+        "fixed": "Fixed amount off (> 0).",
+        "trial": "Trial length in days (> 0).",
+        "upgrade": ""
+      },
       "tier": "Target tier",
+      "tierRequired": "A target tier is required for this code type.",
       "maxActivations": "Max activations",
       "expiresAt": "Expires at",
       "stackable": "Stackable",

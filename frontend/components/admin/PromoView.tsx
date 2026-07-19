@@ -72,6 +72,27 @@ export function PromoView() {
   const sizeValid = form.size > 0 && form.size % 500 === 0;
   const isUpgrade = form.code_type === "upgrade";
 
+  // Each promo type needs different fields to be meaningful (mirrors what the
+  // backend actually acts on): upgrade/trial grant a tier, so tier_id is
+  // required; trial/percent/fixed carry a numeric value with type-specific
+  // bounds. Without these the batch would produce codes that grant nothing.
+  const value = form.value.trim();
+  const num = Number(value);
+  const typeValid = (() => {
+    switch (form.code_type) {
+      case "upgrade":
+        return Boolean(form.tier_id);
+      case "trial":
+        return Boolean(form.tier_id) && value !== "" && Number.isInteger(num) && num > 0;
+      case "percent":
+        return value !== "" && num >= 1 && num <= 100;
+      case "fixed":
+        return value !== "" && num > 0;
+      default:
+        return false;
+    }
+  })();
+
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-extrabold text-foreground">{t("admin.promo.title")}</h1>
@@ -129,6 +150,9 @@ export function PromoView() {
                 value={form.value}
                 onChange={(e) => setForm((f) => ({ ...f, value: e.target.value }))}
               />
+              <span className="text-xs text-muted">
+                {t(`admin.promo.valueHint.${form.code_type}`)}
+              </span>
             </label>
           )}
           <label className="flex flex-col gap-1 text-sm">
@@ -148,6 +172,9 @@ export function PromoView() {
                   </option>
                 ))}
             </select>
+            {(form.code_type === "upgrade" || form.code_type === "trial") && !form.tier_id && (
+              <span className="text-xs text-warn">{t("admin.promo.tierRequired")}</span>
+            )}
           </label>
           <label className="flex flex-col gap-1 text-sm">
             {t("admin.promo.maxActivations")}
@@ -205,7 +232,7 @@ export function PromoView() {
         <div>
           <Button
             onClick={() => generate.mutate()}
-            disabled={!form.name || !sizeValid || generate.isPending}
+            disabled={!form.name || !sizeValid || !typeValid || generate.isPending}
           >
             {t("admin.promo.generateButton")}
           </Button>

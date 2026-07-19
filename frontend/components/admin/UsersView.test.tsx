@@ -84,4 +84,32 @@ describe("UsersView", () => {
     expect(vi.mocked(assignTier).mock.calls.at(-1)?.[0]).toBe("u1");
     expect(vi.mocked(assignTier).mock.calls.at(-1)?.[1].tier_id).toBe("t-pro");
   });
+
+  it("serializes expires_at as a tz-aware ISO timestamp, not a naive date", async () => {
+    const { findByLabelText, findByRole } = renderWithProviders(<UsersView />, { locale: "en" });
+    fireEvent.change(await findByLabelText("alice@example.com tier"), {
+      target: { value: "t-pro" },
+    });
+    // The date input yields "2026-07-17"; the payload must be a full ISO
+    // timestamp with a timezone (ends with Z or ±HH:MM), never the bare date.
+    fireEvent.change(await findByLabelText("alice@example.com expires"), {
+      target: { value: "2026-07-17" },
+    });
+    fireEvent.click(await findByRole("button", { name: "Grant" }));
+    await waitFor(() => expect(assignTier).toHaveBeenCalled());
+    const expires = vi.mocked(assignTier).mock.calls.at(-1)?.[1].expires_at;
+    expect(expires).toMatch(/(Z|[+-]\d{2}:\d{2})$/);
+    expect(expires).not.toBe("2026-07-17");
+    expect(new Date(expires as string).toISOString()).toBe(expires);
+  });
+
+  it("sends null expires_at when no date is picked", async () => {
+    const { findByLabelText, findByRole } = renderWithProviders(<UsersView />, { locale: "en" });
+    fireEvent.change(await findByLabelText("alice@example.com tier"), {
+      target: { value: "t-pro" },
+    });
+    fireEvent.click(await findByRole("button", { name: "Grant" }));
+    await waitFor(() => expect(assignTier).toHaveBeenCalled());
+    expect(vi.mocked(assignTier).mock.calls.at(-1)?.[1].expires_at).toBeNull();
+  });
 });
