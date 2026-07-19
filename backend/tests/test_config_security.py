@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
-
 from app.core.config import Settings
 
 
 def test_production_rejects_wildcard_cors_with_credentials() -> None:
-    with pytest.raises(ValidationError, match="explicit origins"):
+    with pytest.raises(ValueError, match="explicit origins"):
         Settings(
             environment="production",
             secret_key="s" * 64,
