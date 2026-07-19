@@ -5,6 +5,24 @@ import { backendBaseUrl } from "./backend";
 // Headers we forward from the browser to the backend on auth calls.
 const FORWARD_REQUEST_HEADERS = ["authorization", "cookie", "x-csrf-token", "content-type"];
 
+export function buildProxyRequestHeaders(requestHeaders: Headers): Headers {
+  const headers = new Headers({ accept: "application/json" });
+  for (const name of FORWARD_REQUEST_HEADERS) {
+    const value = requestHeaders.get(name);
+    if (value) headers.set(name, value);
+  }
+
+  // Production ingress must replace untrusted forwarding headers. Normalize
+  // that trusted chain so FastAPI sees the browser client instead of the
+  // Next.js server/container peer.
+  const forwardedClientIp = requestHeaders.get("x-forwarded-for")?.split(",")[0]?.trim();
+  const realClientIp = requestHeaders.get("x-real-ip")?.trim();
+  const clientIp = forwardedClientIp || realClientIp;
+  if (clientIp) headers.set("x-forwarded-for", clientIp);
+
+  return headers;
+}
+
 /**
  * Rewrite the httpOnly refresh cookie's Path so it is scoped to the frontend's
  * own auth routes instead of the backend's ``/auth/refresh``. This lets the
@@ -21,12 +39,7 @@ function rewriteRefreshPath(setCookie: string): string {
  * the Set-Cookie headers (refresh + CSRF) back down to the browser.
  */
 export async function proxyAuth(request: NextRequest, backendPath: string): Promise<NextResponse> {
-  const headers = new Headers({ accept: "application/json" });
-  for (const name of FORWARD_REQUEST_HEADERS) {
-    const value = request.headers.get(name);
-    if (value) headers.set(name, value);
-  }
-
+  const headers = buildProxyRequestHeaders(request.headers);
   const body = request.method === "GET" ? undefined : await request.text();
 
   let backendRes: Response;

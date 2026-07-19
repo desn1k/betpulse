@@ -70,6 +70,8 @@ class Settings(BaseSettings):
     lockout_base_seconds: int = 30  # exponential backoff base
     lockout_max_seconds: int = 3600
     rate_limit_promo_per_hour: int = 10
+    rate_limit_llm_analysis_per_minute: int = 20
+    rate_limit_admin_mutation_per_minute: int = 60
 
     # --- Feature flags ------------------------------------------------------
     email_verification_required: bool = False
