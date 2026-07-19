@@ -97,7 +97,9 @@ async def test_audit_date_filters(client: AsyncClient, session: AsyncSession) ->
     await session.commit()
 
     resp = await client.get(
-        f"/admin/audit?date_from={(now - timedelta(hours=1)).isoformat()}", headers=headers
+        "/admin/audit",
+        headers=headers,
+        params={"date_from": (now - timedelta(hours=1)).isoformat()},
     )
     assert resp.status_code == 200
     actions = {e["action"] for e in resp.json()["events"]}
@@ -172,7 +174,7 @@ async def test_ops_alert_send_is_audited(
     event = (
         await session.execute(select(AuditLog).where(AuditLog.action == "ops_alert.test"))
     ).scalar_one()
-    assert event.meta == {"message_length": 16}
+    assert event.meta == {"message_length": len("Phase 12d smoke")}
 
 
 @pytest.mark.asyncio
