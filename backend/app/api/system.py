@@ -107,7 +107,9 @@ async def list_audit_logs(
     total = (await session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
     rows = (
         await session.execute(
-            base.order_by(AuditLog.created_at.desc()).limit(per_page).offset((page - 1) * per_page)
+            base.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+            .limit(per_page)
+            .offset((page - 1) * per_page)
         )
     ).all()
     return AuditLogList(

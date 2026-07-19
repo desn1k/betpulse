@@ -106,6 +106,28 @@ async def test_audit_date_filters(client: AsyncClient, session: AsyncSession) ->
 
 
 @pytest.mark.asyncio
+async def test_audit_pagination_uses_stable_id_tie_breaker(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    headers = await _admin_headers(session)
+    same_time = datetime(2026, 7, 19, tzinfo=UTC)
+    low_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    high_id = uuid.UUID("00000000-0000-0000-0000-000000000002")
+    session.add_all(
+        [
+            AuditLog(id=low_id, action="same.low", created_at=same_time),
+            AuditLog(id=high_id, action="same.high", created_at=same_time),
+        ]
+    )
+    await session.commit()
+
+    first = (await client.get("/admin/audit?per_page=1&page=1", headers=headers)).json()
+    second = (await client.get("/admin/audit?per_page=1&page=2", headers=headers)).json()
+    assert first["events"][0]["id"] == str(high_id)
+    assert second["events"][0]["id"] == str(low_id)
+
+
+@pytest.mark.asyncio
 async def test_ops_alert_not_configured_does_not_audit(
     client: AsyncClient, session: AsyncSession
 ) -> None:
@@ -151,3 +173,32 @@ async def test_ops_alert_send_is_audited(
         await session.execute(select(AuditLog).where(AuditLog.action == "ops_alert.test"))
     ).scalar_one()
     assert event.meta == {"message_length": 16}
+
+
+@pytest.mark.asyncio
+async def test_ops_alert_transport_error_becomes_delivery_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import httpx
+    from app.core.config import Settings
+    from app.services import ops_alerts
+
+    class FailingClient:
+        def __init__(self, *, timeout: float) -> None:
+            self.timeout = timeout
+
+        async def __aenter__(self) -> FailingClient:
+            return self
+
+        async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+            return None
+
+        async def post(self, url: str, *, json: dict[str, str]) -> object:
+            import httpx
+
+            raise httpx.ConnectError("boom")
+
+    monkeypatch.setattr(httpx, "AsyncClient", FailingClient)
+    settings = Settings(telegram_bot_token="token", telegram_alert_chat_id="chat")
+    with pytest.raises(ops_alerts.OpsAlertDeliveryFailed):
+        await ops_alerts.send_ops_alert(settings, "hello")

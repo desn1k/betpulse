@@ -19,10 +19,13 @@ async def send_ops_alert(settings: Settings, message: str) -> None:
     if not settings.telegram_bot_token or not settings.telegram_alert_chat_id:
         raise OpsAlertNotConfigured
     url = f"{settings.telegram_api_base_url}/bot{settings.telegram_bot_token}/sendMessage"
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(
-            url,
-            json={"chat_id": settings.telegram_alert_chat_id, "text": message},
-        )
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                url,
+                json={"chat_id": settings.telegram_alert_chat_id, "text": message},
+            )
+    except httpx.RequestError as exc:
+        raise OpsAlertDeliveryFailed(f"telegram send failed: {exc.__class__.__name__}") from exc
     if resp.status_code >= 400:
         raise OpsAlertDeliveryFailed(f"telegram send failed: {resp.status_code}")
