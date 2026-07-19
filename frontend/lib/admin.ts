@@ -6,6 +6,7 @@ import { ApiError } from "@/lib/api";
 import { authHeader } from "@/lib/auth/store";
 import type {
   AdminUserList,
+  AuditLogList,
   DisableResult,
   IngestionRuns,
   LlmConfig,
@@ -21,6 +22,8 @@ import type {
   RollbackDiff,
   Snapshot,
   SpendReport,
+  SystemHealth,
+  OpsAlertResult,
   Tier,
   TierUpdate,
   UserMutationResult,
@@ -136,6 +139,35 @@ export function rollbackSnapshot(id: string): Promise<void> {
 
 export function retrainModels(): Promise<void> {
   return request("/api/admin/models/retrain", { method: "POST" });
+}
+
+
+// --- system health + audit ---------------------------------------------------
+
+export function fetchSystemHealth(): Promise<SystemHealth> {
+  return request<SystemHealth>("/api/admin/system/health");
+}
+
+export function sendTestAlert(message: string): Promise<OpsAlertResult> {
+  return request<OpsAlertResult>("/api/admin/system/alerts/test", {
+    method: "POST",
+    ...jsonBody({ message }),
+  });
+}
+
+export function fetchAudit(params: {
+  action?: string;
+  q?: string;
+  target?: string;
+  page?: number;
+}): Promise<AuditLogList> {
+  const query = new URLSearchParams();
+  if (params.action) query.set("action", params.action);
+  if (params.q) query.set("q", params.q);
+  if (params.target) query.set("target", params.target);
+  if (params.page) query.set("page", String(params.page));
+  const qs = query.toString();
+  return request<AuditLogList>(`/api/admin/audit${qs ? `?${qs}` : ""}`);
 }
 
 // --- LLM spend + config -----------------------------------------------------

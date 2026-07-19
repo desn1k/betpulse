@@ -70,7 +70,7 @@ mlflow_utils), `app/workers` (arq_app, tasks), `app/api` (health, auth, admin, p
 | 9 | Strategy backtester (filters, matched count, ROI, equity, drawdown, Wilson CI, walk-forward, save/export) | ✅ merged |
 | 10 | LLM match analysis (OpenAI-compatible, tier-gated by daily rank, token budget + cost, admin config) | ✅ merged |
 | 11 | Push (Telegram + Web Push) on probability swings: per-match follow, tier-gated, `pushes_per_day` | ✅ merged |
-| 12 | Admin dashboard (sub-PRs 12a–12d). 12a shell+providers+ingestion ✅ · 12b ML management ✅ · 12c spend+users+promo/tiers | 🚧 in progress (12c on `claude/admin-users-phase-12c`; 12d next) |
+| 12 | Admin dashboard (sub-PRs 12a–12d). 12a shell+providers+ingestion ✅ · 12b ML management ✅ · 12c spend+users+promo/tiers ✅ · 12d system health/audit/ops alerts | 🚧 in progress (12d on `codex/admin-health-phase-12d`) |
 | 13–16 | (per §14) | ⬜ not started |
 
 ## 5. CI — the 9 required checks
@@ -393,6 +393,16 @@ promo/tier UI, **12d** system health + audit viewer + ops alerts.
 - **Tiers UI** (`/admin/tiers`) over `/admin/tiers`: edit price / is_public / `feature_flags` /
   `limits` (JSON editors with parse validation) per tier; the backend PATCH invalidates the resolved-
   tier cache so edits take effect within seconds.
+- **System health** (`GET /admin/system/health`, `services/system_health.py`): admin-only health
+  summary for Postgres, Redis and Telegram ops-alert configuration. Hard dependency failures return
+  an overall `error`; optional/unconfigured alerting returns `degraded` so deploy smoke checks can
+  distinguish broken core services from missing optional notifications.
+- **Audit viewer** (`GET /admin/audit`): admin-only paginated audit log with action, actor, target,
+  date-range and free-text filters. The response includes actor email for operator usability while
+  keeping raw `meta` structured for debugging.
+- **Ops alerts** (`POST /admin/system/alerts/test`, `services/ops_alerts.py`): admin-triggered
+  Telegram test alert using the existing `TELEGRAM_ALERT_CHAT_ID` env name; not configured returns a
+  non-fatal `not_configured` response and successful sends are audited as `ops_alert.test`.
 
 ## 10. How to resume
 

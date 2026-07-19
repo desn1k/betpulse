@@ -20,6 +20,8 @@ from app.api.promo import admin_router as promo_admin_router
 from app.api.promo import router as promo_router
 from app.api.providers import router as providers_router
 from app.api.push import router as push_router
+from app.api.system import audit_router
+from app.api.system import router as system_router
 from app.api.users import admin_router as users_admin_router
 from app.core.config import get_settings
 
@@ -60,6 +62,8 @@ def create_app() -> FastAPI:
     app.include_router(ingestion_router)
     app.include_router(models_router)
     app.include_router(users_admin_router)
+    app.include_router(system_router)
+    app.include_router(audit_router)
     return app
 
 
