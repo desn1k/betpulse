@@ -34,13 +34,28 @@ cd backend && bandit -r app && pip-audit --skip-editable
 cd frontend && npm audit --audit-level=high
 ```
 
+## Security headers baseline
+
+Phase 13a adds a shared baseline to API and frontend responses:
+
+| Header | Value |
+|---|---|
+| `Content-Security-Policy` | `frame-ancestors 'none'` |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` |
+| `X-Content-Type-Options` | `nosniff` |
+| `X-Frame-Options` | `DENY` |
+
+This is intentionally limited to low-risk, response-wide controls. A stricter
+nonce-based CSP for scripts/styles remains in the Phase 13 follow-up plan.
+
 ## Planned controls (implemented across later phases)
 
 - Argon2id password hashing; JWT access + rotating refresh tokens; RBAC.
 - Admin 2FA (TOTP) and full `audit_log`.
 - Strict Pydantic input validation; parameterized queries only.
-- Security headers: nonce-based CSP, HSTS, X-Content-Type-Options,
-  Referrer-Policy, frame-ancestors.
+- Security headers: response-wide baseline first; nonce-based CSP and HSTS
+  follow once production TLS/release wiring lands.
 - Redis rate limiting on auth and promo redemption; account lockout/backoff.
 - Provider and LLM API keys encrypted at rest; never returned to the client.
 - Secrets only from env/secret store; structured logging with secret redaction.
