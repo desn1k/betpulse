@@ -105,6 +105,49 @@ export interface RollbackDiff {
   changes: RollbackChange[];
 }
 
+
+// --- system health + audit (Phase 12d) --------------------------------------
+
+export type HealthStatus = "ok" | "degraded" | "error" | "not_configured";
+
+export interface ComponentHealth {
+  name: string;
+  status: HealthStatus;
+  detail: string | null;
+  latency_ms: number | null;
+  meta: Record<string, unknown>;
+}
+
+export interface SystemHealth {
+  status: "ok" | "degraded" | "error";
+  checked_at: string;
+  components: ComponentHealth[];
+}
+
+export interface OpsAlertResult {
+  status: "sent" | "not_configured";
+  detail: string | null;
+}
+
+export interface AuditEvent {
+  id: string;
+  actor_user_id: string | null;
+  actor_email: string | null;
+  action: string;
+  target: string | null;
+  ip: string | null;
+  user_agent: string | null;
+  meta: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AuditLogList {
+  events: AuditEvent[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
 // --- LLM spend (Phase 12c) ---------------------------------------------------
 
 export interface DailySpend {

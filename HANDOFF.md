@@ -70,8 +70,10 @@ mlflow_utils), `app/workers` (arq_app, tasks), `app/api` (health, auth, admin, p
 | 9 | Strategy backtester (filters, matched count, ROI, equity, drawdown, Wilson CI, walk-forward, save/export) | ✅ merged |
 | 10 | LLM match analysis (OpenAI-compatible, tier-gated by daily rank, token budget + cost, admin config) | ✅ merged |
 | 11 | Push (Telegram + Web Push) on probability swings: per-match follow, tier-gated, `pushes_per_day` | ✅ merged |
-| 12 | Admin dashboard (sub-PRs 12a–12d). 12a shell+providers+ingestion ✅ · 12b ML management ✅ · 12c spend+users+promo/tiers | 🚧 in progress (12c on `claude/admin-users-phase-12c`; 12d next) |
-| 13–16 | (per §14) | ⬜ not started |
+| 12 | Admin dashboard (sub-PRs 12a–12d). 12a shell+providers+ingestion ✅ · 12b ML management ✅ · 12c spend+users+promo/tiers ✅ · 12d-core system health/audit/test ops alerts ✅ · 12d follow-ups tracked below | 🚧 follow-up hardening pending |
+| 13 | Security hardening: headers/CSP, sensitive rate limits, CORS, dependency/security scanners, DAST docs/gates | ⬜ not started |
+| 14 | Release workflow → GHCR → `make deploy`; production Caddy/Compose; rollback; backup/restore drills + ops alerts | ⬜ not started |
+| 15–16 | (per §14) | ⬜ not started |
 
 ## 5. CI — the 9 required checks
 
@@ -393,6 +395,76 @@ promo/tier UI, **12d** system health + audit viewer + ops alerts.
 - **Tiers UI** (`/admin/tiers`) over `/admin/tiers`: edit price / is_public / `feature_flags` /
   `limits` (JSON editors with parse validation) per tier; the backend PATCH invalidates the resolved-
   tier cache so edits take effect within seconds.
+- **12d-core shipped** (`GET /admin/system/health`, `services/system_health.py`): admin-only health
+  summary for Postgres, Redis and Telegram ops-alert configuration. Hard dependency failures return
+  an overall `error`; optional/unconfigured alerting returns `degraded` so deploy smoke checks can
+  distinguish broken core services from missing optional notifications.
+- **Audit viewer shipped** (`GET /admin/audit`): admin-only paginated audit log with action, actor,
+  target, date-range and free-text filters. The response includes actor email for operator usability
+  while keeping raw `meta` structured for debugging. Pagination must remain stable (`created_at DESC,
+  id DESC`) so page boundaries do not jump when timestamps tie.
+- **Ops-alert smoke shipped** (`POST /admin/system/alerts/test`, `services/ops_alerts.py`):
+  admin-triggered Telegram test alert using the existing `TELEGRAM_ALERT_CHAT_ID` env name; not
+  configured returns a non-fatal `not_configured` response and successful sends are audited as
+  `ops_alert.test`. Telegram HTTP/transport failures are controlled delivery errors, not raw 500s.
+
+### 12d follow-up backlog (owner plan, keep as small PRs)
+
+The owner-approved fuller Phase 12d scope is larger than the 12d-core PR. Do not silently fold all of
+this into an unrelated phase; schedule it as one or more follow-up PRs after 12d-core is merged and CI
+is green:
+
+1. **Extended system health + real readiness** — add components for API readiness, ARQ worker/queue
+   depth, latest ingestion run, latest model re-evaluation, today's LLM token spend, and backup status
+   (`not_configured` until Phase 14 backup lands). Upgrade `/health/ready` from the process-only stub
+   to real Postgres + Redis checks.
+2. **Automatic ops alerts with Redis dedup** — send Telegram ops alerts when ingestion fails or the
+   LLM daily budget is exhausted. Deduplicate via Redis keys to avoid alert spam. No new table: write
+   alert attempts/results to `audit_log`.
+3. **Frontend health expansion** — extend the System page to show the new components and queue/last-run
+   metadata with clear `ok`/`degraded`/`error`/`not_configured` states.
+4. **Tests** — backend tests for readiness success/failure, ARQ/queue metadata, latest-run metadata,
+   LLM spend-today, backup `not_configured`, and ops-alert dedup/audit behavior; frontend tests for the
+   expanded System page.
+
+## 9h. Phase 13 plan (security hardening)
+
+Phase 13 is the pre-production security pass. Keep it reviewable: prefer several focused PRs over one
+large diff, and do not proceed while any required security/CI job is red.
+
+- **Security headers:** add/verify CSP with nonce, HSTS, `X-Content-Type-Options`, `Referrer-Policy`,
+  and `frame-ancestors`/clickjacking protections for frontend and backend responses as appropriate.
+- **Sensitive endpoint rate limits:** review and add rate limits for auth, promo redemption, admin
+  mutation endpoints, LLM generation, backtester/search-like endpoints, and any webhook surfaces.
+- **CORS and secret hygiene:** lock CORS to known origins in production, verify secrets are never logged
+  or returned, and keep provider/LLM keys write-only/masked.
+- **SQL safety review:** verify query surfaces use ORM/bound parameters only; add regression tests for
+  user-controlled filters in audit, backtester and search-like endpoints.
+- **Dependency/security scanners:** keep Semgrep, Bandit, pip-audit, npm audit, Trivy and gitleaks green;
+  add OWASP ZAP, nuclei and sqlmap runs/docs where feasible without making PR CI prohibitively slow
+  (heavy DAST may be nightly/manual if documented).
+- **Docs:** add `SECURITY.md` with exact reproduction commands, scope, expected outputs, false-positive
+  handling, and how CI blocks merges.
+
+## 9i. Phase 14 plan (release workflow, deploy and backups)
+
+Phase 14 turns the green main branch into a deployable release. The owner plan supersedes the old
+Makefile comments that labelled backup/restore as a later track; update those targets when Phase 14 is
+implemented.
+
+- **Release workflow:** add `.github/workflows/release.yml` to run required tests, build Docker images,
+  push backend/frontend images to GHCR, and tag images with both the release version and `latest`.
+- **Production deploy:** implement `make deploy` on the server: pull GHCR images, run `alembic upgrade
+  head`, restart with Docker Compose, run health checks, and rollback if the health check fails.
+- **Rollback/ops commands:** add `make rollback`, production `make logs`/diagnostic helpers, and docs for
+  staging/production rollback.
+- **Production infra:** finalize `docker-compose.prod.yml` resource limits and Caddy reverse-proxy/TLS
+  configuration with security headers.
+- **Backups:** add WAL-G continuous Postgres archiving to S3-compatible storage, `make backup`, weekly
+  `make restore-drill`, backup freshness checks, and Telegram ops alerting when backups are stale
+  (owner target: alert if backup is older than 15 minutes).
+- **Docs:** update README/deploy docs with required env vars, tag-based release flow, deploy, rollback,
+  backup and restore-drill commands.
 
 ## 10. How to resume
 
@@ -405,7 +477,7 @@ promo/tier UI, **12d** system health + audit viewer + ops alerts.
 
 ## 11. Parked work (owner-requested, not yet scheduled)
 
-- **Custom user alerts** (a *separate* phase, to be scheduled **after Phase 12**). User-defined alert
+- **Custom user alerts** (a *separate* phase, to be scheduled **after Phase 14 release/deploy**). User-defined alert
   rules that trigger a push delivery to Telegram / Web Push when their condition is met on a live
   fixture. Conditions combine: **minute**, **score**, **probability threshold**, **probability
   swing**, and **edge vs market**. Per-tier caps: **Pro up to 5 alerts, Expert up to 50**. Builds on
