@@ -49,6 +49,21 @@ Phase 13a adds a shared baseline to API and frontend responses:
 This is intentionally limited to low-risk, response-wide controls. A stricter
 nonce-based CSP for scripts/styles remains in the Phase 13 follow-up plan.
 
+## Sensitive rate limits
+
+Phase 13b adds or verifies Redis-backed limits on security-sensitive request
+surfaces:
+
+| Surface | Scope | Window | Default |
+|---|---|---:|---:|
+| Login attempts | Client IP | 1 minute | 5 |
+| Promo redemption attempts | User | 1 hour | 10 |
+| LLM analysis requests | User or guest IP | 1 minute | 20 |
+| Admin unsafe mutations (`POST`, `PUT`, `PATCH`, `DELETE` under `/admin`) | Client IP | 1 minute | 60 |
+
+Daily product budgets (match detail views, backtester runs and delivered push
+notifications) remain tier limits rather than abuse controls.
+
 ## Planned controls (implemented across later phases)
 
 - Argon2id password hashing; JWT access + rotating refresh tokens; RBAC.
