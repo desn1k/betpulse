@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import uuid
 
+from app.core.config import get_settings
 from httpx import AsyncClient
 from pytest import MonkeyPatch
-
-from app.core.config import get_settings
 
 
 async def test_llm_analysis_rate_limit_returns_429(
