@@ -1,10 +1,8 @@
 # Security
 
-> **Status:** scaffolding. This document is filled out fully in the Phase 13
-> security-hardening pass with the complete threat model and reproducible
-> pentest commands (Semgrep, Bandit, pip-audit / npm audit, Trivy, gitleaks,
-> OWASP ZAP baseline, nuclei, and sqlmap notes for the search/backtester
-> endpoints). The sections below are the stable outline.
+> **Status:** Phase 13 hardening in progress. Response headers, sensitive
+> rate limits, strict browser CSP, and credentialed CORS restrictions are
+> implemented. DAST gates and the full threat model remain follow-up work.
 
 ## Reporting a vulnerability
 
@@ -34,20 +32,29 @@ cd backend && bandit -r app && pip-audit --skip-editable
 cd frontend && npm audit --audit-level=high
 ```
 
-## Security headers baseline
+## Security headers and browser CSP
 
-Phase 13a adds a shared baseline to API and frontend responses:
+Phase 13a adds a shared low-risk baseline to API and frontend responses:
 
 | Header | Value |
 |---|---|
-| `Content-Security-Policy` | `frame-ancestors 'none'` |
+| API `Content-Security-Policy` | `frame-ancestors 'none'` |
 | `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
 | `X-Content-Type-Options` | `nosniff` |
 | `X-Frame-Options` | `DENY` |
 
-This is intentionally limited to low-risk, response-wide controls. A stricter
-nonce-based CSP for scripts/styles remains in the Phase 13 follow-up plan.
+Phase 13c replaces the frontend's static CSP with a fresh nonce on every
+rendered request. Middleware forwards the nonce and full policy to Next.js and
+returns the same policy to the browser. Production scripts require that nonce
+and use `strict-dynamic`; objects and frames are disabled, `base-uri` and
+`form-action` are restricted to same-origin, and service workers remain
+available from `'self'`/`blob:`. Next.js development-only allowances are not
+present in the production policy.
+
+The root layout already reads request cookies, so rendered pages are dynamic;
+this is required for per-request nonces and intentionally trades static page
+caching for strict CSP.
 
 ## Sensitive rate limits
 
@@ -64,13 +71,20 @@ surfaces:
 Daily product budgets (match detail views, backtester runs and delivered push
 notifications) remain tier limits rather than abuse controls.
 
+## Credentialed CORS
+
+The API accepts credentialed browser requests only from the exact origins in
+`CORS_ALLOWED_ORIGINS`. Methods and request headers use explicit allowlists;
+production startup fails when the origin list contains `*`. Development keeps
+the wildcard available for local tooling, but it is never a valid production
+setting with credentials enabled.
+
 ## Planned controls (implemented across later phases)
 
 - Argon2id password hashing; JWT access + rotating refresh tokens; RBAC.
 - Admin 2FA (TOTP) and full `audit_log`.
 - Strict Pydantic input validation; parameterized queries only.
-- Security headers: response-wide baseline first; nonce-based CSP and HSTS
-  follow once production TLS/release wiring lands.
+- HSTS at the production TLS edge, finalized with Phase 14 release wiring.
 - Redis rate limiting on auth and promo redemption; account lockout/backoff.
 - Provider and LLM API keys encrypted at rest; never returned to the client.
 - Secrets only from env/secret store; structured logging with secret redaction.

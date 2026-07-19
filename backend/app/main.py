@@ -32,6 +32,8 @@ from app.core.security_headers import SECURITY_HEADERS
 from app.services.rate_limit import RateLimitExceeded, enforce_admin_mutation_ip_limit
 
 _ADMIN_MUTATION_METHODS = frozenset({"DELETE", "PATCH", "POST", "PUT"})
+_CORS_ALLOWED_METHODS = ["DELETE", "GET", "OPTIONS", "PATCH", "POST", "PUT"]
+_CORS_ALLOWED_HEADERS = ["Authorization", "Content-Type", "Last-Event-ID", "X-CSRF-Token"]
 
 
 def _with_security_headers(response: Response) -> Response:
@@ -78,8 +80,8 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=_CORS_ALLOWED_METHODS,
+        allow_headers=_CORS_ALLOWED_HEADERS,
         expose_headers=["Retry-After"],
     )
 

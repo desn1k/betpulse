@@ -153,13 +153,17 @@ class Settings(BaseSettings):
         return self.database_read_url or self.database_url
 
     @model_validator(mode="after")
-    def _validate_secrets(self) -> Settings:
-        """Fail fast in production if security-critical keys are missing."""
+    def _validate_security_settings(self) -> Settings:
+        """Fail fast when production security settings are unsafe."""
         if self.is_production:
             for name in ("secret_key", "data_encryption_key"):
                 value = getattr(self, name)
                 if not value or len(value) < 32:
                     raise ValueError(f"{name.upper()} must be set to a strong value in production")
+            if "*" in self.cors_origins:
+                raise ValueError(
+                    "CORS_ALLOWED_ORIGINS must list explicit origins when credentials are enabled"
+                )
         return self
 
 
