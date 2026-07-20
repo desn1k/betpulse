@@ -71,7 +71,7 @@ mlflow_utils), `app/workers` (arq_app, tasks), `app/api` (health, auth, admin, p
 | 10 | LLM match analysis (OpenAI-compatible, tier-gated by daily rank, token budget + cost, admin config) | ✅ merged |
 | 11 | Push (Telegram + Web Push) on probability swings: per-match follow, tier-gated, `pushes_per_day` | ✅ merged |
 | 12 | Admin dashboard (sub-PRs 12a–12d). 12a shell+providers+ingestion ✅ · 12b ML management ✅ · 12c spend+users+promo/tiers ✅ · 12d-core system health/audit/test ops alerts ✅ · 12d follow-ups tracked below | 🚧 follow-up hardening pending |
-| 13 | Security hardening: 13a headers ✅ · 13b sensitive rate limits ✅ · 13c nonce CSP + strict CORS 🚧 · DAST/docs gates pending | 🚧 in progress |
+| 13 | Security hardening: headers, rate limits, nonce CSP, strict CORS, Playwright, SQL regressions, manual staging DAST | ✅ complete |
 | 14 | Release workflow → GHCR → `make deploy`; production Caddy/Compose; rollback; backup/restore drills + ops alerts | ⬜ not started |
 
 ## 5. CI — the 9 required checks
@@ -88,10 +88,10 @@ CI (`MLFLOW_TRACKING_URI=file://…`, `MLFLOW_ALLOW_FILE_STORE=true`) — Postgr
 dev/prod. `make train` is deliberately **not** in CI (LightGBM on real data takes minutes; the
 fixture pipeline test covers the full path instead — see the comment in `ci.yml`).
 
-**Playwright e2e is deferred to Phase 13d** together with DAST wiring. Phase 6's frontend is
-covered by Vitest + React Testing Library (component, i18n, age-gate, disclaimer,
-language-switcher); the CI frontend job stays `eslint · tsc · vitest · build` until that focused
-security-test PR.
+**Playwright security e2e shipped in Phase 13d.** `Browser security (Playwright)` builds the
+production frontend and verifies strict CSP nonces, response headers, a violation-free browser boot,
+and locale persistence. Failure artifacts are uploaded for debugging. Component behavior remains
+covered by Vitest + React Testing Library.
 
 ## 6. Conventions that bite if ignored
 
@@ -437,12 +437,13 @@ large diff, and do not proceed while any required security/CI job is red.
   the Caddy TLS edge and is finalized with Phase 14 release wiring.
 - **13b — sensitive rate limits (merged):** Redis-backed limits for login, promo redemption, LLM
   analysis, and unsafe admin mutations.
-- **13c — browser security (implemented):** per-request nonce CSP for rendered Next.js routes,
+- **13c — browser security (merged):** per-request nonce CSP for rendered Next.js routes,
   explicit credentialed CORS methods/headers/origins, production wildcard rejection, and regression
   tests. The existing cookie-based root layout is already dynamic, matching the nonce requirement.
-- **13d — security-test gates (next):** add focused Playwright coverage and reproducible
-  OWASP ZAP/nuclei/sqlmap documentation or scheduled/manual jobs without making PR CI prohibitively
-  slow.
+- **13d — security-test gates (implemented):** required Playwright browser-security CI; bound-value
+  SQL-injection regressions for matches, backtester and audit filters; and a manual, authorization-
+  gated staging workflow for pinned OWASP ZAP, Nuclei and conservative sqlmap scans. DAST remains
+  manual until Phase 14 provides a stable staging URL.
 - **Secret hygiene:** verify secrets are never logged or returned, and keep provider/LLM keys
   write-only/masked.
 - **SQL safety review:** verify query surfaces use ORM/bound parameters only; add regression tests for

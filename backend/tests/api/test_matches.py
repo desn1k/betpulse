@@ -153,6 +153,22 @@ async def test_list_league_and_status_filters(client: AsyncClient, session: Asyn
 
 
 @pytest.mark.asyncio
+async def test_list_league_filter_treats_sql_payload_as_data(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    await _seed_registry(session)
+    await _seed_match(session, league_code="EPL")
+    await session.commit()
+
+    payload = "EPL' OR '1'='1"
+    resp = await client.get("/matches", params={"league": payload})
+
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 0
+    assert resp.json()["items"] == []
+
+
+@pytest.mark.asyncio
 async def test_list_default_window_excludes_far_future(
     client: AsyncClient, session: AsyncSession
 ) -> None:
