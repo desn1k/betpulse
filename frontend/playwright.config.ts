@@ -21,7 +21,7 @@ export default defineConfig({
   webServer: externalBaseUrl
     ? undefined
     : {
-        command: `npm run build && npm run start -- --hostname 127.0.0.1 --port ${port}`,
+        command: `npm run build && node scripts/start-standalone.mjs ${port}`,
         url: `${baseURL}/api/health`,
         reuseExistingServer: !process.env.CI,
         timeout: 180_000,
