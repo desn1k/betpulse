@@ -1,0 +1,192 @@
+name: DAST
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: Authorized staging base URL (HTTPS only)
+        required: true
+        type: string
+      sqlmap_url:
+        description: Authorized same-host URL with a safe query parameter
+        required: true
+        type: string
+      sqlmap_parameter:
+        description: Query parameter that sqlmap may test
+        required: true
+        default: league
+        type: string
+      confirm_authorized:
+        description: I confirm that I am authorized to scan this staging target
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dast-${{ inputs.target_url }}
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    name: Authorized staging DAST
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DAST_TARGET_URL: ${{ inputs.target_url }}
+      DAST_SQLMAP_URL: ${{ inputs.sqlmap_url }}
+      DAST_SQLMAP_PARAMETER: ${{ inputs.sqlmap_parameter }}
+      DAST_AUTHORIZED: ${{ inputs.confirm_authorized }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate authorized public targets
+        shell: bash
+        run: |
+          if [[ "$DAST_AUTHORIZED" != "true" ]]; then
+            echo "The authorization confirmation is required." >&2
+            exit 1
+          fi
+          python - <<'PY'
+          import ipaddress
+          import os
+          import re
+          import socket
+          from urllib.parse import urlsplit
+
+          def validate_url(name: str):
+              value = os.environ[name]
+              parsed = urlsplit(value)
+              if parsed.scheme != "https" or not parsed.hostname:
+                  raise SystemExit(f"{name} must be an absolute HTTPS URL")
+              if parsed.username or parsed.password or parsed.fragment:
+                  raise SystemExit(f"{name} must not contain credentials or a fragment")
+              addresses = {
+                  item[4][0].split("%", 1)[0]
+                  for item in socket.getaddrinfo(
+                      parsed.hostname, parsed.port or 443, type=socket.SOCK_STREAM
+                  )
+              }
+              if not addresses:
+                  raise SystemExit(f"{name} did not resolve")
+              for address in addresses:
+                  if not ipaddress.ip_address(address).is_global:
+                      raise SystemExit(f"{name} resolves to a non-public address")
+              return parsed
+
+          target = validate_url("DAST_TARGET_URL")
+          sqlmap = validate_url("DAST_SQLMAP_URL")
+          if target.hostname != sqlmap.hostname:
+              raise SystemExit("DAST_SQLMAP_URL must use the same host as DAST_TARGET_URL")
+          parameter = os.environ["DAST_SQLMAP_PARAMETER"]
+          if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", parameter):
+              raise SystemExit("DAST_SQLMAP_PARAMETER must be a query parameter name")
+          PY
+
+      - name: Verify target responses
+        run: |
+          curl --fail --silent --show-error --location --max-time 30 "$DAST_TARGET_URL" >/dev/null
+          curl --fail --silent --show-error --location --max-time 30 "$DAST_SQLMAP_URL" >/dev/null
+
+      - name: Prepare reports
+        run: mkdir -p reports
+
+      - name: OWASP ZAP baseline
+        id: zap
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          docker run --rm \
+            -v "${PWD}/reports:/zap/wrk:rw" \
+            ghcr.io/zaproxy/zaproxy:2.17.0 \
+            zap-baseline.py -t "$DAST_TARGET_URL" -m 2 -I \
+            -J zap.json -r zap.html -w zap.md 2>&1 | tee reports/zap.log
+
+      - name: Nuclei high and critical scan
+        id: nuclei
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          : > reports/nuclei.jsonl
+          docker run --rm \
+            -v "${PWD}/reports:/reports:rw" \
+            projectdiscovery/nuclei:v3.8.0 \
+            -u "$DAST_TARGET_URL" -severity high,critical -duc -silent -no-color \
+            -jsonl-export /reports/nuclei.jsonl 2>&1 | tee reports/nuclei.log
+
+      - name: Conservative sqlmap detection
+        id: sqlmap
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          curl --fail --silent --show-error --location \
+            https://github.com/sqlmapproject/sqlmap/archive/refs/tags/1.10.7.tar.gz \
+            | tar -xz
+          python sqlmap-1.10.7/sqlmap.py \
+            --url "$DAST_SQLMAP_URL" \
+            -p "$DAST_SQLMAP_PARAMETER" \
+            --batch --level 1 --risk 1 --threads 1 --timeout 10 --retries 1 \
+            --smart --flush-session --disable-coloring \
+            --output-dir reports/sqlmap 2>&1 | tee reports/sqlmap.log
+
+      - name: Enforce DAST policy
+        if: ${{ always() }}
+        shell: bash
+        env:
+          ZAP_OUTCOME: ${{ steps.zap.outcome }}
+          NUCLEI_OUTCOME: ${{ steps.nuclei.outcome }}
+          SQLMAP_OUTCOME: ${{ steps.sqlmap.outcome }}
+        run: |
+          failed=0
+          for outcome in "$ZAP_OUTCOME" "$NUCLEI_OUTCOME" "$SQLMAP_OUTCOME"; do
+            if [[ "$outcome" != "success" ]]; then
+              echo "A scanner failed to complete: $outcome" >&2
+              failed=1
+            fi
+          done
+
+          if [[ ! -s reports/zap.json ]]; then
+            echo "ZAP did not produce a JSON report." >&2
+            failed=1
+          else
+            zap_findings="$(jq '[.site[]?.alerts[]? | select((.riskcode | tonumber) >= 3 and (.confidence | tonumber) >= 2)] | length' reports/zap.json)"
+            if (( zap_findings > 0 )); then
+              echo "ZAP reported $zap_findings high-confidence high-risk finding(s)." >&2
+              failed=1
+            fi
+          fi
+
+          if [[ ! -f reports/nuclei.jsonl ]]; then
+            echo "Nuclei did not produce a JSONL report." >&2
+            failed=1
+          else
+            nuclei_findings="$(jq -s '[.[] | select(.info.severity == "high" or .info.severity == "critical")] | length' reports/nuclei.jsonl)"
+            if (( nuclei_findings > 0 )); then
+              echo "Nuclei reported $nuclei_findings high/critical finding(s)." >&2
+              failed=1
+            fi
+          fi
+
+          if [[ ! -s reports/sqlmap.log ]]; then
+            echo "sqlmap did not produce a log." >&2
+            failed=1
+          elif grep -Eiq "identified the following injection point|parameter '.+' is vulnerable" reports/sqlmap.log; then
+            echo "sqlmap reported an injectable parameter." >&2
+            failed=1
+          fi
+
+          exit "$failed"
+
+      - name: Upload DAST reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: dast-reports
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 30

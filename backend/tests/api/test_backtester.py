@@ -135,6 +135,26 @@ async def test_numeric_filter_rejects_sql_string_422(
 
 
 @pytest.mark.asyncio
+async def test_string_filter_treats_sql_payload_as_data(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    await _seed(session, 2)
+    headers = await _headers(session, UserTier.free)
+    resp = await client.post(
+        "/backtester/run",
+        headers=headers,
+        json={
+            "bet_type": "1x2",
+            "pick": "home",
+            "filters": {"league": "EPL' OR '1'='1"},
+        },
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["matched_count"] == 0
+
+
+@pytest.mark.asyncio
 async def test_save_gated_to_expert(client: AsyncClient, session: AsyncSession) -> None:
     free = await _headers(session, UserTier.free)
     payload = {"name": "my strat", "bet_type": "1x2", "pick": "home", "filters": {"league": "EPL"}}

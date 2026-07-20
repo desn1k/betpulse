@@ -88,6 +88,22 @@ async def test_audit_list_filters_and_paginates(client: AsyncClient, session: As
 
 
 @pytest.mark.asyncio
+async def test_audit_filters_treat_sql_payload_as_data(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    headers = await _admin_headers(session)
+    session.add(AuditLog(action="provider.create", target="provider:api_football"))
+    await session.commit()
+    payload = "provider' OR '1'='1"
+
+    for params in ({"action": payload}, {"target": payload}, {"q": payload}):
+        resp = await client.get("/admin/audit", headers=headers, params=params)
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 0
+        assert resp.json()["events"] == []
+
+
+@pytest.mark.asyncio
 async def test_audit_date_filters(client: AsyncClient, session: AsyncSession) -> None:
     headers = await _admin_headers(session)
     now = datetime.now(UTC)

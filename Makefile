@@ -11,7 +11,7 @@ COMPOSE      := docker compose --env-file .env -f infra/docker-compose.yml
 COMPOSE_PROD := docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.prod.yml
 
 .DEFAULT_GOAL := help
-.PHONY: help dev up down logs ps build test test-backend test-frontend lint lint-backend lint-frontend \
+.PHONY: help dev up down logs ps build test test-backend test-frontend test-e2e lint lint-backend lint-frontend \
         migrate seed bootstrap-history verify-history train backup restore-drill deploy
 
 help: ## Show this help
@@ -39,13 +39,16 @@ build: ## Build all images
 
 ## --- Quality ----------------------------------------------------------------
 
-test: test-backend test-frontend ## Run all tests
+test: test-backend test-frontend test-e2e ## Run all tests
 
 test-backend: ## Run backend tests (pytest)
 	cd backend && python -m pytest
 
 test-frontend: ## Run frontend tests (vitest)
 	cd frontend && npm run test
+
+test-e2e: ## Run Playwright browser-security tests
+	cd frontend && npm run test:e2e
 
 lint: lint-backend lint-frontend ## Lint and type-check everything
 
