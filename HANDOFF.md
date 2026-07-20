@@ -72,7 +72,7 @@ mlflow_utils), `app/workers` (arq_app, tasks), `app/api` (health, auth, admin, p
 | 11 | Push (Telegram + Web Push) on probability swings: per-match follow, tier-gated, `pushes_per_day` | ✅ merged |
 | 12 | Admin dashboard (sub-PRs 12a–12d). 12a shell+providers+ingestion ✅ · 12b ML management ✅ · 12c spend+users+promo/tiers ✅ · 12d-core system health/audit/test ops alerts ✅ · 12d follow-ups tracked below | 🚧 follow-up hardening pending |
 | 13 | Security hardening: headers, rate limits, nonce CSP, strict CORS, Playwright, SQL regressions, manual staging DAST | ✅ complete |
-| 14 | Release workflow → GHCR → `make deploy`; production Caddy/Compose; rollback; backup/restore drills + ops alerts | ⬜ not started |
+| 14 | 14a release workflow → GHCR → immutable-tag deploy/rollback; production Caddy/Compose ✅ · 14b WAL-G backups/restore drills/ops alerts pending | 🚧 in progress |
 
 ## 5. CI — the 9 required checks
 

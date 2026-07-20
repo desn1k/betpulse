@@ -12,7 +12,7 @@ COMPOSE_PROD := docker compose --env-file .env -f infra/docker-compose.yml -f in
 
 .DEFAULT_GOAL := help
 .PHONY: help dev up down logs ps build test test-backend test-frontend test-e2e lint lint-backend lint-frontend \
-        migrate seed bootstrap-history verify-history train backup restore-drill deploy
+        migrate seed bootstrap-history verify-history train backup restore-drill deploy rollback logs-prod ps-prod config-prod
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -81,5 +81,17 @@ backup: ## On-demand encrypted backup (Phase 14)
 restore-drill: ## Restore latest backup into a throwaway container (Phase 14)
 	@echo "restore-drill: not implemented yet"
 
-deploy: ## Pull GHCR images, migrate, up -d, health-check (Phase 14)
-	@echo "deploy: not implemented until Phase 14"
+deploy: ## Deploy immutable GHCR image tag (IMAGE_TAG=vX.Y.Z)
+	@IMAGE_TAG="$(IMAGE_TAG)" bash scripts/deploy.sh
+
+rollback: ## Restore immutable GHCR app image tag (IMAGE_TAG=vX.Y.Z)
+	@IMAGE_TAG="$(IMAGE_TAG)" bash scripts/rollback.sh
+
+logs-prod: ## Tail production Compose logs
+	$(COMPOSE_PROD) logs -f
+
+ps-prod: ## Show production Compose status
+	$(COMPOSE_PROD) ps
+
+config-prod: ## Render production Compose configuration
+	$(COMPOSE_PROD) config
