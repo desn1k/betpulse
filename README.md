@@ -181,9 +181,11 @@ make test               # backend pytest + frontend vitest + playwright
 make lint               # ruff + mypy + eslint + tsc
 make security           # semgrep, bandit, pip-audit, npm audit, trivy, gitleaks
 make train              # retrain all enabled methods
-make backup             # on-demand encrypted DB + artifact backup
-make restore-drill      # restore latest backup into a throwaway container and verify
-make deploy             # pull GHCR images on the VPS, migrate, up -d, health-check
+make backup             # on-demand encrypted DB + artifact backup (Phase 14b)
+make restore-drill      # restore latest backup into a throwaway container and verify (Phase 14b)
+make deploy IMAGE_TAG=v1.2.3     # pull this immutable GHCR release, migrate, restart, health-check
+make rollback IMAGE_TAG=v1.2.2   # restore previous application images; migrations stay forward-only
+make logs-prod / make ps-prod    # production diagnostics
 ```
 
 ---
@@ -195,12 +197,17 @@ Recommended: 4–8 vCPU / 16 GB RAM / NVMe. Everything runs in Docker Compose be
 ```bash
 # on the server
 git clone <repo> && cd <repo>
-cp .env.example .env && $EDITOR .env      # production secrets
-make deploy
+cp .env.example .env && $EDITOR .env      # production secrets, PUBLIC_DOMAIN, GHCR_OWNER
+docker login ghcr.io                       # use a read:packages token if images are private
+make deploy IMAGE_TAG=v1.2.3
 ```
 
-`make deploy` pulls the images published to GHCR by `release.yml`, runs migrations, restarts the
-stack, and fails if the health check does not go green.
+Create a Git tag in the `vMAJOR.MINOR.PATCH` form to publish a release. `release.yml` re-runs the
+full CI workflow and then publishes backend and frontend images to GHCR with that immutable tag and
+`latest`. Production deployment accepts only the immutable tag: it pulls images, applies forward-only
+migrations, restarts the stack, waits for API/web/Caddy health checks, and automatically restores the
+last successful application image tag if the rollout fails. A manual rollback never downgrades the
+database; migrations must remain compatible with the immediately preceding release.
 
 ### Scaling to multiple servers
 

@@ -9,29 +9,59 @@
 services:
   postgres:
     ports: []
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4G
 
   redis:
     ports: []
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
 
   minio:
     ports: []
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
 
   api:
     image: ghcr.io/${GHCR_OWNER:-desn1k}/betpulse-api:${IMAGE_TAG:-latest}
     build: null
     ports: []
     restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
 
   worker:
     image: ghcr.io/${GHCR_OWNER:-desn1k}/betpulse-api:${IMAGE_TAG:-latest}
     build: null
     restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
 
   web:
     image: ghcr.io/${GHCR_OWNER:-desn1k}/betpulse-web:${IMAGE_TAG:-latest}
     build: null
     ports: []
     restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
 
   caddy:
     image: caddy:2.9-alpine
@@ -46,6 +76,17 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     restart: always
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
 
 volumes:
   caddy_data:

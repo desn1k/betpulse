@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -201,3 +202,36 @@ jobs:
           load: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  ops-config:
+    name: Release tooling (shell · compose · Caddy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck
+
+      - name: Validate deployment scripts
+        run: shellcheck scripts/deploy.sh scripts/rollback.sh
+
+      - name: Validate production Compose configuration
+        env:
+          POSTGRES_PASSWORD: ci-postgres-password
+          S3_SECRET_ACCESS_KEY: ci-s3-secret
+          PUBLIC_DOMAIN: betpulse.example.test
+          GHCR_OWNER: desn1k
+          IMAGE_TAG: v0.0.0-ci
+        run: |
+          cp .env.example .env
+          docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.prod.yml config --quiet
+
+      - name: Validate Caddy configuration
+        env:
+          PUBLIC_DOMAIN: betpulse.example.test
+        run: >-
+          docker run --rm
+          -v "$PWD/infra/Caddyfile:/etc/caddy/Caddyfile:ro"
+          -e PUBLIC_DOMAIN
+          caddy:2.9-alpine
+          caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile

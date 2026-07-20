@@ -1,8 +1,6 @@
-# Caddy reverse proxy with automatic TLS.
-#
-# Set PUBLIC_DOMAIN in the environment. Locally you can use `localhost`, which
-# Caddy serves over its internal CA. The frontend is the public entrypoint; the
-# API is proxied under /api and /docs.
+# Caddy reverse proxy with automatic TLS. PUBLIC_DOMAIN must be the production
+# hostname. The frontend is the public entrypoint; the API is proxied under
+# /api and /docs.
 
 {$PUBLIC_DOMAIN:localhost} {
 	encode zstd gzip
@@ -10,9 +8,16 @@
 	# Security headers (a fuller CSP is added in the Phase 13 hardening pass).
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		X-Frame-Options "DENY"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"
+		X-XSS-Protection "0"
 		-Server
+	}
+
+	handle /healthz {
+		respond "ok" 200
 	}
 
 	handle /api/* {
