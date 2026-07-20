@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Football Analytics & ML Prediction Platform — FastAPI backend"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi==0.139.0",
+    "fastapi==0.139.2",
     "uvicorn[standard]==0.51.0",
     "pydantic==2.13.4",
     "pydantic-settings==2.14.2",
@@ -17,23 +17,23 @@ dependencies = [
     "pyotp==2.10.0",
     # redis and cryptography are held at these versions by arq (<6) and mlflow
     # (cryptography <49); both remain non-vulnerable per pip-audit.
-    "redis==5.3.1",
-    "cryptography==48.0.1",
+    "redis==8.0.1",
+    "cryptography==49.0.0",
     # Pinned above the version uvicorn would otherwise resolve, to clear
     # PYSEC-2026-2132 (fixed in 8.3.3).
     "click==8.4.2",
     # HTTP client for providers; pandas for CSV/feature work (mlflow caps <3).
     "httpx==0.28.1",
-    "pandas==2.3.3",
+    "pandas==3.0.3",
     # ML stack (Phase 4).
     "scipy==1.18.0",
     "scikit-learn==1.9.0",
-    "lightgbm==4.6.0",
+    "lightgbm==4.7.0",
     "statsmodels==0.14.6",
     "mlflow==3.14.0",
-    "boto3==1.43.47",
+    "boto3==1.43.51",
     "arq==0.28.0",
-    "openai==2.45.0",
+    "openai==2.46.0",
 ]
 
 [project.optional-dependencies]
@@ -43,7 +43,7 @@ dev = [
     "pytest-cov==7.1.0",
     "httpx==0.28.1",
     "respx==0.23.1",
-    "ruff==0.15.21",
+    "ruff==0.15.22",
     "mypy==2.3.0",
 ]
 
