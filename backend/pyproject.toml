@@ -4,36 +4,36 @@ version = "0.1.0"
 description = "Football Analytics & ML Prediction Platform — FastAPI backend"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi==0.139.0",
-    "uvicorn[standard]==0.51.0",
-    "pydantic==2.13.4",
-    "pydantic-settings==2.14.2",
+    "fastapi==0.141.1",
+    "uvicorn[standard]==0.52.4",
+    "pydantic==2.13.5",
+    "pydantic-settings==2.15.0",
     "email-validator==2.3.0",
-    "sqlalchemy[asyncio]==2.0.51",
+    "sqlalchemy[asyncio]==2.0.52",
     "asyncpg==0.31.0",
-    "alembic==1.18.5",
+    "alembic==1.19.2",
     "argon2-cffi==25.1.0",
     "pyjwt==2.13.0",
     "pyotp==2.10.0",
     # redis and cryptography are held at these versions by arq (<6) and mlflow
     # (cryptography <49); both remain non-vulnerable per pip-audit.
-    "redis==5.3.1",
-    "cryptography==48.0.1",
+    "redis==8.1.0",
+    "cryptography==50.0.1",
     # Pinned above the version uvicorn would otherwise resolve, to clear
     # PYSEC-2026-2132 (fixed in 8.3.3).
-    "click==8.4.2",
+    "click==8.5.0",
     # HTTP client for providers; pandas for CSV/feature work (mlflow caps <3).
     "httpx==0.28.1",
-    "pandas==2.3.3",
+    "pandas==3.0.5",
     # ML stack (Phase 4).
-    "scipy==1.18.0",
-    "scikit-learn==1.9.0",
-    "lightgbm==4.6.0",
-    "statsmodels==0.14.6",
-    "mlflow==3.14.0",
-    "boto3==1.43.47",
+    "scipy==1.18.1",
+    "scikit-learn==1.9.1",
+    "lightgbm==4.7.0",
+    "statsmodels==0.15.0",
+    "mlflow==3.16.0",
+    "boto3==1.43.92",
     "arq==0.28.0",
-    "openai==2.45.0",
+    "openai==3.13.0",
 ]
 
 [project.optional-dependencies]
@@ -43,8 +43,8 @@ dev = [
     "pytest-cov==7.1.0",
     "httpx==0.28.1",
     "respx==0.23.1",
-    "ruff==0.15.21",
-    "mypy==2.3.0",
+    "ruff==0.16.7",
+    "mypy==2.3.1",
 ]
 
 [build-system]
