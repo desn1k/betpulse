@@ -18,7 +18,7 @@ Statistical and machine-learning predictions for **live and upcoming football ma
 | Frontend | Next.js 15 (App Router) · React 19 · TypeScript · Tailwind v4 · shadcn/ui · TanStack Query · next-intl (RU/EN) |
 | Backend | Python 3.12 · FastAPI · Pydantic v2 · SQLAlchemy 2 (async) · Alembic |
 | Data | PostgreSQL 16 (+TimescaleDB) · Redis 7 · S3-compatible object storage |
-| Jobs | ARQ workers + scheduler (queues: `ingest`, `train`, `live`, `push`, `llm`) |
+| Jobs | ARQ — three queues, one worker service each: `realtime`, `batch`, `ml` |
 | ML | numpy · scipy · statsmodels · scikit-learn · LightGBM · MLflow |
 | LLM | Any OpenAI-compatible endpoint (configurable `base_url`) |
 | Infra | Docker Compose · Caddy (auto-TLS) · GHCR · GitHub Actions |
@@ -161,7 +161,7 @@ snapshotting the full registry first for one-click rollback.
 ```bash
 git clone <repo> && cd <repo>
 cp .env.example .env          # fill in the secrets — see comments in the file
-make up                       # docker compose up -d (postgres, redis, minio, api, worker, beat, web, mlflow)
+make up                       # docker compose up -d (postgres, redis, minio, mlflow, api, web, worker-realtime, worker-batch, worker-ml)
 make migrate                  # alembic upgrade head
 make seed                     # tiers, leagues, admin user
 make bootstrap-history        # ingest football-data.co.uk CSVs (free, no key needed)
@@ -215,9 +215,16 @@ database; migrations must remain compatible with the immediately preceding relea
 The design is stateless-by-default, so scaling out requires no rewrite:
 
 - `api` — run N replicas behind the proxy; Redis pub/sub fans out live updates between them.
-- `worker` — run N workers, optionally on a dedicated CPU-heavy host; point it at the same
-  Redis + Postgres + S3. Split queues so training never starves live recomputation.
-- `beat` — exactly **one** active scheduler; extra instances hold a Redis lock as hot standby.
+- Workers — one ARQ queue per service (`app/workers/queues.py` maps every task to its queue):
+  - `worker-realtime` (`realtime`): live poll → in-play recompute → push; short jobs, 20 at a time.
+  - `worker-batch` (`batch`): admin ingestion re-scans and the midnight LLM ranking cron.
+  - `worker-ml` (`ml`): model training and the nightly champion re-evaluation cron; one job at a
+    time. Training blocks this worker's event loop, which is why it never shares a process with
+    live work. To move it to a dedicated CPU-heavy host, run only `worker-ml` there with the same
+    image and environment (including `TRUSTED_PROXY_CIDRS`, which production settings require in
+    every backend process), pointed at the same Redis, Postgres and S3, and stop it on the main host.
+  - Each cron is registered on exactly one worker class and takes a Redis lock, so extra replicas
+    of any worker are safe hot standbys.
 - Postgres — primary + read replica (read/write routing is already in the session factory).
 - Object storage — S3-compatible from day one (MinIO locally → any provider in prod).
 

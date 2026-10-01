@@ -6,6 +6,9 @@ env_file="$root_dir/.env"
 state_dir="$root_dir/.release"
 last_successful_tag_file="$state_dir/last-successful-image-tag"
 health_attempts="${DEPLOY_HEALTHCHECK_ATTEMPTS:-30}"
+# Application services built from release images. Keep in sync with
+# infra/docker-compose*.yml (one ARQ worker per queue, app/workers/queues.py).
+app_services=(api worker-realtime worker-batch worker-ml web)
 
 if [[ ! -f "$env_file" ]]; then
   echo "Missing $env_file. Copy .env.example and configure production secrets first." >&2
@@ -56,23 +59,23 @@ rollback_on_failure() {
   if [[ -n "$previous_tag" && "$previous_tag" != "$image_tag" ]]; then
     echo "Deployment failed; restoring application images tagged $previous_tag." >&2
     image_tag="$previous_tag"
-    compose pull api worker web || true
-    compose up -d --no-deps api worker web || true
+    compose pull "${app_services[@]}" || true
+    compose up -d --no-deps --remove-orphans "${app_services[@]}" || true
   fi
   exit "$exit_code"
 }
 trap rollback_on_failure ERR
 
-compose pull api worker web
+compose pull "${app_services[@]}"
 compose up -d postgres redis minio
 wait_for_service postgres
 wait_for_service redis
 
 compose run --rm api alembic upgrade head
 compose up -d --remove-orphans
-wait_for_service api
-wait_for_service web
-wait_for_service caddy
+for service in "${app_services[@]}" caddy; do
+  wait_for_service "$service"
+done
 
 mkdir -p "$state_dir"
 umask 077
