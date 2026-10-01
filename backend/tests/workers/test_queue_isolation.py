@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
 import sys
 import textwrap
 import time
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 import pytest_asyncio
@@ -74,11 +76,13 @@ async def test_jobs_only_run_on_the_worker_bound_to_their_queue(pool: ArqRedis) 
 # loop exactly like CPU-bound LightGBM fitting does.
 _BLOCKING_ML_WORKER = textwrap.dedent(
     f"""
-    import asyncio, time
+    import asyncio, logging, sys, time
     from arq.worker import Worker, func
     from arq.connections import RedisSettings
     from app.core.config import get_settings
     from app.workers.arq_app import MlWorker
+
+    logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 
     async def train_all_task(ctx):
         time.sleep({TRAIN_SECONDS})
@@ -93,21 +97,34 @@ _BLOCKING_ML_WORKER = textwrap.dedent(
         handle_signals=False,
     )
     asyncio.run(worker.main())
+    print("ml worker drained its queue", file=sys.stderr, flush=True)
     """
 )
 
 
-async def test_long_training_does_not_block_live_jobs(pool: ArqRedis) -> None:
+async def test_long_training_does_not_block_live_jobs(pool: ArqRedis, tmp_path: Path) -> None:
     train_job = await enqueue(pool, "train_all_task")
     assert train_job is not None
-    ml_process = await asyncio.create_subprocess_exec(
-        sys.executable, "-c", _BLOCKING_ML_WORKER, env=os.environ.copy()
-    )
+
+    log_path = tmp_path / "ml-worker.log"
+    with log_path.open("wb") as log:
+        # Started off the event loop; polled with the non-blocking Popen.poll().
+        ml_process = await asyncio.to_thread(
+            subprocess.Popen,
+            [sys.executable, "-c", _BLOCKING_ML_WORKER],
+            env=os.environ.copy(),
+            stdout=log,
+            stderr=subprocess.STDOUT,
+        )
+
+    def worker_log() -> str:
+        return log_path.read_text(encoding="utf-8", errors="replace")
+
     try:
         deadline = time.monotonic() + 30
         while not await pool.exists(in_progress_key_prefix + train_job.job_id):
-            assert time.monotonic() < deadline, "ml worker never started the training job"
-            assert ml_process.returncode is None, "ml worker exited early"
+            assert time.monotonic() < deadline, f"ml worker never started:\n{worker_log()}"
+            assert ml_process.poll() is None, f"ml worker exited early:\n{worker_log()}"
             await asyncio.sleep(0.05)
 
         started = time.monotonic()
@@ -119,16 +136,20 @@ async def test_long_training_does_not_block_live_jobs(pool: ArqRedis) -> None:
 
         assert await live_job.result(timeout=1) == "done"
         assert elapsed < TRAIN_SECONDS / 2, f"live job waited {elapsed:.1f}s behind training"
-        # Training was still running while the live job completed.
+        # Training was still running in the other process while the live job completed.
         assert await pool.exists(in_progress_key_prefix + train_job.job_id)
-        assert ml_process.returncode is None
+        assert ml_process.poll() is None
+
+        # ...and it still finishes normally.
+        assert await train_job.result(timeout=TRAIN_SECONDS + 15) == "trained", worker_log()
     finally:
         try:
-            await asyncio.wait_for(ml_process.wait(), timeout=TRAIN_SECONDS + 15)
-        finally:
-            if ml_process.returncode is None:
-                ml_process.kill()
-                await ml_process.wait()
+            await asyncio.to_thread(ml_process.wait, 15)
+        except subprocess.TimeoutExpired:
+            ml_process.kill()
+            await asyncio.to_thread(ml_process.wait)
+            raise AssertionError(
+                f"ml worker did not exit after draining:\n{worker_log()}"
+            ) from None
 
-    assert ml_process.returncode == 0
-    assert await train_job.result(timeout=5) == "trained"
+    assert ml_process.returncode == 0, worker_log()
