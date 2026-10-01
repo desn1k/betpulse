@@ -6,27 +6,52 @@ from __future__ import annotations
 import inspect
 import re
 from pathlib import Path
+from typing import Any, cast
 
+from app.core.config import get_settings
 from app.workers import tasks
 from app.workers.arq_app import (
+    HEALTH_CHECK_INTERVAL_SECONDS,
+    REDIS_SETTINGS,
     WORKERS,
     BatchWorker,
     MlWorker,
     RealtimeWorker,
-    WorkerSettingsBase,
+    WorkerSettings,
 )
 from app.workers.queues import TASK_QUEUES, Queue
+from arq.connections import RedisSettings
+from arq.worker import get_kwargs
 
 APP_ROOT = Path(__file__).resolve().parents[2] / "app"
 QUEUES_MODULE = APP_ROOT / "workers" / "queues.py"
 
 
-def _function_names(worker: type[WorkerSettingsBase]) -> list[str]:
+def _function_names(worker: type[WorkerSettings]) -> list[str]:
     return [f.name for f in worker.functions]
 
 
-def _cron_names(worker: type[WorkerSettingsBase]) -> list[str]:
+def _cron_names(worker: type[WorkerSettings]) -> list[str]:
     return [c.name for c in worker.cron_jobs]
+
+
+def test_the_arq_cli_sees_every_setting() -> None:
+    """`arq <settings class>` reads only the class's own __dict__ (arq.worker.get_kwargs),
+    so inherited settings would be dropped and workers would fall back to localhost Redis."""
+    configured = RedisSettings.from_dsn(get_settings().redis_url)
+    for worker in WORKERS:
+        # arq annotates get_kwargs as returning dict[str, NameError]; the values are settings.
+        kwargs: dict[str, Any] = get_kwargs(cast(Any, worker))
+        assert kwargs["redis_settings"] is REDIS_SETTINGS, worker
+        assert (kwargs["redis_settings"].host, kwargs["redis_settings"].port) == (
+            configured.host,
+            configured.port,
+        )
+        assert kwargs["health_check_interval"] == HEALTH_CHECK_INTERVAL_SECONDS
+        assert kwargs["queue_name"] == worker.queue_name
+        assert kwargs["functions"] == worker.functions
+        assert kwargs["cron_jobs"] == worker.cron_jobs
+        assert "max_jobs" in kwargs and "job_timeout" in kwargs
 
 
 def test_each_queue_has_exactly_one_worker() -> None:

@@ -14,7 +14,7 @@ cron tasks still make extra replicas of that worker safe hot standbys.
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Any
+from typing import Any, Protocol
 
 from arq.connections import RedisSettings
 from arq.cron import CronJob, cron
@@ -33,9 +33,10 @@ from app.workers.tasks import (
     train_all_task,
 )
 
-# Health-check key refresh; `arq --check <Worker>` (the Compose healthcheck)
-# fails once it is older than this.
+# Heartbeat refresh; `python -m app.workers.healthcheck <queue>` (the Compose
+# healthcheck) fails once ARQ lets the key expire shortly after this.
 HEALTH_CHECK_INTERVAL_SECONDS = 30
+REDIS_SETTINGS = RedisSettings.from_dsn(get_settings().redis_url)
 
 
 def _parse_cron_hour_minute(expr: str) -> tuple[int, int]:
@@ -79,20 +80,27 @@ async def _bootstrap_live_loop(ctx: dict[str, Any]) -> None:
     await enqueue(ctx["redis"], "poll_live_task")
 
 
-class WorkerSettingsBase:
-    """Settings shared by every worker class (read by the `arq` CLI)."""
+class WorkerSettings(Protocol):
+    """Shape of a worker settings class (typing only).
 
-    redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
-    health_check_interval = HEALTH_CHECK_INTERVAL_SECONDS
+    The `arq` CLI reads ``settings_cls.__dict__``, i.e. only attributes defined
+    on the class itself — inherited ones are silently ignored. Every worker
+    class therefore spells out all of its settings instead of sharing a base.
+    """
+
+    redis_settings: RedisSettings
+    health_check_interval: int
     queue_name: Queue
     functions: list[Function]
-    cron_jobs: list[CronJob] = []
+    cron_jobs: list[CronJob]
 
 
-class RealtimeWorker(WorkerSettingsBase):
+class RealtimeWorker:
     """Short, latency-sensitive jobs. In-play recompute is a ~20 µs Dixon-Coles
     evaluation plus DB I/O, so it stays on the event loop."""
 
+    redis_settings = REDIS_SETTINGS
+    health_check_interval = HEALTH_CHECK_INTERVAL_SECONDS
     queue_name = Queue.REALTIME
     max_jobs = 20
     job_timeout = 60
@@ -105,12 +113,15 @@ class RealtimeWorker(WorkerSettingsBase):
         # Delivery retries once on its own; an ARQ retry would double-send.
         _task(push_task, Queue.REALTIME, max_tries=1),
     ]
+    cron_jobs: list[CronJob] = []
     on_startup = _bootstrap_live_loop
 
 
-class BatchWorker(WorkerSettingsBase):
+class BatchWorker:
     """Admin-triggered historical re-scans and the midnight LLM ranking."""
 
+    redis_settings = REDIS_SETTINGS
+    health_check_interval = HEALTH_CHECK_INTERVAL_SECONDS
     queue_name = Queue.BATCH
     max_jobs = 2
     job_timeout = int(timedelta(minutes=30).total_seconds())
@@ -125,11 +136,13 @@ class BatchWorker(WorkerSettingsBase):
     ]
 
 
-class MlWorker(WorkerSettingsBase):
+class MlWorker:
     """CPU-bound model work, one job at a time. Training blocks this worker's
     event loop, which is why it never shares a process with the other queues;
     run it on a dedicated host by pointing it at the same Redis/Postgres/S3."""
 
+    redis_settings = REDIS_SETTINGS
+    health_check_interval = HEALTH_CHECK_INTERVAL_SECONDS
     queue_name = Queue.ML
     max_jobs = 1
     job_timeout = int(timedelta(hours=2).total_seconds())
@@ -147,4 +160,4 @@ class MlWorker(WorkerSettingsBase):
     ]
 
 
-WORKERS: tuple[type[WorkerSettingsBase], ...] = (RealtimeWorker, BatchWorker, MlWorker)
+WORKERS: tuple[type[WorkerSettings], ...] = (RealtimeWorker, BatchWorker, MlWorker)
