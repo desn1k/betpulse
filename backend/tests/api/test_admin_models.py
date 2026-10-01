@@ -13,6 +13,7 @@ from app.main import app
 from app.models.audit_log import AuditLog
 from app.models.model_registry import ModelRegistry, ModelStatus
 from app.models.user import User, UserRole
+from app.workers.queues import Queue
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,10 +21,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 class _FakePool:
     def __init__(self) -> None:
-        self.jobs: list[str] = []
+        self.jobs: list[tuple[str, object]] = []
 
-    async def enqueue_job(self, name: str, *args: object, **_kwargs: object) -> None:
-        self.jobs.append(name)
+    async def enqueue_job(self, name: str, *args: object, **kwargs: object) -> None:
+        self.jobs.append((name, kwargs.get("_queue_name")))
 
 
 async def _admin_headers(session: AsyncSession) -> dict[str, str]:
@@ -254,4 +255,4 @@ async def test_retrain_enqueues(client: AsyncClient, session: AsyncSession) -> N
         assert resp.status_code == 202
     finally:
         app.dependency_overrides.pop(get_arq_pool, None)
-    assert fake.jobs == ["train_all_task"]
+    assert fake.jobs == [("train_all_task", Queue.ML)]

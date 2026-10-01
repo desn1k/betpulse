@@ -15,6 +15,7 @@ from app.models.reference import League, ProviderLeagueAlias, ProviderTeamAlias,
 from app.providers.api_football import ApiFootballProvider
 from app.providers.dtos import LiveFixtureDTO, QuotaDTO
 from app.workers import tasks as live_tasks
+from app.workers.queues import Queue
 from sqlalchemy.ext.asyncio import AsyncSession
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "api_football"
@@ -84,6 +85,8 @@ async def test_poll_live_task_enqueues_recompute_and_reschedules(
     # the reschedule carries a defer
     reschedule = next(j for j in arq.jobs if j[0] == "poll_live_task")
     assert "_defer_by" in reschedule[2]
+    # the whole live pipeline stays on the realtime queue
+    assert {j[2]["_queue_name"] for j in arq.jobs} == {Queue.REALTIME}
 
 
 @pytest.mark.asyncio
@@ -131,3 +134,5 @@ async def test_recompute_task_enqueues_push_on_swing(session: AsyncSession) -> N
     # A late two-goal lead is a large swing → push enqueued.
     await live_tasks.recompute_fixture_task({"redis": arq}, str(fid), 85, 2, 0)
     assert "push_task" in arq.names()
+    push = next(j for j in arq.jobs if j[0] == "push_task")
+    assert push[2]["_queue_name"] == Queue.REALTIME

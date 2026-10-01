@@ -452,7 +452,6 @@ export const en: LegalDocuments = {
             ],
           },
           "[LOCAL RUSSIAN HELP RESOURCE]",
-          "If you or someone close to you is in danger, call the unified emergency number 112.",
         ],
       },
     ],

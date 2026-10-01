@@ -25,6 +25,7 @@ from app.services.live.push import dispatch_push
 from app.services.live.recompute import get_base_rates, recompute_fixture
 from app.services.llm.ranking import rank_today_fixtures
 from app.services.model_admin import get_weighting
+from app.workers.queues import enqueue
 
 logger = logging.getLogger("workers.tasks")
 
@@ -85,7 +86,8 @@ async def poll_live_task(ctx: dict[str, Any]) -> int:
             await session.commit()
         if arq is not None:
             for state in result.states:
-                await arq.enqueue_job(
+                await enqueue(
+                    arq,
                     "recompute_fixture_task",
                     str(state.fixture_id),
                     state.minute,
@@ -97,7 +99,8 @@ async def poll_live_task(ctx: dict[str, Any]) -> int:
         if await redis.get(LIVE_POLL_LOCK_KEY) == token:
             await redis.delete(LIVE_POLL_LOCK_KEY)
         if arq is not None:
-            await arq.enqueue_job(
+            await enqueue(
+                arq,
                 "poll_live_task",
                 _defer_by=timedelta(seconds=settings.live_poll_interval_seconds),
             )
@@ -144,7 +147,7 @@ async def recompute_fixture_task(
     if result.should_push:
         arq = ctx.get("redis")
         if arq is not None:
-            await arq.enqueue_job("push_task", str(fid), _swing_text(fid, result.probs))
+            await enqueue(arq, "push_task", str(fid), _swing_text(fid, result.probs))
     return result.swing
 
 

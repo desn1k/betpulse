@@ -11,6 +11,15 @@
 # docker-compose.yml.
 x-trusted-proxy-cidrs: &trusted-proxy-cidrs "${BETPULSE_WEB_IP:-172.29.89.10}/32,${BETPULSE_CADDY_IP:-172.29.89.11}/32"
 
+# Shared by the three ARQ worker services (realtime, batch, ml).
+x-worker-prod: &worker-prod
+  image: ghcr.io/${GHCR_OWNER:-desn1k}/betpulse-api:${IMAGE_TAG:-latest}
+  build: null
+  environment:
+    # Production settings validation requires it in every backend process.
+    TRUSTED_PROXY_CIDRS: *trusted-proxy-cidrs
+  restart: always
+
 services:
   postgres:
     ports: []
@@ -49,13 +58,26 @@ services:
           cpus: "1.0"
           memory: 1G
 
-  worker:
-    image: ghcr.io/${GHCR_OWNER:-desn1k}/betpulse-api:${IMAGE_TAG:-latest}
-    build: null
-    environment:
-      # Production settings validation requires it in every backend process.
-      TRUSTED_PROXY_CIDRS: *trusted-proxy-cidrs
-    restart: always
+  worker-realtime:
+    <<: *worker-prod
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+
+  worker-batch:
+    <<: *worker-prod
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+
+  # Model training. To move it to a dedicated host, run only this service there
+  # with the same image and env, pointed at the same Redis, Postgres and S3.
+  worker-ml:
+    <<: *worker-prod
     deploy:
       resources:
         limits:

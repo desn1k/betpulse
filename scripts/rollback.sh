@@ -4,6 +4,9 @@ set -Eeuo pipefail
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 env_file="$root_dir/.env"
 health_attempts="${DEPLOY_HEALTHCHECK_ATTEMPTS:-30}"
+# Application services built from release images. Keep in sync with
+# infra/docker-compose*.yml (one ARQ worker per queue, app/workers/queues.py).
+app_services=(api worker-realtime worker-batch worker-ml web)
 
 if [[ ! -f "$env_file" ]]; then
   echo "Missing $env_file. Copy .env.example and configure production secrets first." >&2
@@ -44,9 +47,11 @@ wait_for_service() {
   return 1
 }
 
-compose pull api worker web
-compose up -d --no-deps api worker web
-wait_for_service api
-wait_for_service web
-wait_for_service caddy
+compose pull "${app_services[@]}"
+# --remove-orphans stops services that the current Compose files no longer
+# define (e.g. the single pre-split `worker`).
+compose up -d --no-deps --remove-orphans "${app_services[@]}"
+for service in "${app_services[@]}" caddy; do
+  wait_for_service "$service"
+done
 echo "Application images rolled back to $image_tag. Database migrations are intentionally not downgraded."

@@ -46,8 +46,8 @@ Monorepo:
 | `/docs` | `DATA_SOURCES.md` (provider canon) |
 
 Data plane: PostgreSQL 16 + TimescaleDB (hypertables `odds`, `predictions_live`) · Redis 7 · MinIO
-(S3) · MLflow (Postgres backend + MinIO artifacts) · ARQ (async Redis queue/scheduler; queues
-`ingest`, `train`, `live`, `push`, `llm`).
+(S3) · MLflow (Postgres backend + MinIO artifacts) · ARQ (async Redis queues `realtime`, `batch`, `ml`,
+one worker service each — see §9k; the spec's five queue names were consolidated).
 
 Backend layout of note: `app/core` (config, db, redis, security, crypto, deps), `app/models`,
 `app/providers` (BaseProvider abstraction + football_data_couk + api_football + id_mapping),
@@ -144,17 +144,17 @@ re-run `pip-audit --skip-editable` after any change.
 
 Branch `claude/live-phase-5`, off merged `main`. Scope & design (owner-approved defaults):
 
-1. **Live ingestion** — ARQ task on queue `live`, self-rescheduling every `LIVE_POLL_INTERVAL_SECONDS`
+1. **Live ingestion** — ARQ task on queue `live` (now `realtime`, §9k), self-rescheduling every `LIVE_POLL_INTERVAL_SECONDS`
    (default 60) under a Redis single-flight lock; polls `/fixtures?live=all`; parses → upserts
    fixtures + fixture_stats; writes `predictions_live`; **hard-stops on quota**; idempotent.
-2. **In-play recompute** — separate ARQ task (queue `live`), triggered after each successful poll
+2. **In-play recompute** — separate ARQ task (queue `live`, now `realtime`), triggered after each successful poll
    (not a fixed timer); Dixon-Coles conditioned on current score + elapsed minute, then LightGBM
    with live features; recompute **only if state changed**; on swing > `PROBABILITY_SWING_PUSH_THRESHOLD`
-   (default 0.10) vs the previous `predictions_live` row → enqueue a push job (queue `push`).
+   (default 0.10) vs the previous `predictions_live` row → enqueue a push job (queue `push`, now `realtime`).
 3. **Transport — SSE** (not WebSocket): `GET /live/stream`, auth-gated by tier (guest/free cannot
    stream); one event per fixture update; on reconnect (`Last-Event-ID`) replay from an append-only
    `live_updates` log, ≤ 5 minutes; Redis pub/sub fan-out between API replicas.
-4. **Push** (queue `push`) — Telegram via `TELEGRAM_BOT_TOKEN` (Bot HTTP API on httpx) + Web Push
+4. **Push** (queue `push`, now `realtime`) — Telegram via `TELEGRAM_BOT_TOKEN` (Bot HTTP API on httpx) + Web Push
    via VAPID; skip if no `push_subscriptions` row; on failure log+discard, one retry after 30s;
    rate limit ≤ 1 push per (user, fixture) per 5 minutes in Redis.
 5. **Migration `0005_live_push`** — `push_subscriptions`, `live_updates` (BIGSERIAL id =
@@ -525,6 +525,54 @@ courtesy translation.
 - **Cookie/consent banner** (PR-2 of this work): analytics only after consent through
   `hasConsent("analytics")`; no analytics provider is integrated.
 
+## 9k. Background workers (ARQ queues)
+
+`app/workers/queues.py` is the single source of truth: queue names plus the task → queue mapping,
+and `enqueue(pool, task, ...)` is the only way code enqueues (a test fails on any other `enqueue_job`
+call or queue literal in `app/`). `app/workers/arq_app.py` has one settings class per queue, each run
+as its own Compose service:
+
+| Queue / service | Tasks | Cron | Limits |
+|---|---|---|---|
+| `realtime` / `worker-realtime` | `poll_live_task`, `recompute_fixture_task`, `push_task` (+ live-loop bootstrap on startup) | — | 20 jobs, 60 s; poll and push `max_tries=1` |
+| `batch` / `worker-batch` | `ingest_history_task`, `rank_llm_fixtures_task` | LLM ranking 00:00 UTC | 2 jobs, 30 min |
+| `ml` / `worker-ml` | `train_all_task`, `reevaluate_champions_task` | champion re-eval 04:00 UTC | 1 job, 2 h |
+
+- **Deviation from the spec.** §18 lists five queues (`ingest`, `train`, `live`, `push`, `llm`). ARQ
+  serves one queue per worker process, so five queues would mean five processes, each importing the ML
+  stack. The goal of §18 is isolation of training from live recomputation; three queues achieve it.
+  Splitting a task out later (e.g. `push`) is one mapping entry plus one settings class.
+- **Why `ml` is a separate process, not just a queue:** training is CPU-bound and runs on the event
+  loop, so it stalls everything else in its process (including ARQ's heartbeat — hence the lenient
+  `worker-ml` healthcheck). In-play recompute is ~20 µs of Dixon-Coles maths per fixture plus DB I/O,
+  so it stays on the realtime event loop without a thread pool.
+- **Healthchecks:** `python -m app.workers.healthcheck <queue>` checks the worker's ARQ heartbeat key
+  in Redis (cheap; `arq --check` would import the ML stack on every probe).
+- **Rollout of the split:** jobs left in ARQ's old default queue (`arq:queue`) at deploy time are not
+  consumed by the new workers. The deferred live poll is harmless (`worker-realtime` re-bootstraps the
+  loop); admin-triggered re-scans or retrains that were queued but not started must be re-triggered
+  from the admin UI. Inspect/drop leftovers with `redis-cli ZRANGE arq:queue 0 -1` /
+  `redis-cli DEL arq:queue`. `deploy.sh` runs `up -d --remove-orphans`, which stops the old single
+  `worker` container. Rolling back to a pre-split image also needs the pre-split Compose files.
+- **Scaling:** run `worker-ml` on a dedicated host by starting only that service there (same image and
+  env, same Redis/Postgres/S3) and stopping it on the main host.
+
+**Backlog (separate tasks):**
+- **Nightly retrain cron.** `RETRAIN_CRON` (`.env`) is read nowhere; the only ML cron is the champion
+  re-evaluation, hard-coded to 04:00. Wire `RETRAIN_CRON` to a `train_all_task` cron on `MlWorker`
+  (and decide whether re-evaluation follows training).
+- **Live-chain deduplication.** `poll_live_task` re-schedules itself in `finally`, and every
+  `worker-realtime` start enqueues a new poll. Two chains can therefore coexist: after a restart (the
+  old deferred job survives in Redis) or with two realtime replicas. The Redis single-flight lock
+  stops *concurrent* polls, and a chain whose tick finds the lock held ends (the early return skips
+  the re-schedule), but chains whose ticks never overlap — offset by more than one poll duration —
+  both survive and poll at up to twice the configured rate, burning API-Football quota. Fix: give the
+  re-scheduled job a fixed `_job_id` so ARQ refuses duplicates, which requires `keep_result=0` on
+  `poll_live_task` (a kept result blocks re-use of the id for `keep_result` seconds) and enqueueing the
+  next tick only after the current job's key is released (a job cannot re-enqueue its own id while it
+  is still running) — e.g. via an `after_job_end` hook or a lock-guarded scheduler. Needs a careful
+  test against real ARQ semantics.
+
 ## 10. How to resume
 
 1. Read this file + the spec §14 for the current phase.
@@ -543,3 +591,16 @@ courtesy translation.
   the Phase 11 push-delivery + per-match-follow plumbing (reuse `dispatch_push`, the `pushes_per_day`
   counter, and the subscription channels). Not in scope for Phase 11 — recorded here so it is not
   forgotten.
+- **Cookie/consent banner** (postponed by the owner; was PR-2 of the legal work). Agreed design:
+  - first-party `bp_consent` cookie (necessary vs analytics) read **on the server** in the root layout, so
+    the banner is server-rendered with no hydration flicker and needs no inline script (nonce CSP);
+  - non-modal bottom panel rendered **under** the 18+ age-gate overlay; actions **accept all**,
+    **reject** (necessary only — the choice is stored too) and **manage** (analytics toggle + save);
+  - 180-day lifetime plus a consent **version**: an expired cookie or an older version re-prompts;
+  - a "Cookie settings" button in the footer reopens the panel;
+  - a `hasConsent("analytics")` helper (client and server variants) that any future analytics code
+    must go through; **no analytics provider** is added with the banner;
+  - the Privacy page cookie section must then list `bp_consent` (the policy/cookie test enforces it).
+  - Russian-law note: a cookie banner is not strictly mandatory in the RF while the site sets only
+    necessary cookies; it becomes relevant as soon as an analytics provider (or any non-essential
+    cookie) is added, so build it together with — or before — the first analytics integration.

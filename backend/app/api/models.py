@@ -33,6 +33,7 @@ from app.schemas.models import (
 )
 from app.services import model_admin
 from app.services.audit import record_event
+from app.workers.queues import enqueue
 
 router = APIRouter(prefix="/admin/models", tags=["admin-models"])
 
@@ -201,7 +202,7 @@ async def retrain(
     session: Annotated[AsyncSession, Depends(get_db)],
     arq: Annotated[ArqRedis, Depends(get_arq_pool)],
 ) -> dict[str, bool]:
-    await arq.enqueue_job("train_all_task")
+    await enqueue(arq, "train_all_task")
     await record_event(
         session,
         action="model.retrain",

@@ -9,6 +9,20 @@
 
 name: betpulse
 
+# Shared by the three ARQ worker services below.
+x-worker: &worker
+  build:
+    context: ../backend
+    dockerfile: Dockerfile
+  env_file:
+    - ../.env
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+
 services:
   postgres:
     # TimescaleDB extension available from day one for live probability and
@@ -133,22 +147,41 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  # ARQ worker: processes the `train` queue and runs the nightly champion
-  # re-evaluation cron. The cron takes a Redis lock (with a TTL), so extra
-  # worker replicas are safe hot standbys rather than duplicate schedulers (§18).
-  worker:
-    build:
-      context: ../backend
-      dockerfile: Dockerfile
-    command: ["arq", "app.workers.arq_app.WorkerSettings"]
-    env_file:
-      - ../.env
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
+  # ARQ workers, one per queue (app/workers/queues.py, spec §18). Each cron is
+  # registered on exactly one worker class and takes a Redis lock, so extra
+  # replicas are safe hot standbys rather than duplicate schedulers.
+  worker-realtime:
+    <<: *worker
+    command: ["arq", "app.workers.arq_app.RealtimeWorker"]
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.workers.healthcheck", "realtime"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  worker-batch:
+    <<: *worker
+    command: ["arq", "app.workers.arq_app.BatchWorker"]
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.workers.healthcheck", "batch"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # Training blocks this worker's event loop (and its health-check heartbeat)
+  # for minutes, so the check is lenient: ~30 minutes of missed beats (60 x 30s) before
+  # the container is reported unhealthy.
+  worker-ml:
+    <<: *worker
+    command: ["arq", "app.workers.arq_app.MlWorker"]
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.workers.healthcheck", "ml"]
+      interval: 30s
+      timeout: 10s
+      retries: 60
+      start_period: 30s
 
   web:
     build:

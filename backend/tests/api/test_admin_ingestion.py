@@ -11,6 +11,7 @@ from app.main import app
 from app.models.audit_log import AuditLog
 from app.models.ingestion_run import IngestionRun, IngestionStatus
 from app.models.user import User, UserRole
+from app.workers.queues import Queue
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,9 +20,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 class _FakePool:
     def __init__(self) -> None:
         self.jobs: list[tuple[str, tuple[object, ...]]] = []
+        self.queues: list[object] = []
 
-    async def enqueue_job(self, name: str, *args: object, **_kwargs: object) -> None:
+    async def enqueue_job(self, name: str, *args: object, **kwargs: object) -> None:
         self.jobs.append((name, args))
+        self.queues.append(kwargs.get("_queue_name"))
 
 
 async def _admin_headers(session: AsyncSession) -> dict[str, str]:
@@ -87,6 +90,7 @@ async def test_rescan_enqueues_and_audits(client: AsyncClient, session: AsyncSes
 
     name, args = fake.jobs[0]
     assert name == "ingest_history_task"
+    assert fake.queues == [Queue.BATCH]
     assert args[0] == ["EPL"] and args[1] == ["2023-2024"]
     assert str(args[2]).startswith("admin:")
 
