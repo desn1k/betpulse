@@ -543,3 +543,16 @@ courtesy translation.
   the Phase 11 push-delivery + per-match-follow plumbing (reuse `dispatch_push`, the `pushes_per_day`
   counter, and the subscription channels). Not in scope for Phase 11 — recorded here so it is not
   forgotten.
+- **Cookie/consent banner** (postponed by the owner; was PR-2 of the legal work). Agreed design:
+  - first-party `bp_consent` cookie (necessary vs analytics) read **on the server** in the root layout, so
+    the banner is server-rendered with no hydration flicker and needs no inline script (nonce CSP);
+  - non-modal bottom panel rendered **under** the 18+ age-gate overlay; actions **accept all**,
+    **reject** (necessary only — the choice is stored too) and **manage** (analytics toggle + save);
+  - 180-day lifetime plus a consent **version**: an expired cookie or an older version re-prompts;
+  - a "Cookie settings" button in the footer reopens the panel;
+  - a `hasConsent("analytics")` helper (client and server variants) that any future analytics code
+    must go through; **no analytics provider** is added with the banner;
+  - the Privacy page cookie section must then list `bp_consent` (the policy/cookie test enforces it).
+  - Russian-law note: a cookie banner is not strictly mandatory in the RF while the site sets only
+    necessary cookies; it becomes relevant as soon as an analytics provider (or any non-essential
+    cookie) is added, so build it together with — or before — the first analytics integration.
