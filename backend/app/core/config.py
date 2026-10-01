@@ -13,7 +13,12 @@ from typing import Literal
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.client_ip import IPNetwork, parse_trusted_proxies, validate_production_proxies
+
 Environment = Literal["development", "staging", "production"]
+
+# Local runs (uvicorn and Next.js on one host) and the test client.
+_DEV_TRUSTED_PROXIES = "127.0.0.1/32,::1/128"
 
 
 class Settings(BaseSettings):
@@ -72,6 +77,12 @@ class Settings(BaseSettings):
     rate_limit_promo_per_hour: int = 10
     rate_limit_llm_analysis_per_minute: int = 20
     rate_limit_admin_mutation_per_minute: int = 60
+
+    # --- Reverse proxies ----------------------------------------------------
+    # Comma-separated CIDRs whose X-Forwarded-For is honoured (Caddy and the
+    # Next.js BFF). Required in production; development/tests default to
+    # loopback. See app/core/client_ip.py.
+    trusted_proxy_cidrs: str | None = None
 
     # --- Feature flags ------------------------------------------------------
     email_verification_required: bool = False
@@ -148,6 +159,12 @@ class Settings(BaseSettings):
         return self.environment == "production"
 
     @property
+    def trusted_proxy_networks(self) -> tuple[IPNetwork, ...]:
+        if self.trusted_proxy_cidrs is None:
+            return () if self.is_production else parse_trusted_proxies(_DEV_TRUSTED_PROXIES)
+        return parse_trusted_proxies(self.trusted_proxy_cidrs)
+
+    @property
     def read_database_url(self) -> str:
         """Read-replica URL, falling back to the primary when unset."""
         return self.database_read_url or self.database_url
@@ -155,7 +172,11 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _validate_security_settings(self) -> Settings:
         """Fail fast when production security settings are unsafe."""
+        networks = self.trusted_proxy_networks  # raises on malformed CIDRs
         if self.is_production:
+            if self.trusted_proxy_cidrs is None:
+                raise ValueError("TRUSTED_PROXY_CIDRS must be set explicitly in production")
+            validate_production_proxies(networks)
             for name in ("secret_key", "data_encryption_key"):
                 value = getattr(self, name)
                 if not value or len(value) < 32:
