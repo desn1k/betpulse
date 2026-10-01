@@ -132,8 +132,11 @@ The agent's build/verify environment is **not** the production environment. Know
 ## 8. Dependency pins that are load-bearing
 
 `backend/pyproject.toml` caps some versions to keep the tree consistent and pip-audit clean:
-`redis==5.3.1` (capped by `arq<6`), `pandas==2.3.3` and `cryptography==48.0.1` (capped by
-`mlflow<49`). Ruff selects `E,F,I,UP,B,ASYNC,S`; mypy strict + `pydantic.mypy` with
+`redis==5.3.1` (capped by `arq<6`), `cryptography==50.0.2` (capped by `mlflow==3.16.1`, which
+requires `cryptography<51`) and `pandas==2.3.3` (mlflow 3.16 allows `pandas<4`; kept on 2.x
+deliberately). Bumping cryptography past 50.x requires an mlflow release that lifts that cap.
+`tests/test_dependency_known_answers.py` pins a Fernet token and a JWT issued under the previous
+cryptography/PyJWT versions, so a bump that breaks data at rest or live sessions fails CI. Ruff selects `E,F,I,UP,B,ASYNC,S`; mypy strict + `pydantic.mypy` with
 `ignore_missing_imports` for pandas/joblib/lightgbm/statsmodels/sklearn. Do not bump these blindly;
 re-run `pip-audit --skip-editable` after any change.
 
