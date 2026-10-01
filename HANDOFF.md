@@ -456,15 +456,17 @@ large diff, and do not proceed while any required security/CI job is red.
   (heavy DAST may be nightly/manual if documented).
 - **Docs:** add `SECURITY.md` with exact reproduction commands, scope, expected outputs, false-positive
   handling, and how CI blocks merges.
-- **Client IP (release blocker until both parts merge):** `app.core.deps.get_client_ip` is the only
+- **Client IP:** `app.core.deps.get_client_ip` is the only
   client-IP source (login/admin limits, promo, audit, guest identity). It honours
   `X-Forwarded-For` only from `TRUSTED_PROXY_CIDRS` (right-most untrusted hop, IP-validated) and
   uvicorn runs with `--no-proxy-headers`. Compose pins `web`/`caddy` addresses
   (`BETPULSE_NETWORK_SUBNET`, `BETPULSE_WEB_IP`, `BETPULSE_CADDY_IP`) and trusts exactly those /32s;
   production refuses to start without an explicit, private, narrow list. Rate-limit and guest-quota
-  keys bucket IPv6 by /64; audit keeps the full address. Part A: backend + infra + Caddy smoke
-  assertion. Part B (pending): route every Next.js `/api/*` backend call through one server-side
-  helper that forwards the Caddy-set client IP, guarded by a static test.
+  keys bucket IPv6 by /64; audit keeps the full address. On the frontend every `app/api` route
+  handler reaches FastAPI only through `lib/server/backendProxy.ts` (directly or via `authProxy`),
+  which forwards the bearer token and the right-most valid `X-Forwarded-For` hop (the Caddy-set
+  client IP; `X-Real-IP` is never read). `lib/server/routeHandlers.test.ts` statically fails any
+  handler that calls `fetch` or reads the backend URL itself.
 
 ## 9i. Phase 14 plan (release workflow, deploy and backups)
 

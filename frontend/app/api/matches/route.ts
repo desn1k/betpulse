@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { backendGet } from "@/lib/server/backend";
+import { proxyBackendGet } from "@/lib/server/backendProxy";
 
 // Same-origin proxy for the match list. The browser (via TanStack Query) hits
 // this route; it forwards the whitelisted query params to the FastAPI backend so
-// API_BASE_URL stays server-side only.
+// the backend URL stays server-side only. The helper forwards the bearer token (the
+// backend resolves the caller's tier) and the client IP (guest quota identity).
 const ALLOWED_PARAMS = ["league", "status", "date", "limit", "offset"] as const;
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -17,19 +18,5 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
   }
   const query = forwarded.toString();
-
-  // Forward the bearer token (if any) so the backend resolves the caller's tier.
-  const auth = request.headers.get("authorization");
-  const headers = auth ? { authorization: auth } : undefined;
-
-  try {
-    const res = await backendGet(`/matches${query ? `?${query}` : ""}`, { headers });
-    const body = await res.text();
-    return new NextResponse(body, {
-      status: res.status,
-      headers: { "content-type": "application/json" },
-    });
-  } catch {
-    return NextResponse.json({ error: "backend_unavailable" }, { status: 502 });
-  }
+  return proxyBackendGet(request, `/matches${query ? `?${query}` : ""}`);
 }
