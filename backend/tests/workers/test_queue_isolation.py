@@ -88,15 +88,20 @@ _BLOCKING_ML_WORKER = textwrap.dedent(
         time.sleep({TRAIN_SECONDS})
         return "trained"
 
-    worker = Worker(
-        functions=[func(train_all_task, name="train_all_task")],
-        queue_name=MlWorker.queue_name,
-        redis_settings=RedisSettings.from_dsn(get_settings().redis_url),
-        burst=True,
-        poll_delay=0.05,
-        handle_signals=False,
-    )
-    asyncio.run(worker.main())
+    async def run():
+        # Built inside the running loop: Worker binds to the loop current at
+        # construction time and schedules its jobs there.
+        worker = Worker(
+            functions=[func(train_all_task, name="train_all_task")],
+            queue_name=MlWorker.queue_name,
+            redis_settings=RedisSettings.from_dsn(get_settings().redis_url),
+            burst=True,
+            poll_delay=0.05,
+            handle_signals=False,
+        )
+        await worker.main()
+
+    asyncio.run(run())
     print("ml worker drained its queue", file=sys.stderr, flush=True)
     """
 )
