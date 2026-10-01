@@ -8,6 +8,7 @@ import "./globals.css";
 import { AgeGate, AGE_GATE_COOKIE } from "@/components/legal/AgeGate";
 import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
+import { ageGateConsentDays } from "@/config/legal";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
@@ -15,11 +16,6 @@ export const metadata: Metadata = {
   description:
     "ML-driven predictions for live and upcoming football matches. Analytical and informational purposes only. 18+.",
 };
-
-function ageGateConsentDays(): number {
-  const raw = Number(process.env.AGE_GATE_CONSENT_DAYS);
-  return Number.isFinite(raw) && raw > 0 ? raw : 30;
-}
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const locale = await getLocale();

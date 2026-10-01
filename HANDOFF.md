@@ -488,6 +488,43 @@ implemented.
 - **Docs:** update README/deploy docs with required env vars, tag-based release flow, deploy, rollback,
   backup and restore-drill commands.
 
+## 9j. Legal & compliance (Russian Federation)
+
+The target jurisdiction is the Russian Federation. Russian legal texts are authoritative; English is a
+courtesy translation.
+
+**Implemented (spec §19):**
+- Five pages under `frontend/app/legal/`: terms (Пользовательское соглашение), privacy (Политика
+  обработки персональных данных, 152-FZ art. 18.1), consent (a **standalone** consent to personal data
+  processing, never embedded in the terms), responsible, disclaimer. Texts live in
+  `frontend/content/legal/{ru,en}.ts` (server-rendered, not shipped in the client message bundle);
+  operator details and retention periods are `[PLACEHOLDERS]` in `frontend/config/legal.ts` only. A
+  DRAFT banner (`LEGAL_DRAFT`) stays on every page until a lawyer specialising in Russian personal-data
+  law has reviewed the texts. Keep the privacy policy in sync with the code: `content/legal/legal.test.ts`
+  fails if a cookie the app sets is missing from it.
+- Footer links all five pages; the 18+ age gate links to them and is not shown on `/legal/*`; it
+  re-prompts when `bp_age_ok` expires (`AGE_GATE_CONSENT_DAYS`, passed to the `web` container).
+- Disclaimers: full §19 text in the footer, on the match page and under backtester results; a short form
+  on every match card; "past performance does not predict future results" next to every ROI figure.
+
+**Mandatory before launch (requirements, not yet code):**
+- **Data localisation:** the production database holding personal data of RF citizens must be hosted in
+  the RF (152-FZ art. 18 part 5). This also applies to backups (Phase 14b WAL-G target) — decide the
+  hosting and backup locations during deploy planning.
+- **Roskomnadzor notifications** — operator registration (art. 22) and cross-border transfer notice
+  (art. 12: Telegram, browser push services) — are the operator's manual tasks; fill the registry number
+  into `config/legal.ts` afterwards.
+- **Retention and deletion (152-FZ art. 21):** there is currently no automatic purge of `audit_log`,
+  expired tokens or other records and no account-deletion flow. Implement the retention/deletion
+  procedure (and set the real periods in `config/legal.ts`) before launch.
+- **Registration UI:** when a sign-up form is built it must include an **unchecked** consent checkbox
+  linking to `/legal/consent` (plus links to the terms and privacy policy); registration must not proceed
+  without it.
+- **Product rule:** no bookmaker affiliate links, odds-to-bookmaker deep links or calls to place bets
+  without legal review (gambling regulation and advertising law).
+- **Cookie/consent banner** (PR-2 of this work): analytics only after consent through
+  `hasConsent("analytics")`; no analytics provider is integrated.
+
 ## 10. How to resume
 
 1. Read this file + the spec §14 for the current phase.
