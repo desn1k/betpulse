@@ -213,7 +213,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck
 
       - name: Validate deployment scripts
-        run: shellcheck scripts/deploy.sh scripts/rollback.sh
+        run: shellcheck scripts/deploy.sh scripts/rollback.sh scripts/caddy-smoke.sh
 
       - name: Validate production Compose configuration
         env:
@@ -235,3 +235,7 @@ jobs:
           -e PUBLIC_DOMAIN
           caddy:2.9-alpine
           caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+      - name: Caddy routing smoke test
+        timeout-minutes: 5
+        run: bash scripts/caddy-smoke.sh
