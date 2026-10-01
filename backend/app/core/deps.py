@@ -12,6 +12,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.client_ip import rate_limit_bucket, resolve_client_ip
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.core.redis import get_redis
@@ -36,11 +37,13 @@ def get_redis_dep() -> Redis:
 
 
 def get_client_ip(request: Request) -> str:
-    """Best-effort client IP (trusts the direct peer; proxy headers are handled
-    at the reverse proxy in production)."""
-    if request.client is None:
-        return "unknown"
-    return request.client.host
+    """The caller's real IP: ``X-Forwarded-For`` is honoured only from a peer in
+    ``TRUSTED_PROXY_CIDRS`` (see :mod:`app.core.client_ip`). Audit logs store
+    this full address; rate limits key on :func:`rate_limit_bucket` of it."""
+    peer = request.client.host if request.client is not None else None
+    return resolve_client_ip(
+        peer, request.headers.get("x-forwarded-for"), get_settings().trusted_proxy_networks
+    )
 
 
 async def get_current_user(
@@ -106,18 +109,6 @@ async def get_optional_user(
 OptionalUser = Annotated[User | None, Depends(get_optional_user)]
 
 
-def client_ip_from_forwarded(request: Request) -> str:
-    """Client IP for guest rate-limiting: the first address in
-    ``X-Forwarded-For`` (the original client behind our reverse proxy), falling
-    back to the direct peer."""
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        first = forwarded.split(",")[0].strip()
-        if first:
-            return first
-    return get_client_ip(request)
-
-
 class TierContext:
     """The caller's resolved tier plus the identity used for per-day limits."""
 
@@ -134,7 +125,7 @@ async def get_tier_context(
     redis: Annotated[Redis, Depends(get_redis_dep)],
 ) -> TierContext:
     tier = await resolve_tier_context(session, redis, user)
-    identity = str(user.id) if user is not None else client_ip_from_forwarded(request)
+    identity = str(user.id) if user is not None else rate_limit_bucket(get_client_ip(request))
     return TierContext(tier=tier, user=user, identity=identity)
 
 

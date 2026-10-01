@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from redis.asyncio import Redis
 
+from app.core.client_ip import rate_limit_bucket
+
 
 class RateLimitExceeded(Exception):
     """Raised when a fixed-window rate limit is exceeded."""
@@ -30,8 +32,10 @@ async def enforce_fixed_window(redis: Redis, *, key: str, limit: int, window_sec
 
 
 async def enforce_login_ip_limit(redis: Redis, *, ip: str, limit: int) -> None:
-    """Per-IP login attempt limit (per minute)."""
-    await enforce_fixed_window(redis, key=f"rl:login:ip:{ip}", limit=limit, window_seconds=60)
+    """Per-IP login attempt limit (per minute; IPv6 per /64)."""
+    await enforce_fixed_window(
+        redis, key=f"rl:login:ip:{rate_limit_bucket(ip)}", limit=limit, window_seconds=60
+    )
 
 
 async def enforce_llm_analysis_limit(redis: Redis, *, identity: str, limit: int) -> None:
@@ -42,7 +46,7 @@ async def enforce_llm_analysis_limit(redis: Redis, *, identity: str, limit: int)
 
 
 async def enforce_admin_mutation_ip_limit(redis: Redis, *, ip: str, limit: int) -> None:
-    """Per-IP admin mutation limit (per minute)."""
+    """Per-IP admin mutation limit (per minute; IPv6 per /64)."""
     await enforce_fixed_window(
-        redis, key=f"rl:admin_mutation:ip:{ip}", limit=limit, window_seconds=60
+        redis, key=f"rl:admin_mutation:ip:{rate_limit_bucket(ip)}", limit=limit, window_seconds=60
     )

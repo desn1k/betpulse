@@ -215,7 +215,7 @@ jobs:
       - name: Validate deployment scripts
         run: shellcheck scripts/deploy.sh scripts/rollback.sh scripts/caddy-smoke.sh
 
-      - name: Validate production Compose configuration
+      - name: Validate Compose configuration (development and production)
         env:
           POSTGRES_PASSWORD: ci-postgres-password
           S3_SECRET_ACCESS_KEY: ci-s3-secret
@@ -224,6 +224,7 @@ jobs:
           IMAGE_TAG: v0.0.0-ci
         run: |
           cp .env.example .env
+          docker compose --env-file .env -f infra/docker-compose.yml config --quiet
           docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.prod.yml config --quiet
 
       - name: Validate Caddy configuration

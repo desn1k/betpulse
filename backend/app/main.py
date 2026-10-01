@@ -26,7 +26,7 @@ from app.api.system import audit_router
 from app.api.system import router as system_router
 from app.api.users import admin_router as users_admin_router
 from app.core.config import get_settings
-from app.core.deps import client_ip_from_forwarded
+from app.core.deps import get_client_ip
 from app.core.redis import get_redis
 from app.core.security_headers import SECURITY_HEADERS
 from app.services.rate_limit import RateLimitExceeded, enforce_admin_mutation_ip_limit
@@ -63,7 +63,7 @@ def create_app() -> FastAPI:
             try:
                 await enforce_admin_mutation_ip_limit(
                     get_redis(),
-                    ip=client_ip_from_forwarded(request),
+                    ip=get_client_ip(request),
                     limit=settings.rate_limit_admin_mutation_per_minute,
                 )
             except RateLimitExceeded as exc:
