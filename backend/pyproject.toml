@@ -13,12 +13,13 @@ dependencies = [
     "asyncpg==0.31.0",
     "alembic==1.18.5",
     "argon2-cffi==25.1.0",
-    "pyjwt==2.13.0",
+    "pyjwt==2.15.1",
     "pyotp==2.10.0",
-    # redis and cryptography are held at these versions by arq (<6) and mlflow
-    # (cryptography <49); both remain non-vulnerable per pip-audit.
+    # redis and cryptography are capped by arq (redis <6) and mlflow 3.16
+    # (cryptography <51); both remain non-vulnerable per pip-audit. Fernet/JWT
+    # compatibility across bumps: tests/test_dependency_known_answers.py.
     "redis==5.3.1",
-    "cryptography==48.0.1",
+    "cryptography==50.0.2",
     # Pinned above the version uvicorn would otherwise resolve, to clear
     # PYSEC-2026-2132 (fixed in 8.3.3).
     "click==8.4.2",
@@ -30,7 +31,7 @@ dependencies = [
     "scikit-learn==1.9.0",
     "lightgbm==4.6.0",
     "statsmodels==0.14.6",
-    "mlflow==3.14.0",
+    "mlflow==3.16.1",
     "boto3==1.43.47",
     "arq==0.28.0",
     "openai==2.45.0",
