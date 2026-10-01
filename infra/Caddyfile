@@ -1,6 +1,10 @@
 # Caddy reverse proxy with automatic TLS. PUBLIC_DOMAIN must be the production
-# hostname. The frontend is the public entrypoint; the API is proxied under
-# /api and /docs.
+# hostname. The Next.js frontend is the public entrypoint: its /api/* route
+# handlers are the BFF that talks to the FastAPI service over the internal
+# network (FastAPI routes carry no /api prefix). The only FastAPI path exposed
+# publicly is the Telegram bot webhook. Interactive API docs are not published.
+#
+# Routing is covered by scripts/caddy-smoke.sh (run in CI).
 
 {$PUBLIC_DOMAIN:localhost} {
 	encode zstd gzip
@@ -20,11 +24,10 @@
 		respond "ok" 200
 	}
 
-	handle /api/* {
-		reverse_proxy api:8000
-	}
-
-	handle /docs* {
+	# Telegram calls this directly; it authenticates via the
+	# X-Telegram-Bot-Api-Secret-Token header. Exact path only — every other
+	# /push/* path belongs to the frontend.
+	handle /push/telegram/webhook {
 		reverse_proxy api:8000
 	}
 
