@@ -93,6 +93,13 @@ Next.js BFF, so the TCP peer is one of our containers. `get_client_ip`
   must parse as an IP address, otherwise the walk stops at the last trusted
   hop. IPv4-mapped IPv6 is normalised to IPv4.
 - uvicorn runs with `--no-proxy-headers` so the app always sees the raw peer.
+- The Next.js BFF forwards exactly one hop: the right-most `X-Forwarded-For`
+  entry it received (set by Caddy), and only if it is a valid IP. `X-Real-IP`
+  is never read, because Caddy passes it through from the client. Every
+  `app/api` route handler must call the backend through
+  `frontend/lib/server/backendProxy.ts`; `routeHandlers.test.ts` fails the
+  build otherwise. The `web` container must only be reachable through Caddy
+  (production Compose publishes no `web` port).
 - Docker Compose pins the network (`BETPULSE_NETWORK_SUBNET`) and the `web`
   and `caddy` addresses (`BETPULSE_WEB_IP`, `BETPULSE_CADDY_IP`) and trusts
   exactly those /32s. The Docker gateway and every other container are
