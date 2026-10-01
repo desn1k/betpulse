@@ -46,6 +46,27 @@ describe("BacktestResults", () => {
     expect(getByText(/Past performance does not predict future results/i)).toBeInTheDocument();
   });
 
+  it("shows the full spec §19 disclaimer with the results", () => {
+    const { getByTestId } = renderWithProviders(<BacktestResults result={base} />, {
+      locale: "en",
+    });
+    expect(getByTestId("backtest-disclaimer")).toHaveTextContent(
+      /Analytical and informational purposes only.*18\+/,
+    );
+  });
+
+  it("puts the past-performance phrase next to the out-of-sample ROI too", () => {
+    const { getByTestId } = renderWithProviders(
+      <BacktestResults
+        result={{ ...base, small_sample_warning: false, walk_forward: true, out_of_sample_roi: 0.042 }}
+      />,
+      { locale: "ru" },
+    );
+    const oos = getByTestId("out-of-sample-roi");
+    expect(oos).toHaveTextContent("4.2%");
+    expect(oos).toHaveTextContent("Прошлые результаты не гарантируют будущих.");
+  });
+
   it("renders the equity curve container", () => {
     const { getByTestId } = renderWithProviders(<BacktestResults result={base} />, {
       locale: "en",

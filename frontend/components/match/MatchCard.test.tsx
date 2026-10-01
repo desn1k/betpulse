@@ -40,6 +40,14 @@ describe("MatchCard", () => {
     expect(delayed.getByText("Data delayed")).toBeInTheDocument();
   });
 
+  it("carries the short prediction disclaimer in both locales (spec §19)", () => {
+    const ru = renderWithProviders(<MatchCard match={summaryFixture} />, { locale: "ru" });
+    expect(ru.getByText("Статистическая оценка, не совет по ставкам. 18+")).toBeInTheDocument();
+
+    const en = renderWithProviders(<MatchCard match={summaryFixture} />, { locale: "en" });
+    expect(en.getByText("Statistical estimate, not betting advice. 18+")).toBeInTheDocument();
+  });
+
   it("skeleton matches the card height (no layout shift)", () => {
     const { getByTestId } = renderWithProviders(<MatchCardSkeleton />);
     const skeleton = getByTestId("match-card-skeleton");

@@ -13,7 +13,7 @@ import { ProbabilityBar } from "./ProbabilityBar";
 
 // Shared fixed height so the card and its skeleton occupy the exact same box —
 // swapping one for the other causes zero layout shift (a hard requirement).
-export const MATCH_CARD_HEIGHT = "h-[188px]";
+export const MATCH_CARD_HEIGHT = "h-[208px]";
 
 function Score({ value }: { value: number | null }) {
   return <span className="tabular-nums">{value ?? "–"}</span>;
@@ -67,6 +67,9 @@ export function MatchCard({ match }: { match: MatchSummary }) {
             </div>
           )}
         </div>
+
+        {/* Short form of the spec §19 disclaimer on every prediction card. */}
+        <p className="truncate text-[11px] leading-4 text-muted">{t("card.disclaimer")}</p>
       </Card>
     </Link>
   );

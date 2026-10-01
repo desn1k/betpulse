@@ -62,9 +62,13 @@ export function BacktestResults({ result }: { result: BacktestResult }) {
       </div>
 
       {result.walk_forward && result.out_of_sample_roi !== null && (
-        <Badge variant="brand">
-          {t("backtester.metrics.outOfSample")}: {(result.out_of_sample_roi * 100).toFixed(1)}%
-        </Badge>
+        <div className="flex flex-wrap items-center gap-2" data-testid="out-of-sample-roi">
+          <Badge variant="brand">
+            {t("backtester.metrics.outOfSample")}: {(result.out_of_sample_roi * 100).toFixed(1)}%
+          </Badge>
+          {/* Every ROI figure carries the inline disclaimer (spec §19). */}
+          <span className="text-xs italic text-muted">{t("backtester.roiDisclaimerInline")}</span>
+        </div>
       )}
 
       <Card className="p-4">
@@ -81,6 +85,11 @@ export function BacktestResults({ result }: { result: BacktestResult }) {
           </ResponsiveContainer>
         </div>
       </Card>
+
+      {/* Persistent full disclaimer in the backtester results (spec §19). */}
+      <p className="text-xs leading-relaxed text-muted" data-testid="backtest-disclaimer">
+        {t("disclaimer.text")}
+      </p>
     </div>
   );
 }
