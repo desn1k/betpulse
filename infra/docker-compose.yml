@@ -156,6 +156,8 @@ services:
       dockerfile: Dockerfile
     environment:
       API_BASE_URL: ${API_BASE_URL:-http://api:8000}
+      # Lifetime of the 18+ confirmation cookie (spec §19); read at request time.
+      AGE_GATE_CONSENT_DAYS: ${AGE_GATE_CONSENT_DAYS:-30}
     networks:
       default:
         ipv4_address: ${BETPULSE_WEB_IP:-172.29.89.10}

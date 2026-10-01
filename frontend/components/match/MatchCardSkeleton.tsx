@@ -6,7 +6,7 @@ import { MATCH_CARD_HEIGHT } from "./MatchCard";
 
 /**
  * Loading placeholder for a MatchCard. It reuses MATCH_CARD_HEIGHT and mirrors
- * the card's internal layout (header row, teams row, consensus bar) so the
+ * the card's internal layout (header row, teams row, consensus bar, disclaimer) so the
  * transition from loading → loaded produces no layout shift.
  */
 export function MatchCardSkeleton() {
@@ -27,6 +27,7 @@ export function MatchCardSkeleton() {
         <Skeleton className="h-3 w-16" />
         <Skeleton className="h-7 w-full" />
       </div>
+      <Skeleton className="h-3 w-48" />
     </Card>
   );
 }

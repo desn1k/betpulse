@@ -299,6 +299,21 @@ on first login before admin features unlock.
 
 ---
 
+## Legal & compliance
+
+The target jurisdiction is the Russian Federation; Russian legal texts are authoritative and English is
+a courtesy translation. `/legal/terms`, `/legal/privacy` (152-FZ personal data processing policy),
+`/legal/consent` (standalone consent to personal data processing), `/legal/responsible` and
+`/legal/disclaimer` are linked from the footer and the 18+ age gate.
+
+The texts are a **draft** (a banner says so on every page) and must be reviewed by a lawyer
+specialising in Russian personal-data law before launch. Fill in the operator details and retention
+periods — every `[PLACEHOLDER]` — in `frontend/config/legal.ts`; the texts themselves are in
+`frontend/content/legal/`. The pre-launch requirements (data localisation in the RF, Roskomnadzor
+notifications, retention/deletion, registration consent checkbox) are listed in `HANDOFF.md` §9j.
+
+---
+
 ## Contributing / CI gate
 
 `ci.yml` (lint, type-check, pytest ≥ 80 % coverage, vitest, Playwright) and `security.yml` must be

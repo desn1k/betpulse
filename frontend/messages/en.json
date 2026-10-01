@@ -288,7 +288,8 @@
     "deltaVsMarket": "Delta vs market",
     "dataDelayed": "Data delayed",
     "tierLocked": "Available on the {tier} tier",
-    "signInToView": "Sign in to view the full breakdown"
+    "signInToView": "Sign in to view the full breakdown",
+    "disclaimer": "Statistical estimate, not betting advice. 18+"
   },
   "methods": {
     "elo": "Elo",
@@ -315,13 +316,20 @@
   "ageGate": {
     "title": "Are you 18 or older?",
     "body": "This content is for adults aged 18+ and is analytical in nature. By continuing you confirm your age.",
-    "accept": "I am 18 or older"
+    "accept": "I am 18 or older",
+    "documentsLabel": "Documents"
   },
   "footer": {
     "terms": "Terms of Use",
-    "privacy": "Privacy Policy",
+    "privacy": "Personal Data Processing Policy",
+    "consent": "Consent to Personal Data Processing",
     "responsible": "Responsible Gaming",
     "disclaimer": "Disclaimer"
+  },
+  "legal": {
+    "navLabel": "Legal documents",
+    "draftNotice": "Draft. These texts have not been legally reviewed; values in square brackets will be filled in by the operator before launch.",
+    "translationNotice": "This English translation is provided for convenience; the Russian version prevails."
   },
   "backtester": {
     "title": "Strategy backtester",
