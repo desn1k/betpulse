@@ -455,7 +455,6 @@ export const ru: LegalDocuments = {
             ],
           },
           "[LOCAL RUSSIAN HELP RESOURCE]",
-          "Если вы или ваш близкий в опасности, звоните по единому номеру экстренных служб 112.",
         ],
       },
     ],
