@@ -127,7 +127,7 @@ async def test_login_limit_buckets_ipv6_by_64(
 
 async def _login_audit_ips(session: AsyncSession) -> list[str | None]:
     rows = await session.execute(
-        select(AuditLog.ip).where(AuditLog.action == AuditAction.LOGIN_SUCCESS.value)
+        select(AuditLog.ip).where(AuditLog.action == AuditAction.LOGIN_SUCCESS)
     )
     return list(rows.scalars())
 
