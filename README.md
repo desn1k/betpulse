@@ -66,8 +66,9 @@ subscription, else their base `users.tier`, else `guest`.
 - **Method bars** are returned by `GET /matches/{id}` only for pro/expert; guest/free get an empty
   `methods` list plus a `flags` object (`{methods, per_half_totals, live_recompute}`) so the
   frontend blurs/locks. Enforcement is server-side; the frontend only mirrors flags.
-- **Daily match limit**: `GET /matches/{id}` counts one view per caller (user id, or guest IP from
-  the first `X-Forwarded-For`) in Redis, keyed by UTC date and reset at UTC midnight. Over the tier
+- **Daily match limit**: `GET /matches/{id}` counts one view per caller (user id, or the guest's
+  client IP — IPv6 per /64 — resolved from `X-Forwarded-For` only behind `TRUSTED_PROXY_CIDRS`, see
+  `SECURITY.md`) in Redis, keyed by UTC date and reset at UTC midnight. Over the tier
   budget → `403 {tier_required}`. `GET /matches` is free and reports `matches_remaining`.
 - **Auth (minimal)**: email+password login returns a short-lived JWT (held in browser memory) and
   sets a rotating refresh token in an httpOnly cookie. The billing layer (`PaymentProvider`) is

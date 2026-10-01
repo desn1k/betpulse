@@ -75,6 +75,42 @@ surfaces:
 Daily product budgets (match detail views, backtester runs and delivered push
 notifications) remain tier limits rather than abuse controls.
 
+"Client IP" in these limits and in guest daily quotas is an IPv4 address or,
+for IPv6, the client's /64 (a single subscriber usually controls a whole /64).
+Audit log entries record the full address.
+
+## Client IP and trusted proxies
+
+Requests reach FastAPI through Caddy (only the Telegram webhook) or through the
+Next.js BFF, so the TCP peer is one of our containers. `get_client_ip`
+(`backend/app/core/client_ip.py`) is the single source of the client address:
+
+- `X-Forwarded-For` is honoured only when the peer is inside
+  `TRUSTED_PROXY_CIDRS`; from any other peer it is ignored and the peer
+  address is used.
+- Within a trusted chain the client is the right-most hop that is not itself a
+  trusted proxy; left-hand, client-supplied entries are never used. Every hop
+  must parse as an IP address, otherwise the walk stops at the last trusted
+  hop. IPv4-mapped IPv6 is normalised to IPv4.
+- uvicorn runs with `--no-proxy-headers` so the app always sees the raw peer.
+- Docker Compose pins the network (`BETPULSE_NETWORK_SUBNET`) and the `web`
+  and `caddy` addresses (`BETPULSE_WEB_IP`, `BETPULSE_CADDY_IP`) and trusts
+  exactly those /32s. The Docker gateway and every other container are
+  untrusted.
+- In production `TRUSTED_PROXY_CIDRS` must be set explicitly. Startup fails
+  when it is missing, malformed, contains `0.0.0.0/0`/`::/0`, a public range, or
+  a prefix broader than /16 (IPv6: /48). Outside production it defaults to
+  loopback for local runs and tests.
+- Caddy has no `trusted_proxies`, so it replaces any client-supplied
+  `X-Forwarded-For` with the connecting address. `scripts/caddy-smoke.sh`
+  asserts that a spoofed value never reaches an upstream.
+
+**If a CDN, WAF or load balancer is ever placed in front of Caddy**, configure
+Caddy's `trusted_proxies` with that provider's published ranges and re-review
+the whole chain (Caddy, the BFF and `TRUSTED_PROXY_CIDRS`) before going live.
+Otherwise every client appears as the CDN, and per-IP limits collapse into a
+few shared buckets.
+
 ## Credentialed CORS
 
 The API accepts credentialed browser requests only from the exact origins in

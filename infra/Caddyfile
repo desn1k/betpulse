@@ -4,7 +4,13 @@
 # network (FastAPI routes carry no /api prefix). The only FastAPI path exposed
 # publicly is the Telegram bot webhook. Interactive API docs are not published.
 #
-# Routing is covered by scripts/caddy-smoke.sh (run in CI).
+# Client IP: no `trusted_proxies` is configured, so Caddy discards any incoming
+# X-Forwarded-For and sends upstream only the connecting client's address. The
+# BFF and the API rely on that (see SECURITY.md). If a CDN/WAF is ever placed in
+# front of Caddy, configure `trusted_proxies` for it and re-review the chain.
+#
+# Routing and the X-Forwarded-For replacement are covered by
+# scripts/caddy-smoke.sh (run in CI).
 
 {$PUBLIC_DOMAIN:localhost} {
 	encode zstd gzip

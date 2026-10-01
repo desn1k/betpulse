@@ -6,6 +6,11 @@
 # release.yml, Phase 14) instead of being built locally, database ports are not
 # exposed publicly, and Caddy terminates TLS in front of the stack.
 
+# Caddy (Telegram webhook) and the Next.js BFF are the only hops whose
+# X-Forwarded-For the API honours; their addresses are pinned below and in
+# docker-compose.yml.
+x-trusted-proxy-cidrs: &trusted-proxy-cidrs "${BETPULSE_WEB_IP:-172.29.89.10}/32,${BETPULSE_CADDY_IP:-172.29.89.11}/32"
+
 services:
   postgres:
     ports: []
@@ -35,6 +40,8 @@ services:
     image: ghcr.io/${GHCR_OWNER:-desn1k}/betpulse-api:${IMAGE_TAG:-latest}
     build: null
     ports: []
+    environment:
+      TRUSTED_PROXY_CIDRS: *trusted-proxy-cidrs
     restart: always
     deploy:
       resources:
@@ -45,6 +52,9 @@ services:
   worker:
     image: ghcr.io/${GHCR_OWNER:-desn1k}/betpulse-api:${IMAGE_TAG:-latest}
     build: null
+    environment:
+      # Production settings validation requires it in every backend process.
+      TRUSTED_PROXY_CIDRS: *trusted-proxy-cidrs
     restart: always
     deploy:
       resources:
@@ -68,6 +78,9 @@ services:
     depends_on:
       - api
       - web
+    networks:
+      default:
+        ipv4_address: ${BETPULSE_CADDY_IP:-172.29.89.11}
     ports:
       - "80:80"
       - "443:443"

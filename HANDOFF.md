@@ -184,8 +184,8 @@ lock; unmapped API-Football team/league during live → structured warning + ski
 - **Method-bar gating is server-side.** `GET /matches/{id}` returns per-method bars only for
   pro/expert (`flags.methods` in `all`/`all_weights`); guest/free get `methods: []` + `flags` so the
   frontend renders the blur/lock. Aggregate signals (consensus, agreement %, delta) are shown to all.
-- **matches/day** counts `GET /matches/{id}` per caller (user id, or guest IP from the first
-  `X-Forwarded-For`). Redis key `limits:{id}:{YYYY-MM-DD}`, TTL = seconds to next **UTC midnight**
+- **matches/day** counts `GET /matches/{id}` per caller (user id, or the guest's client IP from
+  `app.core.deps.get_client_ip`, IPv6 bucketed per /64). Redis key `limits:{id}:{YYYY-MM-DD}`, TTL = seconds to next **UTC midnight**
   (not rolling 24h). Over budget → `403 {tier_required}` (guest→free, free→pro). The list is free and
   reports `matches_remaining`.
 - **SSE gating** now reads the same `live_recompute` flag (was the `UserTier.can_stream_live` enum).
@@ -456,6 +456,15 @@ large diff, and do not proceed while any required security/CI job is red.
   (heavy DAST may be nightly/manual if documented).
 - **Docs:** add `SECURITY.md` with exact reproduction commands, scope, expected outputs, false-positive
   handling, and how CI blocks merges.
+- **Client IP (release blocker until both parts merge):** `app.core.deps.get_client_ip` is the only
+  client-IP source (login/admin limits, promo, audit, guest identity). It honours
+  `X-Forwarded-For` only from `TRUSTED_PROXY_CIDRS` (right-most untrusted hop, IP-validated) and
+  uvicorn runs with `--no-proxy-headers`. Compose pins `web`/`caddy` addresses
+  (`BETPULSE_NETWORK_SUBNET`, `BETPULSE_WEB_IP`, `BETPULSE_CADDY_IP`) and trusts exactly those /32s;
+  production refuses to start without an explicit, private, narrow list. Rate-limit and guest-quota
+  keys bucket IPv6 by /64; audit keeps the full address. Part A: backend + infra + Caddy smoke
+  assertion. Part B (pending): route every Next.js `/api/*` backend call through one server-side
+  helper that forwards the Caddy-set client IP, guarded by a static test.
 
 ## 9i. Phase 14 plan (release workflow, deploy and backups)
 

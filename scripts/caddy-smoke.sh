@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Routing smoke test for infra/Caddyfile: runs the real Caddy config in front of
 # two stub upstreams (reachable as `api:8000` and `web:3000`, like in Compose)
-# and asserts which upstream answers each public path. Needs only Docker; every
+# and asserts which upstream answers each public path and that a client-supplied
+# X-Forwarded-For never reaches an upstream. Needs only Docker; every
 # container and the network are removed on exit.
 set -Eeuo pipefail
 
@@ -23,8 +24,14 @@ docker network create "$network" >/dev/null
 
 start_stub() {
   local name="$1" port="$2"
+  # GET /__xff echoes the X-Forwarded-For the stub received from Caddy.
+  local config
+  config=$(printf ':%s {\n\thandle /__xff {\n\t\trespond "{header.X-Forwarded-For}"\n\t}\n\thandle {\n\t\trespond "upstream=%s"\n\t}\n}\n' "$port" "$name")
+  # shellcheck disable=SC2016  # expanded by the container's shell
   docker run -d --name "$prefix-$name" --network "$network" --network-alias "$name" \
-    "$caddy_image" caddy respond --listen ":$port" --body "upstream=$name" >/dev/null
+    -e STUB_CADDYFILE="$config" "$caddy_image" \
+    sh -c 'printf "%s\n" "$STUB_CADDYFILE" > /tmp/Caddyfile && exec caddy run --config /tmp/Caddyfile --adapter caddyfile' \
+    >/dev/null
 }
 
 start_stub api 8000
@@ -101,6 +108,22 @@ expect GET /matches upstream=web
 # Pages.
 expect GET / upstream=web
 expect GET /matches/123 upstream=web
+
+# Client-supplied X-Forwarded-For must be replaced, not appended: the upstream
+# gets exactly one hop, a valid IP, and never the spoofed value. (The exact
+# address depends on how the request reaches Caddy, so it is not pinned.)
+spoofed="198.51.100.7"
+xff="$(docker exec "$proxy" wget -q -O - --header "X-Forwarded-For: $spoofed" \
+  "http://localhost/__xff" 2>/dev/null || echo "<request failed>")"
+if [[ "$xff" == *"$spoofed"* ]]; then
+  echo "FAIL spoofed X-Forwarded-For reached the upstream: $xff" >&2
+  failures=$((failures + 1))
+elif [[ "$xff" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ || "$xff" =~ ^[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*$ ]]; then
+  echo "ok   spoofed X-Forwarded-For replaced -> $xff"
+else
+  echo "FAIL upstream X-Forwarded-For is not a single valid IP: '$xff'" >&2
+  failures=$((failures + 1))
+fi
 
 if ((failures > 0)); then
   echo "$failures Caddy routing assertion(s) failed." >&2

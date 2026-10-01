@@ -114,6 +114,10 @@ services:
       dockerfile: Dockerfile
     env_file:
       - ../.env
+    environment:
+      # Only the web container (Next.js BFF) may vouch for a client IP; the prod
+      # overlay adds Caddy. Requests published straight to :8000 use the peer.
+      TRUSTED_PROXY_CIDRS: ${BETPULSE_WEB_IP:-172.29.89.10}/32
     ports:
       - "8000:8000"
     depends_on:
@@ -152,6 +156,9 @@ services:
       dockerfile: Dockerfile
     environment:
       API_BASE_URL: ${API_BASE_URL:-http://api:8000}
+    networks:
+      default:
+        ipv4_address: ${BETPULSE_WEB_IP:-172.29.89.10}
     ports:
       - "3000:3000"
     depends_on:
@@ -169,3 +176,12 @@ volumes:
   postgres_data:
   redis_data:
   minio_data:
+
+# Pinned so the reverse proxies get stable addresses that the API can trust
+# (TRUSTED_PROXY_CIDRS). Override BETPULSE_NETWORK_SUBNET together with
+# BETPULSE_WEB_IP / BETPULSE_CADDY_IP if the range collides on the host.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${BETPULSE_NETWORK_SUBNET:-172.29.89.0/24}
