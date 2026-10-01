@@ -26,6 +26,7 @@ from app.schemas.ingestion import (
 )
 from app.services.audit import record_event
 from app.services.ingestion.football_data import LEAGUE_META
+from app.workers.queues import enqueue
 
 router = APIRouter(prefix="/admin/ingestion", tags=["admin-ingestion"])
 
@@ -78,9 +79,7 @@ async def rescan(
             detail={"error": "unknown_leagues", "leagues": unknown},
         )
 
-    await arq.enqueue_job(
-        "ingest_history_task", payload.leagues, payload.seasons, f"admin:{admin.id}"
-    )
+    await enqueue(arq, "ingest_history_task", payload.leagues, payload.seasons, f"admin:{admin.id}")
     await record_event(
         session,
         action="ingestion.rescan",
