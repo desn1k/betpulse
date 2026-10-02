@@ -24,6 +24,7 @@ class AuditAction:
     LOGOUT = "auth.logout"
     TOKEN_REFRESH = "auth.token.refresh"  # nosec B105  (action name, not a secret)
     TOKEN_REUSE_DETECTED = "auth.token.reuse_detected"  # nosec B105
+    TOKEN_REFRESH_CONFLICT = "auth.token.refresh_conflict"  # nosec B105
     TWOFA_SETUP = "auth.2fa.setup"
     TWOFA_ENABLED = "auth.2fa.enabled"
     TWOFA_DISABLED = "auth.2fa.disabled"

@@ -155,7 +155,6 @@ async def login(
 async def refresh(
     request: Request,
     response: Response,
-    session: Annotated[AsyncSession, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
     user_agent: Annotated[str | None, Header()] = None,
 ) -> AccessTokenResponse:
@@ -164,13 +163,22 @@ async def refresh(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing refresh token"
         )
+    # Rotation commits its own transaction (see rotate_refresh_token), so a
+    # revocation it records survives the 401 below.
     try:
         tokens = await auth_service.rotate_refresh_token(
-            session,
             refresh_token=refresh_token,
             ip=get_client_ip(request),
             user_agent=user_agent,
         )
+    except auth_service.RefreshConflict as exc:
+        # A concurrent request just rotated this token. Leave the cookies alone:
+        # clearing them here could wipe the ones the winning response set.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Refresh already in progress",
+            headers={"Retry-After": "1"},
+        ) from exc
     except (auth_service.InvalidToken, auth_service.TokenReuseDetected) as exc:
         _clear_auth_cookies(response, settings)
         raise HTTPException(

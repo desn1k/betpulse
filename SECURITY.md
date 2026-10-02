@@ -201,6 +201,9 @@ authorization bypass, unrelated rows, data leakage, or server errors.
 ## Existing application controls
 
 - Argon2id password hashing; JWT access + rotating refresh tokens; RBAC.
+- Refresh rotation is atomic (per-family advisory lock + row lock); replay of a rotated token
+  outside a 10 s duplicate window revokes the whole token family. Lockout counters, revocations
+  and their audit rows are committed before the 401/429 is returned.
 - Admin 2FA (TOTP) and full `audit_log`.
 - Strict Pydantic input validation; parameterized queries only.
 - HSTS at the production TLS edge (verified/finalized with Phase 14 release wiring).

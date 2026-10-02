@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     refresh_cookie_path: str = "/auth/refresh"
     csrf_cookie_name: str = "bp_csrf"
     csrf_header_name: str = "X-CSRF-Token"
+    # A refresh token presented again within this many seconds of its rotation
+    # (double-click, two tabs) gets 409 instead of tripping family revocation.
+    refresh_reuse_grace_seconds: int = 10
 
     # --- Rate limiting / lockout -------------------------------------------
     rate_limit_login_per_minute: int = 5  # per client IP

@@ -20,6 +20,17 @@ interface AuthState {
 
 export class LoginError extends Error {}
 
+// Delay before retrying a refresh that lost a race to a concurrent one (409).
+export const REFRESH_CONFLICT_RETRY_MS = 500;
+
+function requestRefresh(): Promise<Response> {
+  // The CSRF cookie is re-read on every call: a winning refresh rotates it.
+  return fetch("/api/auth/refresh", {
+    method: "POST",
+    headers: { "x-csrf-token": readCookie(CSRF_COOKIE) ?? "" },
+  });
+}
+
 export const useAuthStore = create<AuthState>((set) => ({
   accessToken: null,
   user: null,
@@ -66,10 +77,14 @@ export const useAuthStore = create<AuthState>((set) => ({
       return;
     }
     try {
-      const res = await fetch("/api/auth/refresh", {
-        method: "POST",
-        headers: { "x-csrf-token": readCookie(CSRF_COOKIE) ?? "" },
-      });
+      let res = await requestRefresh();
+      if (res.status === 409) {
+        // Another tab rotated the refresh token at the same moment. The
+        // session is intact: once the browser has applied the winner's
+        // Set-Cookie, retry once with the new refresh + CSRF cookies.
+        await new Promise((resolve) => setTimeout(resolve, REFRESH_CONFLICT_RETRY_MS));
+        res = await requestRefresh();
+      }
       if (res.ok) {
         const data = (await res.json()) as AccessTokenResponse;
         set({ accessToken: data.access_token, user: data.user });

@@ -9,6 +9,7 @@ without any call-site change (see §18 horizontal-scaling seam).
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from functools import lru_cache
 
 from sqlalchemy.ext.asyncio import (
@@ -67,6 +68,23 @@ async def get_session() -> AsyncIterator[AsyncSession]:
         except Exception:
             await session.rollback()
             raise
+
+
+@asynccontextmanager
+async def independent_transaction() -> AsyncIterator[AsyncSession]:
+    """A short read/write transaction of its own, committed when the block exits
+    normally (rolled back if it raises).
+
+    It is independent of the request transaction from :func:`get_session`, so
+    what it writes persists even when the request later ends in an error and is
+    rolled back — and none of the request session's pending changes leak into
+    it. Used for security state (failed-login counters, lockouts, token-family
+    revocation, their audit rows) that must survive a 401/429. The caller must
+    not hold uncommitted writes on rows this block updates, or it waits on its
+    own lock.
+    """
+    async with _write_sessionmaker()() as session, session.begin():
+        yield session
 
 
 async def get_read_session() -> AsyncIterator[AsyncSession]:
