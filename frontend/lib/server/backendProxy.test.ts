@@ -184,4 +184,23 @@ describe("proxyAuth", () => {
     expect(res.headers.get("set-cookie")).toContain("Path=/");
     expect(res.headers.get("set-cookie")).not.toContain("/auth/refresh");
   });
+
+  it("passes a refresh conflict (409) through without touching auth cookies", async () => {
+    mockFetch(() =>
+      Response.json(
+        { detail: "Refresh already in progress" },
+        { status: 409, headers: { "retry-after": "1" } },
+      ),
+    );
+
+    const res = await proxyAuth(
+      request({ cookie: "bp_refresh=r; bp_csrf=c", "x-csrf-token": "c" }, { method: "POST" }),
+      "/auth/refresh",
+    );
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ detail: "Refresh already in progress" });
+    // No Set-Cookie at all: the winning response's cookies must survive.
+    expect(res.headers.get("set-cookie")).toBeNull();
+  });
 });

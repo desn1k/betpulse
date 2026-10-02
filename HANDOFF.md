@@ -109,6 +109,45 @@ covered by Vitest + React Testing Library.
   ASGITransport). `asyncio_mode=auto`.
 - **Network-dependent tests use recorded fixtures**, never live calls: football-data CSV slice in
   `tests/fixtures/football_data/`, API-Football JSON in `tests/fixtures/api_football/`.
+- **Security state is committed before raising.** `get_session()` rolls the request transaction
+  back on *any* exception — including the `HTTPException` a router maps a domain error to — so
+  anything written on a failure path in the request session is silently lost. Security state that
+  must survive a 401/429 (failed-login counter, `locked_until`, token-family revocation, and their
+  audit rows) is therefore written via `app.services.auth._commit_security_state()` /
+  `app.core.db.independent_transaction()`: a short transaction of its own, committed **before** the
+  domain error is raised, which neither commits nor sees the caller's pending changes. Do not
+  "fix" this by changing the global rollback semantics. The caller must not hold uncommitted writes
+  on rows the security transaction updates (it would wait on its own lock). Counters are bumped
+  atomically (`UPDATE … SET n = n + 1 … RETURNING`), never read-modify-write.
+- **Refresh rotation is atomic and runs in its own transaction.** `rotate_refresh_token` takes a
+  per-family `pg_advisory_xact_lock` (logout takes it too) plus `SELECT … FOR UPDATE` on the token
+  row, so exactly one of N concurrent presentations of a token rotates it. A loser whose token's
+  direct replacement is still live and was created ≤ `REFRESH_REUSE_GRACE_SECONDS` (default 10, DB
+  clock) ago is a benign duplicate (double-click, two tabs): `409 Refresh already in progress`,
+  nothing issued, **no cookie changes** (clearing them could wipe the winner's), audit
+  `auth.token.refresh_conflict`; the frontend `hydrate()` retries once after 500 ms. Any other
+  presentation of a rotated/revoked token revokes the whole family and audits
+  `auth.token.reuse_detected`, committed before the 401. Audit rows never carry tokens or hashes;
+  failures for unknown/inactive emails store only `email-hmac:<16 hex>` (keyed by `SECRET_KEY`),
+  not the address.
+- **Database connection budget (two pools per API process).** A failed login holds its request
+  connection while it opens the security transaction, so `independent_transaction()` draws from a
+  **separate** pool (`DB_SECURITY_POOL_SIZE`=2 + `DB_SECURITY_MAX_OVERFLOW`=3); the request pool is
+  `DB_POOL_SIZE`=5 + `DB_MAX_OVERFLOW`=10, and both wait up to `DB_POOL_TIMEOUT_SECONDS`=30. Never
+  point security transactions back at the request pool: with one shared pool, N concurrent failed
+  logins ≥ pool capacity (15 by default; 1 with a pool of 1) all hold one connection and wait for a
+  second until the timeout → 500s and lost lockout state (`test_concurrent_failed_logins_do_not_
+  exhaust_the_pool` reproduces it). With two pools there is no cycle: security transactions never
+  wait on a request connection, so a saturated security pool only queues. Size the server as
+  `Σ_api (DB_POOL_SIZE + DB_MAX_OVERFLOW + DB_SECURITY_POOL_SIZE + DB_SECURITY_MAX_OVERFLOW)
+  + Σ_arq_workers (DB_POOL_SIZE + DB_MAX_OVERFLOW) + MLflow server pools + ~10 headroom
+  (psql, migrations, backups) ≤ Postgres max_connections − superuser_reserved_connections`.
+  The security pool is created lazily, so ARQ workers never open it; a `DATABASE_READ_URL` replica
+  pool counts against the replica, not the primary. Today's compose (1 API process, 3 ARQ workers):
+  20 + 3 × 15 = 65 before MLflow, against the default `max_connections` = 100. MLflow's own
+  SQLAlchemy pools come on top (per server worker, unless capped with
+  `MLFLOW_SQLALCHEMYSTORE_POOL_SIZE`/`…_MAX_OVERFLOW`); cap them or raise `max_connections` before
+  adding API processes (`uvicorn --workers`) or worker replicas.
 - **Idempotency everywhere.** Ingestion upserts use `ON CONFLICT DO NOTHING` on identity keys
   (`uq_fixture_identity`, odds identity, prediction identity). Tasks keyed by
   `fixture_id + method + model_version` so retries/duplicate deliveries are safe.
@@ -193,7 +232,8 @@ lock; unmapped API-Football team/league during live → structured warning + ski
   token in the backend's httpOnly cookie. `/api/auth/*` route handlers proxy to the backend and relay
   Set-Cookie; the proxy rewrites the refresh cookie `Path=/auth/refresh` → `/` so logout/refresh work
   same-origin. No registration form — test with a seeded/bootstrapped account. Silent refresh on
-  mount restores the session after reload.
+  mount restores the session after reload; a `409` (another tab rotated the token at the same time)
+  is retried once after 500 ms with the re-read CSRF cookie.
 - **Billing seam**: `app/services/billing.py::PaymentProvider` (abstract, no impl); `subscriptions.
   source = payment` reserved. Promo codes are Phase 8.
 
@@ -583,6 +623,21 @@ as its own Compose service:
 4. Post the phase plan, wait for "go", then implement → tests → CI green → PR. The owner merges.
 
 ## 11. Parked work (owner-requested, not yet scheduled)
+
+- **Auth hardening follow-ups** (found during the auth-transactions PR; separate small PRs):
+  - *Lockout as a victim-DoS vector.* The per-account backoff (`LOGIN_MAX_FAILURES`, then
+    `LOCKOUT_BASE_SECONDS·2ⁿ` capped at `LOCKOUT_MAX_SECONDS`) is keyed on the account only, so
+    anyone who knows an email can keep that user locked out. Consider a shorter cap, keying the
+    backoff on account + client bucket, or a challenge (CAPTCHA/email link) instead of a hard lock.
+  - *Refresh 401 does not clear cookies.* `/auth/refresh` calls `_clear_auth_cookies(response)` and
+    then raises `HTTPException`; FastAPI drops the injected `Response`'s headers, so no Set-Cookie is
+    sent. Harmless (the cookie holds a dead token) but misleading — return the 401 as a response
+    object that deletes the cookies.
+  - *Password change vs. concurrent rotation.* `revoke_all_user_tokens` does not take the family
+    advisory locks, so a rotation committing at the same moment can leave one fresh token live
+    after a password change. Lock each of the user's families (or the user row) first.
+  - Out of scope of that PR as well: `limits.py` INCR/EXPIRE atomicity, the quota INCR/DECR race,
+    backtester memory, odds validators, LLM issues.
 
 - **Custom user alerts** (a *separate* phase, to be scheduled **after Phase 14 release/deploy**). User-defined alert
   rules that trigger a push delivery to Telegram / Web Push when their condition is met on a live

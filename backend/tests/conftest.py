@@ -27,7 +27,13 @@ from collections.abc import AsyncIterator  # noqa: E402
 
 import app.models  # noqa: E402,F401  (register models on metadata)
 import pytest_asyncio  # noqa: E402
-from app.core.db import Base, _write_engine, _write_sessionmaker, reset_engines  # noqa: E402
+from app.core.db import (  # noqa: E402
+    Base,
+    _write_engine,
+    _write_sessionmaker,
+    dispose_engines,
+    reset_engines,
+)
 from app.core.redis import get_redis, reset_redis  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 from sqlalchemy import text  # noqa: E402
@@ -50,7 +56,9 @@ async def _db_and_redis() -> AsyncIterator[None]:
     await redis.flushdb()
     yield
     await redis.aclose()
+    # Every pool, including the security pool and any a test rebuilt.
     await engine.dispose()
+    await dispose_engines()
 
 
 @pytest_asyncio.fixture
