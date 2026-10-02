@@ -11,6 +11,7 @@ from __future__ import annotations
 from redis.asyncio import Redis
 
 from app.core.client_ip import rate_limit_bucket
+from app.services.counters import incr_with_ttl
 
 
 class RateLimitExceeded(Exception):
@@ -22,10 +23,11 @@ class RateLimitExceeded(Exception):
 
 
 async def enforce_fixed_window(redis: Redis, *, key: str, limit: int, window_seconds: int) -> None:
-    """Increment a fixed-window counter and raise if it exceeds ``limit``."""
-    count = await redis.incr(key)
-    if count == 1:
-        await redis.expire(key, window_seconds)
+    """Increment a fixed-window counter and raise if it exceeds ``limit``.
+
+    INCR and EXPIRE are one atomic step: the key is not time-bucketed, so a
+    counter left without a TTL would lock the caller out for good."""
+    count = await incr_with_ttl(redis, key, window_seconds)
     if count > limit:
         ttl = await redis.ttl(key)
         raise RateLimitExceeded(retry_after=ttl if ttl and ttl > 0 else window_seconds)

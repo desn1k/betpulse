@@ -9,6 +9,10 @@ seconds remaining until the next UTC midnight — not a rolling 24h window.
 
 ``identity`` is the user id for an authenticated caller, or the client IP for a
 guest. A limit of ``-1`` means unlimited (pro/expert) and is never counted.
+
+Every counter update is one atomic Redis script (:mod:`app.services.counters`):
+budgets are taken with check-and-increment, so concurrent callers can never
+exceed a limit, and a key always gets its TTL in the same step.
 """
 
 from __future__ import annotations
@@ -17,6 +21,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from redis.asyncio import Redis
+
+from app.services.counters import decr_floor_zero, incr_with_ttl, incr_within_limit
 
 UNLIMITED = -1
 
@@ -47,9 +53,7 @@ async def enforce_promo_redeem_limit(
     Raises :class:`RateLimited` with ``retry_after`` seconds when exceeded."""
     now = now or datetime.now(UTC)
     key = f"rate_limit:promo:{user_id}:{now.astimezone(UTC):%Y-%m-%d-%H}"
-    count = int(await redis.incr(key))
-    if count == 1:
-        await redis.expire(key, seconds_until_next_hour(now))
+    count = await incr_with_ttl(redis, key, seconds_until_next_hour(now))
     if count > limit:
         raise RateLimited(seconds_until_next_hour(now))
 
@@ -77,13 +81,10 @@ async def consume_match_view(
     if limit == UNLIMITED:
         return UNLIMITED
     now = now or datetime.now(UTC)
-    key = _key(identity, now)
-    count = int(await redis.incr(key))
-    if count == 1:
-        await redis.expire(key, seconds_until_utc_midnight(now))
-    if count > limit:
-        # Roll back the over-limit increment so the stored count reflects reality.
-        await redis.decr(key)
+    count = await incr_within_limit(
+        redis, _key(identity, now), limit=limit, ttl_seconds=seconds_until_utc_midnight(now)
+    )
+    if count is None:
         raise LimitExceeded
     return limit - count
 
@@ -98,11 +99,10 @@ async def consume_backtester_run(
         return
     now = now or datetime.now(UTC)
     key = f"limits:backtester:{user_id}:{now.astimezone(UTC):%Y-%m-%d}"
-    count = int(await redis.incr(key))
-    if count == 1:
-        await redis.expire(key, seconds_until_utc_midnight(now))
-    if count > limit:
-        await redis.decr(key)
+    count = await incr_within_limit(
+        redis, key, limit=limit, ttl_seconds=seconds_until_utc_midnight(now)
+    )
+    if count is None:
         raise LimitExceeded
 
 
@@ -122,28 +122,37 @@ def _push_key(user_id: uuid.UUID, now: datetime) -> str:
     return f"limits:push:{user_id}:{now.astimezone(UTC):%Y-%m-%d}"
 
 
-async def push_budget_remaining(
-    redis: Redis, *, user_id: uuid.UUID, limit: int, now: datetime | None = None
-) -> int | None:
-    """Delivered pushes left today for a user (spec §7, Phase 11), without
-    consuming any. ``None`` = unlimited; ``0`` = exhausted (or a no-push tier).
-    The budget is a hard-stop checked **before** delivery so we never overspend."""
-    if limit == UNLIMITED:
-        return None
-    now = now or datetime.now(UTC)
-    used = await redis.get(_push_key(user_id, now))
-    used_count = int(used) if used is not None else 0
-    return max(0, limit - used_count)
-
-
 async def record_push_delivered(
     redis: Redis, *, user_id: uuid.UUID, now: datetime | None = None
 ) -> None:
-    """Count one **delivered** push against the user's UTC-day budget (TTL to the
-    next UTC midnight). Called only after a successful delivery, so failed pushes
-    never consume the budget."""
+    """Count one push against the user's UTC-day budget (TTL to the next UTC
+    midnight) unconditionally — no limit check."""
     now = now or datetime.now(UTC)
-    key = _push_key(user_id, now)
-    count = int(await redis.incr(key))
-    if count == 1:
-        await redis.expire(key, seconds_until_utc_midnight(now))
+    await incr_with_ttl(redis, _push_key(user_id, now), seconds_until_utc_midnight(now))
+
+
+async def reserve_push(
+    redis: Redis, *, user_id: uuid.UUID, limit: int, now: datetime | None = None
+) -> bool:
+    """Take one push from the user's UTC-day budget **before** delivering.
+
+    Atomic check-and-increment: concurrent dispatches (parallel realtime jobs
+    for different fixtures) can never reserve more than ``limit`` in total.
+    Returns ``False`` when the budget is spent. An unlimited tier (``-1``) is
+    still counted. Pair every reservation that is not delivered with
+    :func:`release_push`; a crash in between loses one unit — fewer pushes,
+    never more."""
+    now = now or datetime.now(UTC)
+    if limit == UNLIMITED:
+        await record_push_delivered(redis, user_id=user_id, now=now)
+        return True
+    count = await incr_within_limit(
+        redis, _push_key(user_id, now), limit=limit, ttl_seconds=seconds_until_utc_midnight(now)
+    )
+    return count is not None
+
+
+async def release_push(redis: Redis, *, user_id: uuid.UUID, now: datetime | None = None) -> None:
+    """Return a reservation whose push was not delivered (never below zero)."""
+    now = now or datetime.now(UTC)
+    await decr_floor_zero(redis, _push_key(user_id, now))

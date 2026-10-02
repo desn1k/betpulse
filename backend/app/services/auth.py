@@ -346,8 +346,13 @@ async def _lock_family(session: AsyncSession, family_id: uuid.UUID) -> None:
     A row lock on the presented token alone is not enough: revoking a family in
     READ COMMITTED would miss a descendant that a concurrent rotation inserted
     but had not yet committed, leaving it live."""
-    key = int.from_bytes(family_id.bytes[:8], "big", signed=True)
-    await session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(:key)"), {"key": _family_lock_key(family_id)}
+    )
+
+
+def _family_lock_key(family_id: uuid.UUID) -> int:
+    return int.from_bytes(family_id.bytes[:8], "big", signed=True)
 
 
 async def _revoke_family(session: AsyncSession, family_id: uuid.UUID) -> None:
@@ -498,13 +503,33 @@ async def logout(
     )
 
 
-async def revoke_all_user_tokens(session: AsyncSession, user_id: uuid.UUID) -> None:
-    await session.execute(
+async def revoke_all_user_tokens(session: AsyncSession, user_id: uuid.UUID) -> int:
+    """Revoke every live refresh token of ``user_id``; returns how many.
+
+    Takes the family lock of each live family first — in key order, so two
+    concurrent revocations cannot deadlock — and only then revokes. A rotation
+    in flight therefore either commits its new token before the UPDATE (which
+    then sees and revokes it) or waits and finds its token already revoked.
+    The locks are held until the caller commits.
+    """
+    families = (
+        await session.scalars(
+            select(RefreshToken.family_id)
+            .where(RefreshToken.user_id == user_id, RefreshToken.revoked.is_(False))
+            .distinct()
+        )
+    ).all()
+    for family_id in sorted(families, key=_family_lock_key):
+        await _lock_family(session, family_id)
+    result = await session.execute(
         update(RefreshToken)
         .where(RefreshToken.user_id == user_id, RefreshToken.revoked.is_(False))
         .values(revoked=True)
+        .returning(RefreshToken.id)
     )
+    revoked = len(result.all())
     await session.flush()
+    return revoked
 
 
 async def create_email_verification_token(session: AsyncSession, user: User) -> str:

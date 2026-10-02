@@ -129,7 +129,19 @@ covered by Vitest + React Testing Library.
   presentation of a rotated/revoked token revokes the whole family and audits
   `auth.token.reuse_detected`, committed before the 401. Audit rows never carry tokens or hashes;
   failures for unknown/inactive emails store only `email-hmac:<16 hex>` (keyed by `SECRET_KEY`),
-  not the address.
+  not the address. Every revocation of a user's tokens (logout, password change via
+  `revoke_all_user_tokens`, admin `disable_user`) takes the family lock(s) first — all families in
+  key order — so a rotation in flight can never leave a live token behind.
+- **Redis counters are atomic Lua scripts** (`app/services/counters.py`); never write
+  `INCR` + `EXPIRE` (or `INCR` … `DECR`) as separate commands again. `incr_with_ttl` (fixed-window
+  rate limits: login/LLM/admin per IP, promo per user; push counting) increments and sets the TTL in
+  one step — the un-bucketed `rl:login:ip:*` key without a TTL would be a permanent lockout.
+  `incr_within_limit` is check-and-increment against a quota (match views, backtester runs, push
+  budget): N concurrent callers can never take more than the limit, and a refused call counts
+  nothing. `decr_floor_zero` gives a unit back and never goes below 0. Each script also gives a TTL
+  to a key that lost one, so leftovers heal on use. The push daily budget is **reserved before
+  delivery** (`reserve_push`) and released if nothing was delivered (`release_push`, also on an
+  exception); a crash in between loses one unit — fewer pushes, never more.
 - **Database connection budget (two pools per API process).** A failed login holds its request
   connection while it opens the security transaction, so `independent_transaction()` draws from a
   **separate** pool (`DB_SECURITY_POOL_SIZE`=2 + `DB_SECURITY_MAX_OVERFLOW`=3); the request pool is
@@ -633,11 +645,10 @@ as its own Compose service:
     then raises `HTTPException`; FastAPI drops the injected `Response`'s headers, so no Set-Cookie is
     sent. Harmless (the cookie holds a dead token) but misleading — return the 401 as a response
     object that deletes the cookies.
-  - *Password change vs. concurrent rotation.* `revoke_all_user_tokens` does not take the family
-    advisory locks, so a rotation committing at the same moment can leave one fresh token live
-    after a password change. Lock each of the user's families (or the user row) first.
-  - Out of scope of that PR as well: `limits.py` INCR/EXPIRE atomicity, the quota INCR/DECR race,
-    backtester memory, odds validators, LLM issues.
+  - Still open: backtester memory (M-02); LLM issues (H-02, L-01), including the LLM daily token
+    budget in `app/services/llm/analysis.py`, which still does a non-atomic `INCRBY` + `EXPIREAT`
+    (dated key, so a leak rather than a lockout) — move it onto `app.services.counters` with the
+    LLM PR.
 
 - **Custom user alerts** (a *separate* phase, to be scheduled **after Phase 14 release/deploy**). User-defined alert
   rules that trigger a push delivery to Telegram / Web Push when their condition is met on a live

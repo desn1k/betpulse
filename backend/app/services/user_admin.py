@@ -15,13 +15,13 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import ColumnElement, String, cast, func, or_, select, update
+from sqlalchemy import ColumnElement, String, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.refresh_token import RefreshToken
 from app.models.tier import Subscription, SubscriptionSource, Tier
 from app.models.user import User
+from app.services.auth import revoke_all_user_tokens
 
 
 @dataclass(frozen=True)
@@ -165,13 +165,9 @@ async def disable_user(session: AsyncSession, *, user: User) -> int:
     Returns the number of tokens revoked. The caller commits.
     """
     user.is_active = False
-    result = await session.execute(
-        update(RefreshToken)
-        .where(RefreshToken.user_id == user.id, RefreshToken.revoked.is_(False))
-        .values(revoked=True)
-        .returning(RefreshToken.id)
-    )
-    revoked = len(result.all())
+    # Same family-locked revocation as a password change, so a refresh rotating
+    # at this moment cannot leave a live token behind.
+    revoked = await revoke_all_user_tokens(session, user.id)
     await session.flush()
     return revoked
 

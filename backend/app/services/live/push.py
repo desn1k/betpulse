@@ -32,7 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.models.live import PushChannel, PushFollow, PushSubscription
 from app.models.user import User
-from app.services.limits import push_budget_remaining, record_push_delivered
+from app.services.limits import release_push, reserve_push
 from app.services.tiers import resolve_tier_context
 
 logger = logging.getLogger("live.push")
@@ -193,8 +193,9 @@ async def dispatch_push(
     """Deliver a swing notification to the fixture's **followers** only.
 
     Per user: at most one push per (user, fixture)/window, hard-stopped by the
-    per-UTC-day ``pushes_per_day`` budget (checked before delivery, counted only
-    on success). Dead Web Push endpoints are pruned.
+    per-UTC-day ``pushes_per_day`` budget (reserved atomically before delivery,
+    released again if nothing was delivered, so parallel dispatches for
+    different fixtures cannot overspend it). Dead Web Push endpoints are pruned.
     """
     now = now or datetime.now(UTC)
     # Only users who follow this fixture, and only their reachable subscriptions.
@@ -222,24 +223,29 @@ async def dispatch_push(
             result.rate_limited += 1
             continue
 
-        # Daily budget hard-stop, checked before we attempt any delivery.
+        # Daily budget hard-stop: reserve one push before any delivery attempt.
         limit = await _pushes_per_day(session, redis, user_id)
-        remaining = await push_budget_remaining(redis, user_id=user_id, limit=limit, now=now)
-        if remaining is not None and remaining <= 0:
+        if not await reserve_push(redis, user_id=user_id, limit=limit, now=now):
             result.budget_exhausted += 1
             await redis.delete(rl_key)  # did not deliver — free the window
             continue
 
         delivered = False
-        for sub in user_subs:
-            if await _deliver_with_retry(session, sub, text, settings, sleep, result, fixture_id):
-                delivered = True
-                break  # one channel per user per swing is enough
+        try:
+            for sub in user_subs:
+                if await _deliver_with_retry(
+                    session, sub, text, settings, sleep, result, fixture_id
+                ):
+                    delivered = True
+                    break  # one channel per user per swing is enough
+        finally:
+            if not delivered:
+                # Nothing delivered (or delivery blew up): give the reserved
+                # push back and let a retry try again.
+                await release_push(redis, user_id=user_id, now=now)
+                await redis.delete(rl_key)
         if delivered:
             result.delivered += 1
-            await record_push_delivered(redis, user_id=user_id, now=now)
-        else:
-            await redis.delete(rl_key)  # nothing delivered — let a retry try again
     return result
 
 
