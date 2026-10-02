@@ -22,9 +22,10 @@ const base: BacktestResult = {
   available_bet_types: ["1x2", "total"],
   roi_disclaimer: true,
   small_sample_warning: true,
-  walk_forward: false,
-  out_of_sample_roi: null,
-  folds: [],
+  evaluation_protocol: "historical_rule_simulation",
+  odds_basis: "closing",
+  season_split: false,
+  season_splits: [],
 };
 
 describe("BacktestResults", () => {
@@ -55,16 +56,37 @@ describe("BacktestResults", () => {
     );
   });
 
-  it("puts the past-performance phrase next to the out-of-sample ROI too", () => {
-    const { getByTestId } = renderWithProviders(
+  it("states that the result is a fixed-rule simulation, not an out-of-sample test", () => {
+    const { getByTestId } = renderWithProviders(<BacktestResults result={base} />, {
+      locale: "ru",
+    });
+    const note = getByTestId("backtest-protocol");
+    expect(note).toHaveTextContent("Модель не переобучается, поэтому это не проверка вне выборки.");
+    expect(note).toHaveTextContent("Прошлые результаты не гарантируют будущих.");
+  });
+
+  it("shows the per-season breakdown with the past-performance phrase", () => {
+    const { getByTestId, queryByText } = renderWithProviders(
       <BacktestResults
-        result={{ ...base, small_sample_warning: false, walk_forward: true, out_of_sample_roi: 0.042 }}
+        result={{
+          ...base,
+          small_sample_warning: false,
+          season_split: true,
+          season_splits: [
+            { season: "2022-2023", matched_count: 10, roi: 0.1 },
+            { season: "2023-2024", matched_count: 12, roi: 0.042 },
+          ],
+        }}
       />,
       { locale: "ru" },
     );
-    const oos = getByTestId("out-of-sample-roi");
-    expect(oos).toHaveTextContent("4.2%");
-    expect(oos).toHaveTextContent("Прошлые результаты не гарантируют будущих.");
+    const table = getByTestId("season-splits");
+    expect(table).toHaveTextContent("Разбивка по сезонам");
+    expect(table).toHaveTextContent("2022-2023");
+    expect(table).toHaveTextContent("4.2%");
+    expect(table).toHaveTextContent("Прошлые результаты не гарантируют будущих.");
+    // No "out-of-sample" claim anywhere.
+    expect(queryByText(/вне выборки:/i)).toBeNull();
   });
 
   it("renders the equity curve container", () => {

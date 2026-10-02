@@ -33,6 +33,8 @@ class MethodMetrics:
     log_loss: float
     roi_vs_closing: float
     sample_count: int
+    # The model version these metrics belong to (None: the method's latest row).
+    version: str | None = None
 
 
 def _now() -> datetime:
@@ -127,6 +129,53 @@ async def rollback_to_snapshot(session: AsyncSession, snapshot_id: uuid.UUID) ->
     await session.flush()
 
 
+def latest_row_per_method(rows: list[ModelRegistry]) -> dict[str, ModelRegistry]:
+    """Each method's current registry row: the most recently trained version
+    (ties broken by version). Older versions stay for history/rollback but are
+    never shown or scored alongside the current one."""
+    epoch = datetime.min.replace(tzinfo=UTC)
+    out: dict[str, ModelRegistry] = {}
+    for row in rows:
+        current = out.get(row.method)
+        if current is None or (row.last_trained_at or epoch, row.version) > (
+            current.last_trained_at or epoch,
+            current.version,
+        ):
+            out[row.method] = row
+    return out
+
+
+async def current_registry_rows(session: AsyncSession) -> list[ModelRegistry]:
+    """Current row per method, plus any champion row (a champion is current by
+    definition, even if a newer challenger version exists)."""
+    rows = list((await session.execute(select(ModelRegistry))).scalars().all())
+    current = latest_row_per_method(rows)
+    champions = [r for r in rows if r.status == ModelStatus.champion]
+    for row in champions:
+        current[row.method] = row
+    return list(current.values())
+
+
+def _rows_for(
+    all_rows: list[ModelRegistry], metrics_by_method: dict[str, MethodMetrics]
+) -> dict[str, ModelRegistry]:
+    """The registry row each method's metrics belong to: the evaluated version
+    when the metrics name one, else the method's most recently trained row."""
+    latest = latest_row_per_method(all_rows)
+    out: dict[str, ModelRegistry] = {}
+    for method, metrics in metrics_by_method.items():
+        if metrics.version is None:
+            if method in latest:
+                out[method] = latest[method]
+            continue
+        match = next(
+            (r for r in all_rows if r.method == method and r.version == metrics.version), None
+        )
+        if match is not None:
+            out[method] = match
+    return out
+
+
 def _softmax_weights(accuracies: dict[str, float]) -> dict[str, float]:
     if not accuracies:
         return {}
@@ -147,11 +196,8 @@ async def apply_champion_selection(
     """Update metrics, promote the best eligible method to champion (demoting the
     previous one), and set consensus weights. Idempotent: no change → no snapshot
     and no audit entry. Returns the champion method (or None)."""
-    rows = {
-        r.method: r
-        for r in (await session.execute(select(ModelRegistry))).scalars().all()
-        if r.method in metrics_by_method
-    }
+    all_rows = list((await session.execute(select(ModelRegistry))).scalars().all())
+    rows = _rows_for(all_rows, metrics_by_method)
     for method, m in metrics_by_method.items():
         row = rows.get(method)
         if row is None:
@@ -175,15 +221,15 @@ async def apply_champion_selection(
         return None
 
     best = max(eligible, key=lambda k: eligible[k])
-    current_champion = next(
-        (r.method for r in rows.values() if r.status == ModelStatus.champion), None
-    )
+    # Any champion row counts — including another version of the same method.
+    champion_rows = [r for r in all_rows if r.status == ModelStatus.champion]
 
-    if best != current_champion:
+    if champion_rows != [rows[best]]:
         await snapshot_registry(session, reason="champion_reeval", actor=actor)
-        if current_champion is not None:
-            rows[current_champion].status = ModelStatus.challenger
-            await record_event(session, action=CHAMPION_DEMOTED, target=current_champion)
+        for row in champion_rows:
+            if row is not rows[best]:
+                row.status = ModelStatus.challenger
+                await record_event(session, action=CHAMPION_DEMOTED, target=row.method)
         rows[best].status = ModelStatus.champion
         await record_event(
             session,
@@ -194,8 +240,13 @@ async def apply_champion_selection(
 
     if weight_mode == "auto":
         weights = _softmax_weights({m: metrics_by_method[m].accuracy_pct for m in eligible})
-        for method, row in rows.items():
-            row.display_weight = Decimal(str(weights.get(method, 0.0)))
+        weighted = {id(row) for row in rows.values()}
+        for row in all_rows:
+            # Older versions of an evaluated method carry no weight.
+            if id(row) in weighted:
+                row.display_weight = Decimal(str(weights.get(row.method, 0.0)))
+            elif row.method in rows:
+                row.display_weight = Decimal("0")
 
     await session.flush()
     return best

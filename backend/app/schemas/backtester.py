@@ -87,7 +87,7 @@ class Breakdown(BaseModel):
     roi: float
 
 
-class FoldResult(BaseModel):
+class SeasonSplit(BaseModel):
     season: str
     matched_count: int
     roi: float
@@ -111,10 +111,15 @@ class BacktestResult(BaseModel):
     # Forced on every client: the responsible-use warning next to any ROI figure.
     roi_disclaimer: bool = True
     small_sample_warning: bool
-    # Walk-forward (only when requested).
-    walk_forward: bool = False
-    out_of_sample_roi: float | None = None
-    folds: list[FoldResult] = Field(default_factory=list)
+    # How these numbers were obtained: a fixed rule replayed over historical
+    # matches, settled at the closing quote. Nothing is trained or re-fitted,
+    # so no part of the result is an out-of-sample test.
+    evaluation_protocol: str = "historical_rule_simulation"
+    odds_basis: str = "closing"
+    # Per-season breakdown in chronological order (only when requested). Plain
+    # grouping of the same settled bets — not a walk-forward evaluation.
+    season_split: bool = False
+    season_splits: list[SeasonSplit] = Field(default_factory=list)
 
 
 class StrategyIn(BaseModel):

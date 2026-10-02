@@ -32,7 +32,7 @@ export function BacktesterView() {
   const [season, setSeason] = useState("");
   const [oddsMin, setOddsMin] = useState("");
   const [oddsMax, setOddsMax] = useState("");
-  const [walkForward, setWalkForward] = useState(false);
+  const [seasonSplit, setSeasonSplit] = useState(false);
 
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [pending, setPending] = useState(false);
@@ -56,7 +56,7 @@ export function BacktesterView() {
     setError(null);
     setSaveMsg(null);
     try {
-      setResult(await runBacktest(currentRequest(), walkForward));
+      setResult(await runBacktest(currentRequest(), seasonSplit));
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) {
         const tier =
@@ -146,10 +146,10 @@ export function BacktesterView() {
           <label className="flex items-center gap-2 text-sm text-muted-strong">
             <input
               type="checkbox"
-              checked={walkForward}
-              onChange={(e) => setWalkForward(e.target.checked)}
+              checked={seasonSplit}
+              onChange={(e) => setSeasonSplit(e.target.checked)}
             />
-            {t("backtester.walkForward")}
+            {t("backtester.seasonSplit")}
           </label>
           <div className="flex flex-wrap items-center gap-3">
             <Button type="submit" disabled={pending}>

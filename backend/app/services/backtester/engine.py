@@ -1,5 +1,9 @@
 """Backtest engine (spec §6): matched count, win-rate, ROI on closing odds,
-equity curve, max drawdown, Wilson CI, per-league/season breakdown, walk-forward.
+equity curve, max drawdown, Wilson CI, per-league/season breakdown.
+
+The result is a **historical simulation of a fixed rule** settled at closing
+odds (``evaluation_protocol`` / ``odds_basis`` on every response). Nothing is
+trained, so the optional per-season split is a breakdown, not out-of-sample.
 
 All filter values reach the query as **bound parameters** via ORM comparisons —
 never string-interpolated — so a SQL fragment in a string filter is treated as a
@@ -21,8 +25,8 @@ from app.schemas.backtester import (
     BacktestResult,
     BetType,
     Breakdown,
-    FoldResult,
     RunRequest,
+    SeasonSplit,
     StrategyFilter,
     WilsonInterval,
 )
@@ -199,7 +203,7 @@ async def backtest_bets(session: AsyncSession, request: RunRequest) -> list[_Bet
 
 
 async def run_backtest(
-    session: AsyncSession, request: RunRequest, *, walk_forward: bool = False
+    session: AsyncSession, request: RunRequest, *, season_split: bool = False
 ) -> BacktestResult:
     rows = await _fetch_rows(session, request)
     bets = _collect_bets(rows, request)
@@ -226,27 +230,23 @@ async def run_backtest(
         by_season=_breakdown(bets, "season"),
         available_bet_types=_available_bet_types(rows),
         small_sample_warning=matched < SMALL_SAMPLE_THRESHOLD,
-        walk_forward=walk_forward,
+        season_split=season_split,
     )
 
-    if walk_forward:
-        _apply_walk_forward(result, bets)
+    if season_split:
+        result.season_splits = _season_splits(bets)
     return result
 
 
-def _apply_walk_forward(result: BacktestResult, bets: list[_Bet]) -> None:
-    """Chronological season split. Each season is an out-of-sample test fold
-    trained only on strictly-earlier seasons; the first season has no prior data
-    and is the in-sample warm-up (never a test fold). ``out_of_sample_roi`` is the
-    ROI over all test folds combined."""
+def _season_splits(bets: list[_Bet]) -> list[SeasonSplit]:
+    """Every season (the first included), oldest first, with its own ROI. The
+    same settled bets grouped by season — no model is re-fitted per season."""
     seasons = sorted({b.season for b in bets})
-    folds: list[FoldResult] = []
-    oos_bets: list[_Bet] = []
-    for i, season in enumerate(seasons):
-        if i == 0:
-            continue  # no earlier seasons to train on → warm-up only
-        fold_bets = [b for b in bets if b.season == season]
-        oos_bets.extend(fold_bets)
-        folds.append(FoldResult(season=season, matched_count=len(fold_bets), roi=_roi(fold_bets)))
-    result.folds = folds
-    result.out_of_sample_roi = _roi(oos_bets) if oos_bets else None
+    return [
+        SeasonSplit(
+            season=season,
+            matched_count=len(group := [b for b in bets if b.season == season]),
+            roi=_roi(group),
+        )
+        for season in seasons
+    ]

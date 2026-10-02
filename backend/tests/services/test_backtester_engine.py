@@ -159,19 +159,32 @@ async def test_available_bet_types_reflects_missing_odds(session: AsyncSession) 
 
 
 @pytest.mark.asyncio
-async def test_walk_forward_splits_by_season(session: AsyncSession) -> None:
+async def test_season_split_lists_every_season_in_order(session: AsyncSession) -> None:
     s = _Seeder(session)
     await s.setup()
-    # Season 1 (warm-up) then season 2 (out-of-sample test fold).
+    await s.feature(ft_home=1, ft_away=0, season="2023-2024", odds_home="2.50")
     await s.feature(ft_home=2, ft_away=0, season="2022-2023", odds_home="2.00")
+    await session.commit()
+
+    result = await run_backtest(session, _req(BetType.x12, "home"), season_split=True)
+    assert result.season_split is True
+    # Every season, the first included (no "warm-up" — nothing is trained).
+    assert [x.season for x in result.season_splits] == ["2022-2023", "2023-2024"]
+    assert [x.roi for x in result.season_splits] == pytest.approx([1.0, 1.5])
+    assert result.evaluation_protocol == "historical_rule_simulation"
+    assert result.odds_basis == "closing"
+
+
+@pytest.mark.asyncio
+async def test_season_split_is_off_by_default(session: AsyncSession) -> None:
+    s = _Seeder(session)
+    await s.setup()
     await s.feature(ft_home=1, ft_away=0, season="2023-2024", odds_home="2.50")
     await session.commit()
 
-    result = await run_backtest(session, _req(BetType.x12, "home"), walk_forward=True)
-    assert result.walk_forward is True
-    # Only season 2 is a test fold; season 1 is warm-up.
-    assert [f.season for f in result.folds] == ["2023-2024"]
-    assert result.out_of_sample_roi == pytest.approx(1.5)  # single 2.50 winner
+    result = await run_backtest(session, _req(BetType.x12, "home"))
+    assert result.season_split is False
+    assert result.season_splits == []
 
 
 @pytest.mark.asyncio

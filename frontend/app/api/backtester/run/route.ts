@@ -3,8 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { proxyAuth } from "@/lib/server/authProxy";
 
 // Same-origin proxy for a backtest run; forwards the bearer token and the
-// walk_forward query flag to the backend.
+// season_split query flag to the backend.
 export function POST(request: NextRequest): Promise<NextResponse> {
-  const walkForward = request.nextUrl.searchParams.get("walk_forward") === "true";
-  return proxyAuth(request, `/backtester/run${walkForward ? "?walk_forward=true" : ""}`);
+  const seasonSplit = request.nextUrl.searchParams.get("season_split") === "true";
+  return proxyAuth(request, `/backtester/run${seasonSplit ? "?season_split=true" : ""}`);
 }

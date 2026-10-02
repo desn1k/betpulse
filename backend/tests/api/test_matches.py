@@ -132,6 +132,9 @@ async def test_list_returns_only_fixtures_with_predictions(
     assert item["consensus"]["home"] == pytest.approx(0.52)
     assert item["champion_method"] == "lightgbm"
     assert item["champion_accuracy_pct"] == pytest.approx(60.0)
+    # The figure travels with how it was obtained: retrospective, not verified.
+    assert item["metrics_protocol"] == "prequential_historical"
+    assert item["metrics_verified"] is False
 
 
 @pytest.mark.asyncio

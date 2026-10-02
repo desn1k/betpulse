@@ -18,6 +18,21 @@ describe("MethodBars tier gating", () => {
     expect(queryByText(/Available on the pro tier/)).not.toBeInTheDocument();
   });
 
+  it("labels every method index as retrospective, with a hint", () => {
+    const { getAllByText } = renderWithProviders(
+      <MethodBars methods={detailFixture.methods} locked={false} tierRequired="pro" />,
+      { locale: "ru" },
+    );
+    const labels = getAllByText(/\d+,\d % · ретро/);
+    expect(labels.length).toBeGreaterThan(0);
+    for (const label of labels) {
+      expect(label.closest("[title]")).toHaveAttribute(
+        "title",
+        "Индекс Brier на прошедших матчах, не гарантия точности",
+      );
+    }
+  });
+
   it("shows the lock and hides real bars when locked", () => {
     const { getByText, container } = renderWithProviders(
       // Locked with no data (guest/free): placeholder bars behind the lock.

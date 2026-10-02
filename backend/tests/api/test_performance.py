@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -28,7 +28,11 @@ async def test_no_evaluation_yet(client: AsyncClient, session: AsyncSession) -> 
 
     resp = await client.get("/performance")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "no_evaluation_yet"}
+    assert resp.json() == {
+        "status": "no_evaluation_yet",
+        "evaluation_protocol": "prequential_historical",
+        "verified_out_of_sample": False,
+    }
 
 
 @pytest.mark.asyncio
@@ -78,3 +82,34 @@ async def test_performance_reports_champion(client: AsyncClient, session: AsyncS
 async def test_performance_requires_no_auth(client: AsyncClient, session: AsyncSession) -> None:
     # Endpoint is reachable with no Authorization header.
     assert (await client.get("/performance")).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_performance_shows_one_current_version_per_method(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    now = datetime.now(UTC)
+    for version, trained, acc in (
+        ("v-old", now - timedelta(days=3), "30.00"),
+        ("v-new", now, "5.00"),
+    ):
+        session.add(
+            ModelRegistry(
+                method="elo",
+                version=version,
+                status=ModelStatus.challenger,
+                is_enabled=True,
+                is_visible=True,
+                display_weight=Decimal("0"),
+                accuracy_pct=Decimal(acc),
+                sample_count=400,
+                last_trained_at=trained,
+                last_evaluated_at=now,
+            )
+        )
+    await session.commit()
+
+    body = (await client.get("/performance")).json()
+    assert body["evaluation_protocol"] == "prequential_historical"
+    assert body["verified_out_of_sample"] is False
+    assert [(m["method"], m["version"]) for m in body["methods"]] == [("elo", "v-new")]

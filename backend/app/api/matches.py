@@ -27,6 +27,7 @@ from sqlalchemy.orm import aliased
 
 from app.core.deps import TierContextDep, get_db, get_redis_dep
 from app.ml.base import Method
+from app.ml.registry import current_registry_rows
 from app.models.fixture import Fixture, FixtureStatus
 from app.models.model_registry import ModelRegistry, ModelStatus
 from app.models.prediction import Prediction
@@ -102,16 +103,7 @@ def _probs_from_outcomes(outcomes: dict[str, float]) -> Probs1x2 | None:
 
 
 async def _visible_methods(session: AsyncSession) -> set[str]:
-    rows = (
-        (
-            await session.execute(
-                select(ModelRegistry.method).where(ModelRegistry.is_visible.is_(True))
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return set(rows)
+    return {r.method for r in await current_registry_rows(session) if r.is_visible}
 
 
 async def _champion(session: AsyncSession) -> tuple[str | None, float | None]:
@@ -134,8 +126,9 @@ async def _latest_1x2(
 ) -> dict[uuid.UUID, dict[str, dict[str, float]]]:
     """Latest 1X2 probabilities per (fixture, method, outcome).
 
-    Predictions are versioned; ordering by ``created_at`` descending and keeping
-    the first row seen for each (method, outcome) yields the newest model version.
+    Predictions are versioned. Per (fixture, method) the newest row's version is
+    taken and **all** outcomes come from that one version — never a mix of
+    versions across outcomes.
     """
     if not fixture_ids:
         return {}
@@ -154,9 +147,11 @@ async def _latest_1x2(
         .all()
     )
     out: dict[uuid.UUID, dict[str, dict[str, float]]] = defaultdict(lambda: defaultdict(dict))
+    chosen: dict[tuple[uuid.UUID, str], str] = {}
     for p in rows:
-        method_map = out[p.fixture_id][p.method]
-        method_map.setdefault(p.outcome, float(p.probability))
+        version = chosen.setdefault((p.fixture_id, p.method), p.model_version)
+        if p.model_version == version:
+            out[p.fixture_id][p.method].setdefault(p.outcome, float(p.probability))
     return out
 
 
@@ -317,16 +312,11 @@ async def get_match(
 
     # model_registry accuracy + consensus weight per method (weight for expert).
     registry = {
-        m: (None if acc is None else float(acc), float(weight))
-        for m, acc, weight in (
-            await session.execute(
-                select(
-                    ModelRegistry.method,
-                    ModelRegistry.accuracy_pct,
-                    ModelRegistry.display_weight,
-                )
-            )
-        ).all()
+        r.method: (
+            None if r.accuracy_pct is None else float(r.accuracy_pct),
+            float(r.display_weight),
+        )
+        for r in await current_registry_rows(session)
     }
 
     consensus = _probs_from_outcomes(latest.get(Method.consensus.value, {}))

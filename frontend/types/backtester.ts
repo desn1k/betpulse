@@ -32,7 +32,7 @@ export interface Breakdown {
   roi: number;
 }
 
-export interface FoldResult {
+export interface SeasonSplit {
   season: string;
   matched_count: number;
   roi: number;
@@ -55,7 +55,9 @@ export interface BacktestResult {
   available_bet_types: BetType[];
   roi_disclaimer: boolean;
   small_sample_warning: boolean;
-  walk_forward: boolean;
-  out_of_sample_roi: number | null;
-  folds: FoldResult[];
+  // A fixed rule replayed over past matches at closing odds — not a model test.
+  evaluation_protocol: string;
+  odds_basis: string;
+  season_split: boolean;
+  season_splits: SeasonSplit[];
 }

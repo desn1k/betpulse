@@ -1,3 +1,5 @@
+import { getTranslations } from "next-intl/server";
+
 import { PerformanceTable, type PerformanceData } from "./PerformanceTable";
 
 // Public model-performance page. Server component: fetches live data from the
@@ -18,23 +20,20 @@ async function loadPerformance(): Promise<PerformanceData> {
 }
 
 export default async function PerformancePage() {
-  const data = await loadPerformance();
+  const [data, t] = await Promise.all([loadPerformance(), getTranslations("performance")]);
   return (
     <main>
-      <h1>Model performance</h1>
-      <p>
-        Rolling out-of-sample Brier, log-loss and ROI-vs-closing-line per method.
-        The champion is marked ★.
+      <h1>{t("title")}</h1>
+      {/* How the numbers were obtained ships with them (no unverified claims). */}
+      <p data-testid="performance-intro">
+        {t("intro")} {t("championMark")}
       </p>
       {data.status === "unavailable" ? (
-        <p>Performance data is temporarily unavailable.</p>
+        <p>{t("unavailable")}</p>
       ) : (
         <PerformanceTable data={data} />
       )}
-      <p>
-        Analytical and informational purposes only. Past performance does not
-        predict future results. 18+.
-      </p>
+      <p>{t("disclaimer")}</p>
     </main>
   );
 }

@@ -113,12 +113,16 @@ async def test_free_daily_run_limit_then_403(client: AsyncClient, session: Async
 
 
 @pytest.mark.asyncio
-async def test_walk_forward_query_param(client: AsyncClient, session: AsyncSession) -> None:
+async def test_season_split_query_param(client: AsyncClient, session: AsyncSession) -> None:
     await _seed(session, 2)
     headers = await _headers(session, UserTier.pro)
-    resp = await client.post("/backtester/run?walk_forward=true", headers=headers, json=_RUN)
+    resp = await client.post("/backtester/run?season_split=true", headers=headers, json=_RUN)
     assert resp.status_code == 200
-    assert resp.json()["walk_forward"] is True
+    body = resp.json()
+    assert body["season_split"] is True
+    assert body["evaluation_protocol"] == "historical_rule_simulation"
+    assert body["odds_basis"] == "closing"
+    assert "out_of_sample_roi" not in body and "walk_forward" not in body
 
 
 @pytest.mark.asyncio
