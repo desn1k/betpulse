@@ -128,8 +128,20 @@ export function BacktesterView() {
             </label>
             <Field label={t("backtester.league")} value={league} onChange={setLeague} />
             <Field label={t("backtester.season")} value={season} onChange={setSeason} />
-            <Field label={t("backtester.oddsMin")} value={oddsMin} onChange={setOddsMin} type="number" />
-            <Field label={t("backtester.oddsMax")} value={oddsMax} onChange={setOddsMax} type="number" />
+            <Field
+              label={t("backtester.oddsMin")}
+              value={oddsMin}
+              onChange={setOddsMin}
+              type="number"
+              {...ODDS_INPUT}
+            />
+            <Field
+              label={t("backtester.oddsMax")}
+              value={oddsMax}
+              onChange={setOddsMax}
+              type="number"
+              {...ODDS_INPUT}
+            />
           </div>
           <label className="flex items-center gap-2 text-sm text-muted-strong">
             <input
@@ -163,22 +175,35 @@ export function BacktesterView() {
   );
 }
 
+// Mirrors the backend StrategyFilter bounds (decimal odds > 1.0, ≤ 1000); the
+// server stays the authority and answers 422 for anything outside them.
+const ODDS_INPUT = { min: 1.01, max: 1000, step: 0.01 };
+
 function Field({
   label,
   value,
   onChange,
   type = "text",
+  min,
+  max,
+  step,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   type?: string;
+  min?: number;
+  max?: number;
+  step?: number;
 }) {
   return (
     <label className="flex flex-col gap-1 text-sm">
       <span className="font-medium text-muted-strong">{label}</span>
       <input
         type={type}
+        min={min}
+        max={max}
+        step={step}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="rounded-md border border-border bg-surface px-3 py-2"

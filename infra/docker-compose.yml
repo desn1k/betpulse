@@ -28,6 +28,9 @@ services:
     # TimescaleDB extension available from day one for live probability and
     # odds-movement time-series (enabled via migration in Phase 3).
     image: timescale/timescaledb:2.17.2-pg16
+    # Explicit connection ceiling; every pool below must fit inside it
+    # (HANDOFF "Database connection budget", tests/test_connection_budget.py).
+    command: ["postgres", "-c", "max_connections=120"]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-football}
       POSTGRES_USER: ${POSTGRES_USER:-football}
@@ -101,10 +104,15 @@ services:
       server
       --host 0.0.0.0
       --port 5000
+      --workers 2
       --backend-store-uri postgresql+psycopg://${POSTGRES_USER:-football}:${POSTGRES_PASSWORD}@postgres:5432/mlflow
       --artifacts-destination s3://${S3_BUCKET_ARTIFACTS:-ml-artifacts}/mlflow
       --serve-artifacts
     environment:
+      # Each server process (the parent + every worker) keeps one pool per
+      # metadata store (tracking, model registry); cap them to fit the budget.
+      MLFLOW_SQLALCHEMYSTORE_POOL_SIZE: "2"
+      MLFLOW_SQLALCHEMYSTORE_MAX_OVERFLOW: "3"
       MLFLOW_S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://minio:9000}
       AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minioadmin}
       AWS_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
@@ -163,6 +171,10 @@ services:
   worker-batch:
     <<: *worker
     command: ["arq", "app.workers.arq_app.BatchWorker"]
+    environment:
+      # max_jobs = 2, one session per job: a small pool is plenty.
+      DB_POOL_SIZE: "2"
+      DB_MAX_OVERFLOW: "3"
     healthcheck:
       test: ["CMD", "python", "-m", "app.workers.healthcheck", "batch"]
       interval: 30s
@@ -176,6 +188,10 @@ services:
   worker-ml:
     <<: *worker
     command: ["arq", "app.workers.arq_app.MlWorker"]
+    environment:
+      # max_jobs = 1, one session per job: a small pool is plenty.
+      DB_POOL_SIZE: "2"
+      DB_MAX_OVERFLOW: "3"
     healthcheck:
       test: ["CMD", "python", "-m", "app.workers.healthcheck", "ml"]
       interval: 30s

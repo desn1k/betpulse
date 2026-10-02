@@ -12,6 +12,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from pydantic import ValidationError
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -124,9 +125,16 @@ async def export_strategy_csv(
     if strategy is None or strategy.user_id != user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
 
-    request = RunRequest.model_validate(
-        {"bet_type": strategy.bet_type, "pick": strategy.pick, "filters": strategy.filters}
-    )
+    try:
+        request = RunRequest.model_validate(
+            {"bet_type": strategy.bet_type, "pick": strategy.pick, "filters": strategy.filters}
+        )
+    except ValidationError as exc:
+        # Saved before the filter rules were tightened (e.g. odds_min = 1.0).
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Saved strategy filters are no longer valid; save the strategy again",
+        ) from exc
     bets = await backtest_bets(session, request)
 
     buf = io.StringIO()
