@@ -25,6 +25,16 @@ describe("BacktesterView", () => {
     expect(getByText(/Log in to run the backtester/i)).toBeInTheDocument();
   });
 
+  it("bounds the odds inputs like the backend (> 1.0, ≤ 1000)", () => {
+    const { getByLabelText } = renderWithProviders(<BacktesterView />, { locale: "en" });
+    for (const label of ["Min odds", "Max odds"]) {
+      const input = getByLabelText(label);
+      expect(input).toHaveAttribute("min", "1.01");
+      expect(input).toHaveAttribute("max", "1000");
+      expect(input).toHaveAttribute("step", "0.01");
+    }
+  });
+
   it("runs a backtest and renders results", async () => {
     vi.stubGlobal(
       "fetch",

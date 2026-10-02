@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -64,8 +65,30 @@ def _set_auth_cookies(response: Response, tokens: IssuedTokens, settings: Settin
 
 
 def _clear_auth_cookies(response: Response, settings: Settings) -> None:
-    response.delete_cookie(settings.refresh_cookie_name, path=settings.refresh_cookie_path)
-    response.delete_cookie(settings.csrf_cookie_name, path="/")
+    # Same name/path (and attributes) as when set, or the browser keeps them.
+    response.delete_cookie(
+        settings.refresh_cookie_name,
+        path=settings.refresh_cookie_path,
+        secure=settings.auth_cookie_secure,
+        httponly=True,
+        samesite="strict",
+    )
+    response.delete_cookie(
+        settings.csrf_cookie_name,
+        path="/",
+        secure=settings.auth_cookie_secure,
+        httponly=False,
+        samesite="strict",
+    )
+
+
+def _refresh_rejected(detail: str, settings: Settings) -> JSONResponse:
+    """A 401 that also clears the auth cookies. Returned, not raised: headers set
+    on the injected ``Response`` are dropped when an ``HTTPException`` is raised,
+    so the cookies would otherwise survive."""
+    response = JSONResponse(status_code=status.HTTP_401_UNAUTHORIZED, content={"detail": detail})
+    _clear_auth_cookies(response, settings)
+    return response
 
 
 def _token_response(tokens: IssuedTokens) -> AccessTokenResponse:
@@ -157,12 +180,10 @@ async def refresh(
     response: Response,
     settings: Annotated[Settings, Depends(get_settings)],
     user_agent: Annotated[str | None, Header()] = None,
-) -> AccessTokenResponse:
+) -> AccessTokenResponse | JSONResponse:
     refresh_token = request.cookies.get(settings.refresh_cookie_name)
     if not refresh_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing refresh token"
-        )
+        return _refresh_rejected("Missing refresh token", settings)
     # Rotation commits its own transaction (see rotate_refresh_token), so a
     # revocation it records survives the 401 below.
     try:
@@ -179,11 +200,8 @@ async def refresh(
             detail="Refresh already in progress",
             headers={"Retry-After": "1"},
         ) from exc
-    except (auth_service.InvalidToken, auth_service.TokenReuseDetected) as exc:
-        _clear_auth_cookies(response, settings)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
-        ) from exc
+    except (auth_service.InvalidToken, auth_service.TokenReuseDetected):
+        return _refresh_rejected("Invalid refresh token", settings)
 
     _set_auth_cookies(response, tokens, settings)
     return _token_response(tokens)

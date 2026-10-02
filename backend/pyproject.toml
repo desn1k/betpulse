@@ -44,6 +44,9 @@ dev = [
     "pytest-cov==7.1.0",
     "httpx==0.28.1",
     "respx==0.23.1",
+    # Read by tests/test_connection_budget.py (also an mlflow dependency).
+    "pyyaml==6.0.3",
+    "types-PyYAML==6.0.12.20260906",
     "ruff==0.15.21",
     "mypy==2.3.0",
 ]

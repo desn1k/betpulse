@@ -26,19 +26,40 @@ _VALID_PICKS = {
 }
 
 
+# Decimal odds are always > 1.0 (1.0 would return only the stake). Anything
+# above this bound is not a market price but a typo or a probe.
+ODDS_UPPER_BOUND = 1000.0
+
+# (min field, max field) pairs that must form an ordered range.
+_RANGES = (
+    ("odds_min", "odds_max"),
+    ("elo_diff_min", "elo_diff_max"),
+    ("avg_total_min", "avg_total_max"),
+)
+
+
 class StrategyFilter(BaseModel):
-    model_config = ConfigDict(extra="forbid")  # reject unknown filter fields
+    # Reject unknown filter fields, and NaN/inf in every numeric filter.
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     league: str | None = Field(default=None, max_length=32)
     season: str | None = Field(default=None, max_length=16)
     # Range on the odds of the *picked* selection.
-    odds_min: float | None = Field(default=None, ge=1.0)
-    odds_max: float | None = Field(default=None, ge=1.0)
+    odds_min: float | None = Field(default=None, gt=1.0, le=ODDS_UPPER_BOUND)
+    odds_max: float | None = Field(default=None, gt=1.0, le=ODDS_UPPER_BOUND)
     elo_diff_min: float | None = None
     elo_diff_max: float | None = None
     avg_total_min: float | None = Field(default=None, ge=0)
     avg_total_max: float | None = Field(default=None, ge=0)
     rest_days_min: float | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _check_ranges(self) -> StrategyFilter:
+        for low_name, high_name in _RANGES:
+            low, high = getattr(self, low_name), getattr(self, high_name)
+            if low is not None and high is not None and low > high:
+                raise ValueError(f"{low_name} must be less than or equal to {high_name}")
+        return self
 
 
 class RunRequest(BaseModel):

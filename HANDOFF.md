@@ -155,11 +155,28 @@ covered by Vitest + React Testing Library.
   + Σ_arq_workers (DB_POOL_SIZE + DB_MAX_OVERFLOW) + MLflow server pools + ~10 headroom
   (psql, migrations, backups) ≤ Postgres max_connections − superuser_reserved_connections`.
   The security pool is created lazily, so ARQ workers never open it; a `DATABASE_READ_URL` replica
-  pool counts against the replica, not the primary. Today's compose (1 API process, 3 ARQ workers):
-  20 + 3 × 15 = 65 before MLflow, against the default `max_connections` = 100. MLflow's own
-  SQLAlchemy pools come on top (per server worker, unless capped with
-  `MLFLOW_SQLALCHEMYSTORE_POOL_SIZE`/`…_MAX_OVERFLOW`); cap them or raise `max_connections` before
-  adding API processes (`uvicorn --workers`) or worker replicas.
+  pool counts against the replica, not the primary.
+  **Current budget** (compose sets `max_connections=120` explicitly; 3 superuser-reserved):
+
+  | Service | Pools | Max connections |
+  |---|---|---|
+  | api (1 process) | request 5+10, security 2+3 | 20 |
+  | worker-realtime (`max_jobs=20`) | 5+10 (defaults) | 15 |
+  | worker-batch (`max_jobs=2`) | `DB_POOL_SIZE=2`, `DB_MAX_OVERFLOW=3` | 5 |
+  | worker-ml (`max_jobs=1`) | `DB_POOL_SIZE=2`, `DB_MAX_OVERFLOW=3` | 5 |
+  | mlflow (`--workers 2`) | (2 workers + the server parent) × 2 stores × (2+3) | 30 |
+  | **total** | | **75** of 120 − 3 − 10 headroom = **107** |
+
+  MLflow keeps **one engine per metadata store** (tracking, model registry) in **every** process,
+  including the `mlflow server` parent, which is why its share is `(workers + 1) × 2 × (pool +
+  overflow)`; the stock defaults (4 workers, 5+10) would need 150 on their own. Measured locally with
+  MLflow 3.14 (the image's version), 2 workers, 2+3 pools and 40 concurrent clients: peak 13
+  connections (parent 3 idle, each worker ≤ 4). Batch/ml jobs each open exactly one session, so
+  their small pools cannot starve. `tests/test_connection_budget.py` recomputes this from the
+  compose files (base and base+prod) and the `Settings` defaults, and fails naming the largest
+  consumers when the sum exceeds the budget — update it when you add a service, a replica,
+  `uvicorn --workers`, or raise a pool. Pool overrides in `.env` are not visible to the guard;
+  set per-service values in compose `environment` instead.
 - **Idempotency everywhere.** Ingestion upserts use `ON CONFLICT DO NOTHING` on identity keys
   (`uq_fixture_identity`, odds identity, prediction identity). Tasks keyed by
   `fixture_id + method + model_version` so retries/duplicate deliveries are safe.
@@ -245,7 +262,9 @@ lock; unmapped API-Football team/league during live → structured warning + ski
   Set-Cookie; the proxy rewrites the refresh cookie `Path=/auth/refresh` → `/` so logout/refresh work
   same-origin. No registration form — test with a seeded/bootstrapped account. Silent refresh on
   mount restores the session after reload; a `409` (another tab rotated the token at the same time)
-  is retried once after 500 ms with the re-read CSRF cookie.
+  is retried once after 500 ms with the re-read CSRF cookie. A rejected refresh (401: missing,
+  unknown/expired or reused token) is *returned* as a `JSONResponse` that deletes both auth cookies —
+  raising `HTTPException` would drop the injected `Response`'s Set-Cookie headers.
 - **Billing seam**: `app/services/billing.py::PaymentProvider` (abstract, no impl); `subscriptions.
   source = payment` reserved. Promo codes are Phase 8.
 
@@ -300,6 +319,11 @@ lock; unmapped API-Football team/league during live → structured warning + ski
   Redis UTC-day counter; **save** and **export** are the `backtester_save`/`backtester_export` feature
   flags (expert only). Migration `0009` also patches the flags onto the tier rows seeded by `0007`.
   CSV export carries no internal UUIDs (date, teams, league, season, bet, odds, outcome, P/L, cum P/L).
+- **Filter validation** (`StrategyFilter`): decimal odds `1.0 < odds ≤ ODDS_UPPER_BOUND` (1000), no
+  NaN/inf in any numeric filter, and every `*_min`/`*_max` pair (odds, elo_diff, avg_total) must be
+  ordered → 422 before the run quota is touched. A strategy saved under the older, looser rules
+  answers **422** ("save the strategy again") on export instead of a 500. The form's odds inputs
+  carry matching `min`/`max`/`step` hints; the server stays the authority.
 
 ## 9e. Phase 10 notes (LLM analysis)
 
@@ -641,10 +665,6 @@ as its own Compose service:
     `LOCKOUT_BASE_SECONDS·2ⁿ` capped at `LOCKOUT_MAX_SECONDS`) is keyed on the account only, so
     anyone who knows an email can keep that user locked out. Consider a shorter cap, keying the
     backoff on account + client bucket, or a challenge (CAPTCHA/email link) instead of a hard lock.
-  - *Refresh 401 does not clear cookies.* `/auth/refresh` calls `_clear_auth_cookies(response)` and
-    then raises `HTTPException`; FastAPI drops the injected `Response`'s headers, so no Set-Cookie is
-    sent. Harmless (the cookie holds a dead token) but misleading — return the 401 as a response
-    object that deletes the cookies.
   - Still open: backtester memory (M-02); LLM issues (H-02, L-01), including the LLM daily token
     budget in `app/services/llm/analysis.py`, which still does a non-atomic `INCRBY` + `EXPIREAT`
     (dated key, so a leak rather than a lockout) — move it onto `app.services.counters` with the
