@@ -130,6 +130,24 @@ covered by Vitest + React Testing Library.
   `auth.token.reuse_detected`, committed before the 401. Audit rows never carry tokens or hashes;
   failures for unknown/inactive emails store only `email-hmac:<16 hex>` (keyed by `SECRET_KEY`),
   not the address.
+- **Database connection budget (two pools per API process).** A failed login holds its request
+  connection while it opens the security transaction, so `independent_transaction()` draws from a
+  **separate** pool (`DB_SECURITY_POOL_SIZE`=2 + `DB_SECURITY_MAX_OVERFLOW`=3); the request pool is
+  `DB_POOL_SIZE`=5 + `DB_MAX_OVERFLOW`=10, and both wait up to `DB_POOL_TIMEOUT_SECONDS`=30. Never
+  point security transactions back at the request pool: with one shared pool, N concurrent failed
+  logins ≥ pool capacity (15 by default; 1 with a pool of 1) all hold one connection and wait for a
+  second until the timeout → 500s and lost lockout state (`test_concurrent_failed_logins_do_not_
+  exhaust_the_pool` reproduces it). With two pools there is no cycle: security transactions never
+  wait on a request connection, so a saturated security pool only queues. Size the server as
+  `Σ_api (DB_POOL_SIZE + DB_MAX_OVERFLOW + DB_SECURITY_POOL_SIZE + DB_SECURITY_MAX_OVERFLOW)
+  + Σ_arq_workers (DB_POOL_SIZE + DB_MAX_OVERFLOW) + MLflow server pools + ~10 headroom
+  (psql, migrations, backups) ≤ Postgres max_connections − superuser_reserved_connections`.
+  The security pool is created lazily, so ARQ workers never open it; a `DATABASE_READ_URL` replica
+  pool counts against the replica, not the primary. Today's compose (1 API process, 3 ARQ workers):
+  20 + 3 × 15 = 65 before MLflow, against the default `max_connections` = 100. MLflow's own
+  SQLAlchemy pools come on top (per server worker, unless capped with
+  `MLFLOW_SQLALCHEMYSTORE_POOL_SIZE`/`…_MAX_OVERFLOW`); cap them or raise `max_connections` before
+  adding API processes (`uvicorn --workers`) or worker replicas.
 - **Idempotency everywhere.** Ingestion upserts use `ON CONFLICT DO NOTHING` on identity keys
   (`uq_fixture_identity`, odds identity, prediction identity). Tasks keyed by
   `fixture_id + method + model_version` so retries/duplicate deliveries are safe.

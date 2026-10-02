@@ -14,6 +14,7 @@ what was actually committed.
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -22,7 +23,7 @@ from typing import Any
 import pyotp
 import pytest
 from app.core.config import get_settings
-from app.core.db import _write_sessionmaker
+from app.core.db import _write_sessionmaker, reset_engines
 from app.core.redis import get_redis
 from app.core.security import hash_token
 from app.models.audit_log import AuditLog
@@ -371,3 +372,75 @@ async def test_security_audit_rows_carry_no_secrets_or_unknown_emails(
             )
         ).all()
     assert targets.count(unknown[0].target) == 2
+
+
+# --- Connection pools: no hold-and-wait deadlock --------------------------
+
+
+@pytest.fixture
+def tiny_pools(monkeypatch: pytest.MonkeyPatch) -> float:
+    """One connection in the request pool and one in the security pool.
+
+    A failed login holds its request connection while it opens the security
+    transaction. Were both drawn from one pool, a pool of 1 would deadlock on
+    the very first failure (and a default 5+10 pool on 15 concurrent ones) until
+    ``pool_timeout``. Returns that timeout."""
+    settings = get_settings()
+    for name, value in {
+        "db_pool_size": 1,
+        "db_max_overflow": 0,
+        "db_security_pool_size": 1,
+        "db_security_max_overflow": 0,
+        "db_pool_timeout_seconds": 10,
+        "rate_limit_login_per_minute": 10_000,
+        "login_max_failures": 100,
+    }.items():
+        monkeypatch.setattr(settings, name, value)
+    reset_engines()  # rebuilt with the tiny pools; disposed by the autouse fixture
+    return float(settings.db_pool_timeout_seconds)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_failed_logins_do_not_exhaust_the_pool(
+    client: AsyncClient, tiny_pools: float
+) -> None:
+    email = _email()
+    await client.post("/auth/register", json={"email": email, "password": PASSWORD})
+
+    started = time.monotonic()
+    responses = await asyncio.gather(
+        *(client.post("/auth/login", json={"email": email, "password": WRONG}) for _ in range(8))
+    )
+    elapsed = time.monotonic() - started
+
+    assert [r.status_code for r in responses] == [401] * 8
+    assert elapsed < tiny_pools  # nobody sat out a pool timeout
+    user = await _user(email)
+    assert user.failed_login_count == 8  # atomic increments, none lost
+    assert await _audit_count(AuditAction.LOGIN_FAILURE, user.id) == 8
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("widen_rotation_race")
+async def test_concurrent_refreshes_and_failed_logins_share_tiny_pools(
+    client: AsyncClient, tiny_pools: float
+) -> None:
+    victim = _email()
+    await client.post("/auth/register", json={"email": victim, "password": PASSWORD})
+    owner = _email()
+    await _register_and_login(client, owner)
+    t1, csrf = _session_cookies(client)
+
+    started = time.monotonic()
+    refreshes = [_refresh_with(t1, csrf) for _ in range(6)]
+    logins = [
+        client.post("/auth/login", json={"email": victim, "password": WRONG}) for _ in range(4)
+    ]
+    responses = await asyncio.gather(*refreshes, *logins)
+    elapsed = time.monotonic() - started
+
+    assert sorted(r.status_code for r in responses[:6]) == [200, 409, 409, 409, 409, 409]
+    assert [r.status_code for r in responses[6:]] == [401] * 4
+    assert elapsed < tiny_pools
+    assert (await _user(victim)).failed_login_count == 4
+    assert await _live_tokens((await _user(owner)).id) == 1

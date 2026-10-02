@@ -98,6 +98,15 @@ class Settings(BaseSettings):
     # --- PostgreSQL ---------------------------------------------------------
     database_url: str = "postgresql+asyncpg://football:football@localhost:5432/football"
     database_read_url: str = ""  # optional read replica; empty → use primary
+    # Per-process connection pools (see HANDOFF "Database connection budget").
+    # Request sessions use the main pool; security-state transactions
+    # (app.core.db.independent_transaction) use a separate small pool, so a
+    # request holding a main-pool connection can never wait on its own pool.
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+    db_pool_timeout_seconds: int = 30
+    db_security_pool_size: int = 2
+    db_security_max_overflow: int = 3
 
     # --- Redis --------------------------------------------------------------
     redis_url: str = "redis://localhost:6379/0"
