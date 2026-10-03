@@ -202,8 +202,9 @@ def _summary(
         home_score=fx.ft_home,
         away_score=fx.ft_away,
         consensus=consensus,
-        consensus_model_version=consensus_trace[0],
-        consensus_mlflow_run_id=consensus_trace[1],
+        # No consensus served → no model to name.
+        consensus_model_version=consensus_trace[0] if consensus is not None else None,
+        consensus_mlflow_run_id=consensus_trace[1] if consensus is not None else None,
         champion_method=champion_method,
         champion_accuracy_pct=champion_accuracy_pct,
         last_polled_at=fx.last_polled_at,

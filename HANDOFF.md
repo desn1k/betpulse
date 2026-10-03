@@ -856,6 +856,9 @@ as its own Compose service:
   - **online inference** for upcoming fixtures: today `Prediction` rows are written only by training
     (finished fixtures), so pre-match cards for upcoming matches need a scoring job that loads the
     registered model (by `mlflow_run_id`) and predicts before kickoff — estimate ~5–7 days;
+  - **Web Push payload**: `send_webpush` posts an empty body (no RFC 8291 payload encryption), so
+    the service worker never gets the fixture id and always shows its generic, localized text;
+    sending the id (encrypted) would let it render the match and the baseline numbers;
   - **team-aware live base rates** from the running Dixon-Coles fit (replacing the fixed
     `get_base_rates`), after which the live label can change from `live_baseline`.
 

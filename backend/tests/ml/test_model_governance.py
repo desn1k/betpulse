@@ -10,6 +10,7 @@ import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from app.core.config import get_settings
@@ -28,10 +29,11 @@ from app.models.prediction import Prediction, PredictionLive
 from app.models.reference import League, Team
 from app.models.user import User, UserRole, UserTier
 from app.services import model_admin
+from app.services.audit import record_event
 from app.services.live.recompute import LIVE_BASELINE_NOTE, BaseRates, recompute_fixture
 from app.workers.tasks import _swing_text, reevaluate_champions
 from httpx import AsyncClient
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.workers.test_champion_reeval import _NOW, _seed
@@ -140,6 +142,27 @@ async def test_rollback_restores_the_champion_without_two_at_once(session: Async
 
 
 @pytest.mark.asyncio
+async def test_rollback_to_a_snapshot_without_champion_demotes_a_later_one(
+    session: AsyncSession,
+) -> None:
+    await _rows({"elo": None})
+    snapshot = await registry.snapshot_registry(session, reason="test")
+    await session.commit()
+    later = ModelRegistry(
+        method="xg", version="v2", status=ModelStatus.challenger, min_samples=1, sample_count=1
+    )
+    session.add(later)
+    await session.commit()
+    await model_admin.promote(session, later.id, actor="admin:x")
+    await session.commit()
+    assert await _champions() == ["xg"]
+
+    await rollback_to_snapshot(session, snapshot.id)
+    await session.commit()
+    assert await _champions() == []
+
+
+@pytest.mark.asyncio
 async def test_rollback_of_a_snapshot_with_two_champions_is_refused(session: AsyncSession) -> None:
     await _rows({"elo": None, "dixon_coles": None}, champion="elo")
     item = {"version": "v1", "status": "champion", "is_enabled": True, "is_visible": True}
@@ -161,12 +184,12 @@ async def test_concurrent_manual_promotions_leave_one_champion(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ids = await _rows({"elo": None, "dixon_coles": None})
-    original = model_admin.record_event
+    original = record_event
 
-    async def slow_audit(*args: object, **kwargs: object) -> object:
+    async def slow_audit(*args: Any, **kwargs: Any) -> None:
         # Decided, not committed yet: the other promotion must wait for us.
         await asyncio.sleep(0.3)
-        return await original(*args, **kwargs)  # type: ignore[arg-type]
+        await original(*args, **kwargs)
 
     monkeypatch.setattr(model_admin, "record_event", slow_audit)
 
@@ -425,6 +448,15 @@ async def test_served_probabilities_carry_model_version_and_mlflow_run(
         "v2",
         "run-cons-2",
     )
+
+    # A consensus version missing an outcome is not served, so it names no model.
+    await session.execute(
+        delete(Prediction).where(Prediction.method == "consensus", Prediction.outcome == "away")
+    )
+    await session.commit()
+    detail = (await client.get(f"/matches/{fx.id}", headers=headers)).json()
+    assert detail["consensus"] is None
+    assert (detail["consensus_model_version"], detail["consensus_mlflow_run_id"]) == (None, None)
 
 
 # --- 5. running league xG prior ---------------------------------------------

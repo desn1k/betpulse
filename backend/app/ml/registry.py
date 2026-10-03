@@ -131,8 +131,8 @@ async def demote_champions(
 async def rollback_to_snapshot(session: AsyncSession, snapshot_id: uuid.UUID) -> None:
     """Restore the full registry state captured in a snapshot, atomically.
 
-    Takes the registry lock (waits at most ``registry_lock_timeout_ms``). If the
-    snapshot names a champion, every other current champion row is demoted first,
+    Takes the registry lock (waits at most ``registry_lock_timeout_ms``). Every
+    current champion row the snapshot does not name as champion is demoted first,
     including a version trained after the snapshot."""
     snapshot = await session.get(ModelRegistrySnapshot, snapshot_id)
     if snapshot is None:
@@ -148,9 +148,9 @@ async def rollback_to_snapshot(session: AsyncSession, snapshot_id: uuid.UUID) ->
     ]
     if len(champions) > 1:
         raise SnapshotHasManyChampions
-    if any(i["status"] == ModelStatus.champion.value for i in snapshot.payload):
-        # After this, the only possible champion is the snapshot's own.
-        await demote_champions(session, current, keep=champions[0] if champions else None)
+    # After this, the only possible champion is the snapshot's own (none if the
+    # snapshot had none: a row created later must not keep the title either).
+    await demote_champions(session, current, keep=champions[0] if champions else None)
     for item in snapshot.payload:
         row = by_key.get((item["method"], item["version"]))
         if row is None:
