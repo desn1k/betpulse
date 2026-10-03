@@ -14,6 +14,13 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   // Emit a standalone server bundle for a small production Docker image.
   output: "standalone",
+  // The build traces `typescript` only because this config file is TypeScript;
+  // the standalone server inlines the compiled config and never loads it, so a
+  // devDependency would otherwise ship in the image (guarded by
+  // next.config.test.ts; the CI dependency gate audits production deps only).
+  outputFileTracingExcludes: {
+    "*": ["node_modules/typescript/**"],
+  },
   async headers() {
     return [
       {

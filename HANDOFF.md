@@ -80,6 +80,20 @@ Backend (ruff · mypy · pytest), Frontend (eslint · tsc · vitest · build), D
 plus `security.yml`: gitleaks, bandit, semgrep, pip-audit, npm audit, trivy. Branch protection on
 `main` requires all of them green; merging is physically blocked otherwise.
 
+**npm audit gate (production dependencies only).** The blocking step of `Dependency audit (npm)` is
+`npm audit --omit=dev --audit-level=high`; a second step runs the full audit (devDependencies
+included) with `continue-on-error`, printing it to the job log and the run summary. Why prod-only:
+advisory **GHSA-vfj7-8cjw-p6xm** (`braces`, high, stack-exhaustion DoS) reaches us only through the
+dev chain `eslint-config-next → @next/eslint-plugin-next → fast-glob → micromatch → braces`, and no
+fixed `braces` exists (3.0.3 is the latest; `npm audit fix --force` would downgrade
+`eslint-config-next` to 14.x). The production image is a Next.js `output: "standalone"` build: only
+`.next/standalone` (traced runtime modules), `.next/static` and `public` are copied, so no
+devDependency ships — `typescript`, traced only because `next.config.ts` is TypeScript (the server
+inlines the compiled config), is excluded via `outputFileTracingExcludes` and guarded by
+`frontend/next.config.test.ts`. Anything that does ship is therefore a production dependency and
+covered by the blocking gate. **Revisit:** re-enable the full audit as blocking once a fixed
+`braces` (or a `fast-glob`/`micromatch` without it) is released — see §11.
+
 Backend CI specifics (`.github/workflows/ci.yml`): Postgres (timescaledb image) + Redis service
 containers; installs `libgomp1` for LightGBM; runs the **migration round-trip**
 `upgrade head → downgrade base → upgrade head`; runs **offline historical ingestion** against the
@@ -586,6 +600,14 @@ implemented.
 - **Docs:** update README/deploy docs with required env vars, tag-based release flow, deploy, rollback,
   backup and restore-drill commands.
 
+### Post-deploy manual checklist
+
+Run after the **first** deploy of a new image (and after any change to the frontend build/trace
+config) — CI only proves the image builds (`Docker images build`), not that it serves:
+
+- [ ] From the real frontend image: `GET /api/health`, `GET /` and `GET /performance` all respond
+  `200` (the standalone trace excludes `typescript`; a missing runtime module would surface here).
+
 ## 9j. Legal & compliance (Russian Federation)
 
 The target jurisdiction is the Russian Federation. Russian legal texts are authoritative; English is a
@@ -681,6 +703,10 @@ as its own Compose service:
 4. Post the phase plan, wait for "go", then implement → tests → CI green → PR. The owner merges.
 
 ## 11. Parked work (owner-requested, not yet scheduled)
+
+- **Re-enable the full blocking npm audit** once GHSA-vfj7-8cjw-p6xm (`braces`, dev-only via
+  `eslint-config-next`) has a fixed release: make the "all dependencies" step in `security.yml`
+  blocking again (drop `continue-on-error`) and delete the prod-only note in §5.
 
 - **ML follow-ups** (out of scope of the ML honesty PRs):
   - likelihood-fitted Dixon-Coles with time decay (and shrinkage toward the league mean) replacing
