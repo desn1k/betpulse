@@ -97,6 +97,12 @@ services:
     image: ghcr.io/${GHCR_OWNER:-desn1k}/betpulse-web:${IMAGE_TAG:-latest}
     build: null
     ports: !reset []
+    environment:
+      # The BFF reaches FastAPI over the internal network. Hardcoded on purpose:
+      # the base file takes API_BASE_URL from .env, whose example value
+      # (http://localhost:8000) is for local dev and would point the web
+      # container at itself. scripts/check-compose-ports.sh guards it.
+      API_BASE_URL: http://api:8000
     restart: always
     deploy:
       resources:
