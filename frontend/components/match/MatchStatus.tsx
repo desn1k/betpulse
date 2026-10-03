@@ -24,14 +24,22 @@ export function MatchStatus({ match }: { match: MatchSummary }) {
   }
 
   const kickoff = new Date(match.kickoff_at);
+  // A date-only fixture (kickoff_time_known === false) shows its date, never a
+  // made-up time; the date is read in UTC, where it is stored at noon.
+  const dateOnly = match.kickoff_time_known === false;
   return (
-    <time dateTime={match.kickoff_at} className="text-sm font-medium text-muted-strong">
-      {format.dateTime(kickoff, {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      })}
+    <time
+      dateTime={dateOnly ? match.kickoff_at.slice(0, 10) : match.kickoff_at}
+      className="text-sm font-medium text-muted-strong"
+    >
+      {dateOnly
+        ? format.dateTime(kickoff, { month: "short", day: "numeric", timeZone: "UTC" })
+        : format.dateTime(kickoff, {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
     </time>
   );
 }

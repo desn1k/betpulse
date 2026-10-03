@@ -16,7 +16,7 @@ import re
 import uuid
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import and_, func, or_, select
@@ -116,12 +116,6 @@ class DataReport:
 
 def _pct(part: int, whole: int) -> float:
     return round(100.0 * part / whole, 1) if whole else 0.0
-
-
-def _time_known(kickoff: datetime) -> bool:
-    """Heuristic until fixtures carry ``kickoff_time_known``: a kickoff at exactly
-    00:00 UTC is a date-only record."""
-    return kickoff.astimezone(UTC).time() != time(0, 0)
 
 
 def _is_canonical_season(season: str) -> bool:
@@ -352,7 +346,7 @@ async def build_report(
             ),
             teams=n,
             expected_fixtures=n * (n - 1),
-            time_known=sum(1 for fx in group if _time_known(fx.kickoff_at)),
+            time_known=sum(1 for fx in group if fx.kickoff_time_known),
             closing_1x2_by_bookmaker=dict(sorted(bookmakers.items())),
             closing_ou=sum(1 for fx in finished if fx.id in closing_ou),
         )

@@ -8,6 +8,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     Enum,
     ForeignKey,
@@ -15,6 +16,8 @@ from sqlalchemy import (
     Numeric,
     String,
     UniqueConstraint,
+    func,
+    true,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -54,6 +57,13 @@ class Fixture(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ForeignKey("teams.id", ondelete="RESTRICT"), index=True, nullable=False
     )
     kickoff_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # False when the source gave only a date: ``kickoff_at`` is then 12:00 UTC
+    # of that date (noon keeps the calendar date stable in every time zone) and
+    # no time may be shown. Same-day date-only fixtures share an instant, so the
+    # ML chronology treats them as one batch.
+    kickoff_time_known: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=true(), nullable=False
+    )
 
     status: Mapped[FixtureStatus] = mapped_column(
         Enum(FixtureStatus, name="fixture_status"),
@@ -80,6 +90,24 @@ class Fixture(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # day). Recomputed each midnight by an ARQ cron; null = not ranked today. Lets
     # the tier gate be a DB lookup instead of a per-request computation (spec §8).
     fixture_llm_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class FixtureExternalRef(UUIDPrimaryKeyMixin, Base):
+    """A source's own id for a fixture. Lookup by ``(provider, external_id)``
+    is the first identity check on ingestion; one fixture can carry refs from
+    several sources (the cross-source dedup links them)."""
+
+    __tablename__ = "fixture_external_refs"
+    __table_args__ = (UniqueConstraint("provider", "external_id", name="uq_fixture_external_ref"),)
+
+    fixture_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("fixtures.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    external_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class FixtureStats(UUIDPrimaryKeyMixin, TimestampMixin, Base):

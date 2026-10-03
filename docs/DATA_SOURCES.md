@@ -24,9 +24,15 @@ remaining quota**.
 
 ---
 
-## 1. football-data.co.uk — historical (role: `historical`, `odds`)
+## 1. football-data.co.uk — historical, **dev / local only** (role: `historical`, `odds`)
 
 **Provider id:** `football_data_couk` (implemented in `backend/app/providers/football_data_couk.py`).
+
+> **Not for production.** The site grants no licence for commercial use, so the adapter is
+> `licensed_for_production = False` and the ingestion core refuses it when `ENVIRONMENT=production`
+> (CLI exits 2, the admin re-scan answers 409). Use it only for local / dev data. The production
+> historical source is a paid, properly licensed provider — **not chosen yet**; it plugs in as a new
+> `SourceAdapter` without schema changes.
 
 **What it is.** Free CSV archives of European league results, going back 30+ seasons. Each row has
 full-time and **half-time** scores, shots, corners, cards — and **closing odds from 10+ bookmakers**
@@ -72,12 +78,19 @@ Closing odds are stored in the `odds` hypertable as `bookmaker='pinnacle'`, `ts 
 total as `market='ou_2.5'`, `outcome in {over,under}`. The over/under market feeds the strategy
 backtester's totals bets (spec §6).
 
-**ID mapping (seed behaviour).** football-data.co.uk is the **canonical seed source**: the first time
-a team/league name is seen it creates the canonical `teams`/`leagues` row (keyed by normalized name /
-league code) and records the alias in `provider_team_aliases` / `provider_league_aliases`. Each
-creation emits a structured-JSON `WARNING` with `league`, `raw_name`, `normalized` and `csv_row` so it
-is auditable — never a silent duplicate. **Other** providers resolve against these aliases via a
-strict resolver that **raises** `UnmappedEntityError` on an unknown name.
+**ID mapping (seed behaviour).** football-data.co.uk is a **seed source** (`may_seed_canonical`): the
+first time a team/league name is seen it creates the canonical `teams`/`leagues` row (teams keyed by
+`(country, normalized name)`, leagues by code) and records the alias in `provider_team_aliases` /
+`provider_league_aliases`. Each creation emits a structured-JSON `WARNING` with `league`, `raw_name`,
+`normalized` and `csv_row` so it is auditable — never a silent duplicate. **Other** providers
+resolve against these aliases via a strict resolver (stable team id first, then name) that **raises**
+`UnmappedEntityError` on an unknown name and records it in `provider_unmapped_teams`; list them with
+`python -m app.cli unmapped-teams` and bind them with `python -m app.cli map-team` (audited).
+
+**Identity.** The CSVs have no match ids, so each row gets a synthetic one
+(`fd:{division}:{season}:{YYYYMMDD}:{home}:{away}`) in `fixture_external_refs`; a re-run finds it.
+A match another source already filed (same league and teams within ±36 h, any season label) is
+linked, not duplicated.
 
 **How to load.**
 
@@ -88,12 +101,13 @@ make verify-history    HISTORY_ARGS="--leagues EPL,LALIGA --seasons 2022-2023,20
 
 `bootstrap-history` downloads from football-data.co.uk (local dev / VPS). `verify-history` prints a
 `league | season | fixtures | odds` table and exits non-zero if any configured league/season has zero
-fixtures. Ingestion is **idempotent** — re-running the same CSV inserts nothing new
-(`ON CONFLICT DO NOTHING` on the fixture and odds identity keys).
+fixtures. Ingestion is **idempotent** — re-running the same CSV inserts nothing new (external ref
+lookup, then `ON CONFLICT DO NOTHING` on the fixture and odds identity keys).
 
 **Caveats.**
-- Kickoff times are stored as UTC from the CSV `Date`/`Time` (football-data times are UK local; the
-  small offset is immaterial for closing-odds analysis).
+- CSV `Date`/`Time` are UK local time; they are converted to UTC (GMT/BST aware, `zoneinfo`). Seasons
+  before 2019-20 have no `Time` column: those rows are stored at **12:00 UTC** of the date with
+  `kickoff_time_known = false`, and no time is ever shown for them.
 
 **xG coverage caveat.** football-data.co.uk has **no shot coordinates**, so the own-xG model
 (`backend/app/ml/xg.py`) runs in **approximate** mode for historical seasons: team xG is estimated
@@ -208,6 +222,14 @@ never a source of probabilities). It is any **OpenAI-compatible** chat-completio
 ---
 
 ## Adding a new provider
+
+> **Historical sources** implement the `SourceAdapter` protocol
+> (`backend/app/services/ingestion/core.py`): `name`, `may_seed_canonical`, an async
+> `fetch(league, season) -> list[FixtureDTO]` where every record carries the source's own
+> `external_id`, a tz-aware UTC `kickoff_at` and `kickoff_time_known` — and an **explicit**
+> `licensed_for_production = True` only once its Terms of Service allow our use. Without that flag
+> the core refuses the adapter in production (fail closed). Identity, season labels and cross-source
+> dedup are handled by the core; no schema change is needed.
 
 1. Implement `BaseProvider` in `backend/app/providers/<name>.py`:
 

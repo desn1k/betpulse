@@ -23,6 +23,7 @@ from app.providers.football_data_couk import (
     canonical_to_fd_code,
     season_to_fd,
 )
+from app.services.ingestion.core import ensure_licensed
 from app.services.ingestion.football_data import LEAGUE_META, IngestSummary, ingest_dtos
 
 logger = logging.getLogger("ingestion.runner")
@@ -63,6 +64,8 @@ async def bootstrap_history(
     provider: FootballDataCoUkProvider | None = None,
 ) -> IngestSummary:
     provider = provider or FootballDataCoUkProvider()
+    # Refuse before downloading anything (dev / local source only).
+    ensure_licensed(provider)
     summary = IngestSummary()
 
     for league_code in leagues:
@@ -104,6 +107,7 @@ async def run_recorded_ingestion(
     pair (provider, league, season, status, counts, duration, error). A failure on
     one pair is isolated in a savepoint and logged on its row; others still run.
     """
+    ensure_licensed(FootballDataCoUkProvider)
     runs: list[IngestionRun] = []
     for league_code in leagues:
         for season in seasons:

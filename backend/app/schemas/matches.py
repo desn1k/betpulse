@@ -60,6 +60,9 @@ class MatchSummary(BaseModel):
     home_team: str
     away_team: str
     kickoff_at: datetime
+    # False when only the date is known: kickoff_at is 12:00 UTC of that date
+    # and clients must show the date only, never a time.
+    kickoff_time_known: bool = True
     status: FixtureStatus
     minute: int | None
     home_score: int | None

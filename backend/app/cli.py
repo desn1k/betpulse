@@ -5,6 +5,10 @@ Usage:
                                         [--offline-dir DIR]
     python -m app.cli verify-history   [--leagues ...] [--seasons ...]
     python -m app.cli data-report      [--leagues ...] [--seasons ...] [--json] [--strict]
+    python -m app.cli unmapped-teams   [--provider NAME]
+    python -m app.cli map-team         --provider NAME --alias "Raw Name"
+                                       (--team-id UUID | --team NAME [--country C])
+                                       [--external-id ID]
 
 ``--offline-dir`` reads committed CSV fixtures instead of downloading — used by
 CI. Without it, CSVs are fetched from football-data.co.uk (local dev / VPS).
@@ -42,11 +46,17 @@ async def _bootstrap(leagues: list[str], seasons: list[str], offline_dir: str | 
     csv_source = (
         offline_csv_source(Path(offline_dir)) if offline_dir else network_csv_source(provider)
     )
-    async with _write_sessionmaker()() as session:
-        summary = await bootstrap_history(
-            session, leagues=leagues, seasons=seasons, csv_source=csv_source, provider=provider
-        )
-        await session.commit()
+    from app.services.ingestion.core import SourceNotLicensed
+
+    try:
+        async with _write_sessionmaker()() as session:
+            summary = await bootstrap_history(
+                session, leagues=leagues, seasons=seasons, csv_source=csv_source, provider=provider
+            )
+            await session.commit()
+    except SourceNotLicensed as exc:
+        print(f"bootstrap-history: {exc}", file=sys.stderr)
+        return 2
     print(
         f"bootstrap-history: fixtures +{summary.fixtures_inserted}/{summary.fixtures_seen}, "
         f"odds +{summary.odds_inserted}, teams +{summary.teams_created}, "
@@ -90,6 +100,79 @@ async def _data_report(
     return report.exit_code(strict=strict)
 
 
+async def _unmapped_teams(provider: str | None) -> int:
+    from app.providers.id_mapping import unmapped_teams
+
+    async with _write_sessionmaker()() as session:
+        rows = await unmapped_teams(session, provider=provider)
+    if not rows:
+        print("no unmapped teams")
+        return 0
+    print("provider | raw_name | external_id | league | seen | last_seen")
+    for r in rows:
+        print(
+            f"{r.provider} | {r.raw_name} | {r.external_id or '-'} | {r.league_hint or '-'} | "
+            f"{r.seen_count} | {r.last_seen_at.isoformat()}"
+        )
+    return 0
+
+
+async def _map_team(
+    provider: str,
+    alias: str,
+    team_id: str | None,
+    team_name: str | None,
+    country: str | None,
+    external_id: str | None,
+) -> int:
+    import uuid
+
+    from sqlalchemy import select
+
+    from app.models.reference import Team
+    from app.providers.id_mapping import UnmappedEntityError, map_team, normalize_name
+
+    async with _write_sessionmaker()() as session:
+        if team_id is not None:
+            target = uuid.UUID(team_id)
+        else:
+            matches = (
+                (
+                    await session.execute(
+                        select(Team).where(
+                            Team.normalized_name == normalize_name(team_name or ""),
+                            *([Team.country == country] if country else []),
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if len(matches) != 1:
+                found = ", ".join(f"{t.id} ({t.country})" for t in matches) or "none"
+                print(
+                    f"map-team: need exactly one canonical team for {team_name!r}; "
+                    f"found {found}. Pass --team-id or --country.",
+                    file=sys.stderr,
+                )
+                return 2
+            target = matches[0].id
+        try:
+            await map_team(
+                session,
+                provider=provider,
+                raw_name=alias,
+                team_id=target,
+                external_id=external_id,
+            )
+        except UnmappedEntityError as exc:
+            print(f"map-team: {exc}", file=sys.stderr)
+            return 2
+        await session.commit()
+    print(f"mapped {provider}:{alias!r} -> {target}")
+    return 0
+
+
 async def _train() -> int:
     from app.ml.training import run_training
 
@@ -118,6 +201,16 @@ def main(argv: list[str] | None = None) -> int:
     report.add_argument("--seasons", type=_split, default=None)
     report.add_argument("--json", action="store_true", help="machine-readable output")
     report.add_argument("--strict", action="store_true", help="warnings also fail")
+    unmapped = sub.add_parser("unmapped-teams", help="team names no alias resolves yet")
+    unmapped.add_argument("--provider", default=None)
+    mapping = sub.add_parser("map-team", help="bind a provider team name to a canonical team")
+    mapping.add_argument("--provider", required=True)
+    mapping.add_argument("--alias", required=True, help="the provider's raw team name")
+    target = mapping.add_mutually_exclusive_group(required=True)
+    target.add_argument("--team-id", default=None)
+    target.add_argument("--team", default=None, help="canonical team name")
+    mapping.add_argument("--country", default=None)
+    mapping.add_argument("--external-id", default=None, help="the provider's stable team id")
     sub.add_parser("train")
 
     args = parser.parse_args(argv)
@@ -127,6 +220,14 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_verify(args.leagues, args.seasons))
     if args.command == "data-report":
         return asyncio.run(_data_report(args.leagues, args.seasons, args.json, args.strict))
+    if args.command == "unmapped-teams":
+        return asyncio.run(_unmapped_teams(args.provider))
+    if args.command == "map-team":
+        return asyncio.run(
+            _map_team(
+                args.provider, args.alias, args.team_id, args.team, args.country, args.external_id
+            )
+        )
     if args.command == "train":
         return asyncio.run(_train())
     parser.error(f"unknown command: {args.command}")

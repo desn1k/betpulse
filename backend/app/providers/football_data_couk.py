@@ -14,6 +14,7 @@ from __future__ import annotations
 import io
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
+from zoneinfo import ZoneInfo
 
 import httpx
 import pandas as pd
@@ -36,6 +37,12 @@ from app.providers.dtos import (
 )
 
 CSV_URL_TEMPLATE = "https://www.football-data.co.uk/mmz4281/{season}/{code}.csv"
+
+# CSV dates and times are UK local time (GMT/BST).
+_UK = ZoneInfo("Europe/London")
+# A date-only row is stored at noon UTC: noon keeps the calendar date in every
+# time zone, and same-day date-only fixtures share one instant (one ML batch).
+DATE_ONLY_HOUR_UTC = 12
 
 # Canonical league code -> football-data.co.uk division code.
 LEAGUE_CODE_MAP: dict[str, str] = {
@@ -103,9 +110,24 @@ def _strip_comment_lines(content: bytes) -> bytes:
     return b"\n".join(kept)
 
 
+def external_id(division: str, season: str, local_date: datetime, home: str, away: str) -> str:
+    """Synthetic, reproducible id for a football-data row (the CSVs have none):
+    division, canonical season, the CSV's (UK local) date and normalized team
+    names. Migration 0015 back-fills existing rows with the same formula."""
+    from app.providers.id_mapping import normalize_name
+
+    return (
+        f"fd:{division}:{season}:{local_date:%Y%m%d}:{normalize_name(home)}:{normalize_name(away)}"
+    )
+
+
 class FootballDataCoUkProvider(BaseProvider):
     name = "football_data_couk"
     capabilities = frozenset({Capability.HISTORICAL, Capability.ODDS})
+    # No licence for commercial use: dev / local only (the core refuses it in
+    # production). It may seed canonical leagues/teams for development data.
+    licensed_for_production = False
+    may_seed_canonical = True
 
     def __init__(self, leagues: list[str] | None = None, timeout: float = 60.0) -> None:
         self.leagues = leagues or list(LEAGUE_CODE_MAP)
@@ -119,6 +141,10 @@ class FootballDataCoUkProvider(BaseProvider):
             resp = await client.get(url)
             resp.raise_for_status()
             return resp.content
+
+    async def fetch(self, league_code: str, season: str) -> list[FixtureDTO]:
+        """SourceAdapter entry point: download and parse one league/season."""
+        return self.parse_csv(await self.download_csv(league_code, season), league_code, season)
 
     def parse_csv(self, content: bytes, league_code: str, season: str) -> list[FixtureDTO]:
         df = pd.read_csv(
@@ -134,20 +160,25 @@ class FootballDataCoUkProvider(BaseProvider):
             away = row.get("AwayTeam")
             if not isinstance(home, str) or not isinstance(away, str):
                 continue
-            kickoff = self._parse_kickoff(row)
-            if kickoff is None:
+            parsed = self._parse_kickoff(row)
+            if parsed is None:
                 continue
+            kickoff, time_known, local_date = parsed
 
             odds = self._parse_pinnacle_closing(row, kickoff)
             odds.extend(self._parse_pinnacle_ou(row, kickoff))
             fixtures.append(
                 FixtureDTO(
                     provider=self.name,
+                    external_id=external_id(
+                        league.raw_code or league_code, season, local_date, home, away
+                    ),
                     league=league,
                     season=season,
                     home=TeamRef(raw_name=home.strip()),
                     away=TeamRef(raw_name=away.strip()),
                     kickoff_at=kickoff,
+                    kickoff_time_known=time_known,
                     status="finished",
                     ft_home=_to_int(row.get("FTHG")),
                     ft_away=_to_int(row.get("FTAG")),
@@ -161,22 +192,27 @@ class FootballDataCoUkProvider(BaseProvider):
         return fixtures
 
     @staticmethod
-    def _parse_kickoff(row: pd.Series) -> datetime | None:
+    def _parse_kickoff(row: pd.Series) -> tuple[datetime, bool, datetime] | None:
+        """``(kickoff_utc, time_known, local_date)``. With a ``Time`` column the
+        UK local wall-clock is converted to UTC (GMT/BST aware); a date-only row
+        gets 12:00 UTC of its date and ``time_known = False``."""
         raw_date = row.get("Date")
         if not isinstance(raw_date, str) or not raw_date.strip():
             return None
         parsed = pd.to_datetime(raw_date, dayfirst=True, errors="coerce")
         if pd.isna(parsed):
             return None
-        dt: datetime = parsed.to_pydatetime()
+        local_date: datetime = parsed.to_pydatetime().replace(hour=0, minute=0, second=0)
         raw_time = row.get("Time")
         if isinstance(raw_time, str) and ":" in raw_time:
             try:
                 hh, mm = raw_time.split(":")[:2]
-                dt = dt.replace(hour=int(hh), minute=int(mm))
+                local = local_date.replace(hour=int(hh), minute=int(mm), tzinfo=_UK)
+                return local.astimezone(UTC), True, local_date
             except ValueError:
                 pass
-        return dt.replace(tzinfo=UTC)
+        noon = local_date.replace(hour=DATE_ONLY_HOUR_UTC, tzinfo=UTC)
+        return noon, False, local_date
 
     @staticmethod
     def _parse_pinnacle_closing(row: pd.Series, ts: datetime) -> list[BookmakerOddsDTO]:

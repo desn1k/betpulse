@@ -8,10 +8,18 @@ resolves them to canonical internal ids.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
+
+
+def _aware_utc(value: datetime) -> datetime:
+    """Sources must send time-zone-aware datetimes; stored as UTC. A naive
+    value is rejected — guessing its zone is how kickoffs drift by an hour."""
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("datetime must be time-zone aware (UTC)")
+    return value.astimezone(UTC)
 
 
 class TeamRef(BaseModel):
@@ -21,6 +29,8 @@ class TeamRef(BaseModel):
 
     raw_name: str
     country: str | None = None
+    # The provider's stable team id, when it has one (resolved before the name).
+    external_id: str | None = None
 
 
 class LeagueRef(BaseModel):
@@ -40,6 +50,8 @@ class BookmakerOddsDTO(BaseModel):
     ts: datetime
     is_closing: bool = True
 
+    _ts_utc = field_validator("ts")(_aware_utc)
+
 
 class StatsDTO(BaseModel):
     home_shots: int | None = None
@@ -54,11 +66,16 @@ class FixtureDTO(BaseModel):
     """A scheduled or finished fixture, with optional closing odds and stats."""
 
     provider: str
+    # The source's own id for this fixture (synthetic when it has none); the
+    # first identity check on ingestion (``fixture_external_refs``).
+    external_id: str | None = None
     league: LeagueRef
     season: str
     home: TeamRef
     away: TeamRef
     kickoff_at: datetime
+    # False for date-only sources: kickoff_at is then 12:00 UTC of the date.
+    kickoff_time_known: bool = True
     status: str = "finished"
     ft_home: int | None = None
     ft_away: int | None = None
@@ -68,6 +85,8 @@ class FixtureDTO(BaseModel):
     stats: StatsDTO | None = None
     # Original CSV/row index for actionable ingestion warnings.
     source_row: int | None = None
+
+    _kickoff_utc = field_validator("kickoff_at")(_aware_utc)
 
 
 class LiveFixtureDTO(BaseModel):
@@ -85,6 +104,8 @@ class LiveFixtureDTO(BaseModel):
     home_score: int
     away_score: int
     status: str = "live"
+
+    _kickoff_utc = field_validator("kickoff_at")(_aware_utc)
 
 
 class OddsDTO(BaseModel):
