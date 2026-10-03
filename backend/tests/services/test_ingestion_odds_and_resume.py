@@ -20,7 +20,14 @@ from app.models.market import Odds
 from app.models.model_registry import ModelRegistry, ModelStatus
 from app.models.prediction import Prediction
 from app.models.reference import League, ProviderLeagueAlias, ProviderTeamAlias, Team
-from app.providers.dtos import BookmakerOddsDTO, FixtureDTO, LeagueRef, TeamRef
+from app.providers.dtos import (
+    MAX_PRICE,
+    MIN_PRICE,
+    BookmakerOddsDTO,
+    FixtureDTO,
+    LeagueRef,
+    TeamRef,
+)
 from app.providers.football_data_couk import PRE_CLOSING_LEAD, FootballDataCoUkProvider
 from app.services.data_quality import build_report
 from app.services.ingestion.core import IngestSummary, LeagueMeta, ingest_records
@@ -127,6 +134,58 @@ async def test_core_rejects_quotes_breaking_the_time_rule(session: AsyncSession)
     assert summary.odds_rejected == 6
     rows = (await session.execute(select(Odds))).scalars().all()
     assert {(r.is_closing, r.ts) for r in rows} == {(True, KICKOFF)}
+
+
+def test_adapter_skips_a_quote_set_with_an_out_of_range_price() -> None:
+    row = _CSV.splitlines()[:2]
+    row[1] = row[1].replace("2.05,3.35,3.90", "2.05,3.35,1500")  # AvgCA above 1000
+    csv = "".join(f"{line}\n" for line in row)
+    (fx,) = FootballDataCoUkProvider().parse_csv(csv.encode(), "EPL", "2023-2024")
+    kinds = {(q.bookmaker, q.market) for q in fx.odds}
+    assert ("market_avg", "1x2") not in kinds
+    assert ("pinnacle", "1x2") in kinds and ("market_avg", "ou_2.5") in kinds
+
+
+@pytest.mark.asyncio
+async def test_core_rejects_out_of_range_prices(session: AsyncSession) -> None:
+    odds = _quotes("pinnacle", ("2.0", "3.4", "4.0"), KICKOFF, closing=True) + _quotes(
+        "market_avg", ("1.0", "3.4", "1001"), KICKOFF, closing=True
+    )
+    summary = await _ingest(session, "src_a", [_dto("src_a", "a-1", odds=odds)])
+    assert summary.odds_rejected == 2
+    rows = (await session.execute(select(Odds))).scalars().all()
+    assert len(rows) == 4 and all(MIN_PRICE < float(r.price) <= MAX_PRICE for r in rows)
+
+
+@pytest.mark.asyncio
+async def test_time_rule_holds_for_the_stored_kickoff_of_a_linked_fixture(
+    session: AsyncSession,
+) -> None:
+    """src_b lists the match 2h later than the stored fixture. Its quotes must
+    obey the rule for the stored kickoff too, or a closing quote would sit after
+    the real kickoff."""
+    await _ingest(session, "src_a", [_dto("src_a", "a-1")])
+    await _alias_b(session)
+    later = KICKOFF + timedelta(hours=2)
+    odds = (
+        _quotes("b_closing_at_its_kickoff", ("2.0", "3.4", "4.0"), later, closing=True)
+        + _quotes(
+            "b_closing_in_play", ("1.5", "4.0", "6.0"), KICKOFF + timedelta(hours=1), closing=True
+        )
+        + _quotes(
+            "b_pre_in_play", ("1.9", "3.5", "4.2"), KICKOFF + timedelta(minutes=30), closing=False
+        )
+        + _quotes("b_pre_ok", ("1.9", "3.5", "4.2"), KICKOFF - timedelta(hours=1), closing=False)
+    )
+    summary = await _ingest(
+        session, "src_b", [_dto("src_b", "b-9", kickoff=later, odds=odds)], seed=False
+    )
+    assert summary.odds_rejected == 6
+    rows = (await session.execute(select(Odds))).scalars().all()
+    assert {(r.bookmaker, r.is_closing, r.ts) for r in rows} == {
+        ("b_closing_at_its_kickoff", True, KICKOFF),
+        ("b_pre_ok", False, KICKOFF - timedelta(hours=1)),
+    }
 
 
 @pytest.mark.asyncio
@@ -370,6 +429,26 @@ async def test_postponed_match_moves_and_its_old_closing_quote_stops_being_closi
     assert fixture.kickoff_at == moved
     assert all(not r.is_closing for r in (await session.execute(select(Odds))).scalars())
     assert await closing_quotes(session, [fixture]) == {}
+
+
+@pytest.mark.asyncio
+async def test_kickoff_moved_earlier_demotes_closing_quotes_after_the_new_kickoff(
+    session: AsyncSession,
+) -> None:
+    early = KICKOFF - timedelta(hours=2)
+    odds = _quotes("pinnacle", ("2.0", "3.4", "4.0"), KICKOFF, closing=True) + _quotes(
+        "other", ("2.1", "3.3", "3.9"), early, closing=True
+    )
+    await _ingest(session, "src_a", [_dto("src_a", "a-1", score=None, odds=odds)])
+    moved = KICKOFF - timedelta(hours=3)
+    await _ingest(session, "src_a", [_dto("src_a", "a-1", kickoff=moved, score=None)])
+
+    fixture = (await session.execute(select(Fixture))).scalar_one()
+    assert fixture.kickoff_at == moved
+    rows = (await session.execute(select(Odds))).scalars().all()
+    assert len(rows) == 6 and not any(r.is_closing for r in rows)
+    report = await build_report(session, now=KICKOFF + timedelta(days=200))
+    assert not [i for i in report.errors if i.code == "closing_after_kickoff"]
 
 
 # --- (d) per-pair commits, resumable runs, stale rows ---------------------------------

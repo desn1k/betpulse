@@ -27,6 +27,7 @@ from app.models.fixture import Fixture, FixtureStatus
 from app.models.ingestion_run import IngestionConflict
 from app.models.market import Odds
 from app.models.reference import League
+from app.providers.dtos import MAX_PRICE, MIN_PRICE
 
 ERROR = "error"
 WARNING = "warning"
@@ -34,8 +35,6 @@ WARNING = "warning"
 # Same pairing in the same league this close in time is one match recorded twice.
 DUPLICATE_WINDOW = timedelta(hours=36)
 MAX_GOALS = 15
-MIN_PRICE = 1.0
-MAX_PRICE = 1000.0
 OVERROUND_RANGE = (1.0, 1.25)
 TYPICAL_TEAM_COUNTS = {16, 18, 20}
 MIN_ODDS_COVERAGE = 0.9

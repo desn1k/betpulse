@@ -29,9 +29,10 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import Protocol
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,7 +42,7 @@ from app.models.fixture import Fixture, FixtureExternalRef, FixtureStats, Fixtur
 from app.models.ingestion_run import IngestionConflict
 from app.models.market import Odds
 from app.models.reference import League
-from app.providers.dtos import FixtureDTO
+from app.providers.dtos import MAX_PRICE, MIN_PRICE, FixtureDTO
 from app.providers.id_mapping import (
     get_or_create_canonical_league,
     get_or_create_canonical_team,
@@ -370,13 +371,20 @@ async def _insert_fixture(
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
-def _quote_problem(dto: FixtureDTO, quote_ts: datetime, is_closing: bool) -> str | None:
-    """The odds time rule on the way in: a closing quote is taken at kickoff at
-    the latest; a pre-closing quote strictly before it. Anything else (e.g. an
-    in-play price labelled closing) is rejected, never stored."""
-    if is_closing and quote_ts > dto.kickoff_at:
+def _quote_problem(
+    quote_ts: datetime, is_closing: bool, price: Decimal, kickoffs: tuple[datetime, ...]
+) -> str | None:
+    """The odds rule on the way in: a valid price; a closing quote taken at
+    kickoff at the latest, a pre-closing quote strictly before it. ``kickoffs``
+    holds both the source's and the stored fixture's kickoff (they differ for a
+    fixture linked across sources), and the rule must hold for each. Anything
+    else (e.g. an in-play price labelled closing) is rejected, never stored."""
+    if not MIN_PRICE < price <= MAX_PRICE:
+        return "price out of range"
+    kickoff = min(kickoffs)
+    if is_closing and quote_ts > kickoff:
         return "closing quote after kickoff"
-    if not is_closing and quote_ts >= dto.kickoff_at:
+    if not is_closing and quote_ts >= kickoff:
         return "pre-closing quote not before kickoff"
     return None
 
@@ -391,7 +399,10 @@ async def _insert_odds(
 ) -> int:
     inserted = 0
     for o in dto.odds:
-        problem = _quote_problem(dto, o.ts, o.is_closing)
+        # A source's "closing at its kickoff" lands at the stored fixture's
+        # kickoff, so a fixture linked across sources keeps one closing instant.
+        ts = stored_kickoff if o.is_closing and o.ts == dto.kickoff_at else o.ts
+        problem = _quote_problem(ts, o.is_closing, o.price, (dto.kickoff_at, stored_kickoff))
         if problem is not None:
             summary.odds_rejected += 1
             _warn(
@@ -403,12 +414,10 @@ async def _insert_odds(
                 outcome=o.outcome,
                 ts=o.ts.isoformat(),
                 kickoff=dto.kickoff_at.isoformat(),
+                stored_kickoff=stored_kickoff.isoformat(),
                 reason=problem,
             )
             continue
-        # A source's "closing at its kickoff" lands at the stored fixture's
-        # kickoff, so a fixture linked across sources keeps one closing instant.
-        ts = stored_kickoff if o.is_closing and o.ts == dto.kickoff_at else o.ts
         stmt = (
             pg_insert(Odds)
             .values(
@@ -480,13 +489,14 @@ async def _reconcile(
         changes["kickoff_at"] = (fixture.kickoff_at.isoformat(), dto.kickoff_at.isoformat())
         if dto.kickoff_time_known != fixture.kickoff_time_known:
             changes["kickoff_time_known"] = (fixture.kickoff_time_known, dto.kickoff_time_known)
-        # Closing quotes taken for the old date are not closing for the new one.
+        # Closing quotes taken for the old date are not closing for the new one,
+        # nor is any closing quote after an earlier new kickoff.
         await session.execute(
             update(Odds)
             .where(
                 Odds.fixture_id == fixture.id,
                 Odds.is_closing.is_(True),
-                Odds.ts == fixture.kickoff_at,
+                or_(Odds.ts == fixture.kickoff_at, Odds.ts > dto.kickoff_at),
             )
             .values(is_closing=False)
         )

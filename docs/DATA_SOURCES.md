@@ -60,8 +60,9 @@ to `--leagues` is **not** silently skipped — the ingester logs a structured `W
 (`event: league_unsupported_by_source`) and moves on. RPL history comes from the live provider and
 is flagged **beta** in the UI.
 
-**Column mapping (as implemented).** The loader (pandas) reads these columns; season-format drift is
-handled by fallbacks:
+**Column mapping (as implemented).** The loader (pandas) reads these columns. Each quote set is read
+independently: a missing closing set is never filled from pre-closing columns, and a set with any
+price outside `1 < price <= 1000` is skipped:
 
 | Field | CSV column(s) |
 |---|---|

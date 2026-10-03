@@ -274,8 +274,9 @@ covered by Vitest + React Testing Library.
   `python -m app.cli map-team --provider P --alias NAME (--team-id UUID | --team NAME [--country C])
   [--external-id ID]` binds it (audited as `ingestion.team.mapped`).
 - **Odds, corrections and resumable runs (HI-3).** *Odds kinds:* the ingestion core enforces the
-  time rule on the way in — a closing quote has `ts <= kickoff`, a pre-closing one `ts < kickoff`;
-  anything else (e.g. an in-play price labelled closing) is rejected and logged
+  rule on the way in — price in `1 < price <= 1000`, a closing quote has `ts <= kickoff`, a
+  pre-closing one `ts < kickoff`, checked against both the source's and the stored fixture's
+  kickoff (they differ for a cross-source link); anything else (e.g. an in-play price labelled closing) is rejected and logged
   (`odds_quote_rejected`). `closing_quotes` reads **only** `is_closing` rows, so a fixture with
   just pre-closing quotes has no closing price and is excluded from ROI vs closing / market model /
   backtester. football-data pre-closing quotes (`PSH`, `P>2.5`) sit at `kickoff − 1 day` — an
@@ -284,7 +285,7 @@ covered by Vitest + React Testing Library.
   no gaps/overlaps, open at both ends), default Pinnacle until 2025-07-23 and `market_avg` after.
   *Corrections:* when a record finds an existing fixture, empty fields are filled from any source;
   the fixture's **own** source may correct the score — and, found by its own id, move the kickoff
-  (postponement; the old closing quotes stop being closing) — audited as
+  (postponement; closing quotes at the old kickoff or after the new one stop being closing) — audited as
   `ingestion.fixture.corrected`; a **different** source disagreeing with a stored score changes
   nothing and is recorded in `ingestion_conflicts`, shown by `data-report` as
   `score_conflict_across_sources`. *Runs:* `run_recorded_ingestion` (admin re-scan, ARQ task and the

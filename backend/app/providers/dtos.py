@@ -42,6 +42,11 @@ class LeagueRef(BaseModel):
     country: str | None = None
 
 
+# Valid decimal odds: ``MIN_PRICE < price <= MAX_PRICE`` (ingestion and data-report).
+MIN_PRICE = 1.0
+MAX_PRICE = 1000.0
+
+
 class BookmakerOddsDTO(BaseModel):
     bookmaker: str
     market: str  # e.g. "1x2", "ou_2.5"

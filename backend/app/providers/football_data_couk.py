@@ -26,6 +26,8 @@ from app.providers.base import (
     NotSupportedError,
 )
 from app.providers.dtos import (
+    MAX_PRICE,
+    MIN_PRICE,
     BookmakerOddsDTO,
     FixtureDTO,
     LeagueRef,
@@ -224,7 +226,8 @@ class FootballDataCoUkProvider(BaseProvider):
         quotes: list[BookmakerOddsDTO] = []
         for bookmaker, market, columns, is_closing in _QUOTE_COLUMNS:
             prices = {outcome: _to_decimal(row.get(col)) for outcome, col in columns.items()}
-            if not all(prices.values()):
+            # A set is stored only when every price is a valid decimal odd.
+            if not all(p is not None and MIN_PRICE < p <= MAX_PRICE for p in prices.values()):
                 continue
             ts = kickoff if is_closing else kickoff - PRE_CLOSING_LEAD
             quotes.extend(
