@@ -827,6 +827,140 @@ as its own Compose service:
   is still running) — e.g. via an `after_job_end` hook or a lock-guarded scheduler. Needs a careful
   test against real ARQ semantics.
 
+## 9l. Data providers — owner decisions (2026-10-03)
+
+The production data stack is decided. This section records it. The research, cited doc pages and
+the open questions are in `docs/DATA_SOURCES.md` §3–§5.
+
+**Decisions**
+- **football-data.co.uk is never used in production.** It has no commercial licence and stays
+  dev/local only (`licensed_for_production = False`, already enforced).
+  - Any football-data rows that reach production are **replaced by Sportmonks data after the
+    backfill**; they must not stay. Check first with `data-report` (fixtures per source).
+- **Primary providers:**
+  - **Sportmonks (Growth plan):** fixtures, results, HT/FT, stats, live.
+  - **The Odds API:** odds — historical snapshots for the backfill, plus forward capture that
+    builds our own odds history.
+- **Fallback candidates** (not implemented): API-Football (fixtures/results/live) and TheStatsAPI.
+  The `SourceAdapter` interface must keep room for them.
+- **History depth:** seasons 2019-20..2025-26 for EPL, LaLiga, Serie A, Bundesliga, Ligue 1. The
+  Russian Premier League comes in a separate, later PR. The Odds API lists
+  `soccer_russia_premier_league`, but its bookmaker coverage and Sportmonks Growth RPL coverage are
+  unverified.
+- **Reference odds by kickoff date** (`REFERENCE_BOOKMAKERS`): Pinnacle before 2025-07-23,
+  `market_avg` from that date.
+  - **Decision rule for the trial month.** If The Odds API Pinnacle closing snapshots after
+    2025-07-23 cover **≈ 90 %** of matches, with plausible timestamps and prices consistent with
+    other bookmakers: keep Pinnacle as the primary reference and `market_avg` as the fallback.
+    Otherwise: `market_avg` is primary after 2025-07-23, and Pinnacle is used only for older seasons.
+  - Soft bookmakers (e.g. Bet365) are **never** the primary reference.
+- **Odds backfill scope:** **h2h (1X2) only** first (≈ 70k credits, one month of the 100K plan).
+  Totals (O/U 2.5) come later, after coverage is checked: The Odds API notes that spreads/totals
+  are "mainly available for US sports and bookmakers", so totals in the `eu` region may be sparse.
+- **Store every `eu` bookmaker** from each paid snapshot, not only Pinnacle. The snapshot is
+  already paid for, and the stored quotes let `market_avg` be recomputed.
+- **`market_avg` is computed by us** (The Odds API has no market-average price):
+  - inputs: `eu` region, no exchanges, at least 5 bookmakers per outcome;
+  - an outlier guard drops quotes far from the median;
+  - the bookmaker count is stored with the record;
+  - the exact definition is in `docs/DATA_SOURCES.md`. It is not football-data's `AvgC*`.
+- **No Sportmonks xG add-on for now.**
+  - Sportmonks xG exists only from the 2024 season.
+  - Mixing a provider xG (2024+) with shot-based approximate xG (older seasons) in one feature is a
+    **distribution-shift risk**.
+  - Revisit at the "xG quality" feature-group step, with **one** xG definition across the whole
+    history.
+- **Closing odds start on 2020-06-06** (The Odds API historical data).
+  - The ≈ 1,450 matches of 2019-20 played before the restart have **no closing odds** in
+    production. They remain useful for results and Elo/Glicko warm-up.
+  - Market comparisons (ROI vs closing, market model, backtester) start in 2020-21.
+  - The 2019-20 post-restart tail has odds: about 360 matches, none in Ligue 1, whose season was
+    cancelled.
+
+**Licences.** No adapter flips `licensed_for_production` to `True` without the owner's written
+confirmation.
+
+| Provider | ToS position | Flag |
+|---|---|---|
+| **The Odds API** | Explicitly allows commercial use, indefinite storage, ML training and derived data | may be `True` |
+| **Sportmonks** | Allows commercial use and storage; forbids direct resale; **silent on ML training** | `False` until written confirmation |
+| **API-Football** | Betting-related use may need additional licences from rights holders; silent on storage/ML | live poll gated by an explicit flag, kept **enabled** for now (see below) |
+| **TheStatsAPI** | Forbids caching/storing beyond what is reasonably necessary; the right to use data ends on termination | unusable for training/history unless confirmed in writing |
+
+- **API-Football live poll.** It already runs in production, outside `ensure_licensed`. It gets the
+  same kind of licence flag, set to enabled until the owner confirms. Moving live to Sportmonks is
+  a later item.
+- **Owner action — written answers from every provider** on:
+  1. indefinite storage of historical data;
+  2. ML training;
+  3. showing derived metrics to users;
+  4. betting-analytics use;
+  5. what happens to stored data after the subscription ends.
+
+**Provider facts that shape the design** (cited in `docs/DATA_SOURCES.md`)
+- **Sportmonks** odds history lasts only ≈ 7 days after kickoff, so it cannot backfill odds.
+- **The Odds API** historical snapshots:
+  - start 2020-06-06; 10-minute interval, 5-minute from 2022-09-18;
+  - the snapshot returned is the closest one **at or before** `date`;
+  - cost = `10 × markets × regions` per request.
+  - Pinnacle is in `eu` only, with the docs note "odds are from public website which may incur a
+    delay". Its reliability after 2025-07 is **unverified**.
+- **Ids are provider-specific.** Matching uses `fixture_external_refs`, `provider_team_aliases`
+  and the ±36 h identity rule (HI-2). The Odds API names teams by string, so its aliases are
+  bootstrapped through `map-team` / `unmapped-teams`, never auto-accepted.
+
+**Secrets**
+- **Keys.** Keys are entered in **Admin → Providers**: encrypted in the DB, rotatable without a
+  redeploy. `.env` is the fallback. CI secrets are used only by the contract-check workflow.
+  - **Current state:** the admin key is stored but **not yet read** — the live poller still uses
+    `API_FOOTBALL_KEY` from `.env`. Provider PR 1 adds the lookup: DB key first, `.env` fallback.
+- **What a database dump exposes.**
+  - A `pg_dump` contains provider and LLM keys (and TOTP secrets) **only as Fernet ciphertext**,
+    plus a 4-character `key_suffix` used for masking.
+  - The decryption key is `DATA_ENCRYPTION_KEY`, which lives in the server `.env` and never in the
+    database. Back it up **separately** from the dumps: one leaked file alone is not enough, and
+    losing the key makes every stored secret unrecoverable.
+  - `SECRET_KEY` (JWT signing) also lives only in `.env`.
+- **Keys never appear in chat, logs or audit.**
+  - The Odds API takes the key only as an `apiKey` query parameter, so the shared HTTP client sets
+    the `httpx` logger to WARNING and scrubs keys from every URL in our log lines and exception
+    texts. A test enforces this.
+  - Sportmonks takes the token in the `Authorization` header.
+  - Provider audit entries record field names only (already the case).
+
+**Trial and PR order**
+1. **Free calls first**, on the free The Odds API key: `/sports`, `/events` and two small `/odds`
+   calls (≈ 3 credits).
+2. **Historical calls** (≈ 51 credits) only after the owner buys the $30 plan.
+3. **Sportmonks** calls during its 14-day trial, which the owner starts when ready.
+
+Sanitised real responses (no keys, no account data) become test fixtures; a contract test fails
+loudly on a shape change.
+
+PR sequence:
+
+| Step | PR |
+|---|---|
+| 0 | This docs PR |
+| 0b | `data-report` fixtures per source |
+| — | Live base rates from current Dixon-Coles estimates (variant a) |
+| 1 | HTTP foundation: key lookup, scrubbing, retries, quotas, contract tests — **only after real responses are saved** |
+| 2 | Sportmonks adapter + resumable backfill |
+| 3 | Aliases + data-report mapping quality |
+| 4 | The Odds API closing backfill: dry-run cost, budget guard, snapshot ledger, `market_avg` |
+| 5 | Forward odds capture |
+| 6 | Dev-only Pinnacle check against football-data (nothing stored) |
+| 7 | Replace football-data rows in production, if any |
+| later | RPL; live on Sportmonks |
+
+**Trial-month checklist (owner)**
+- [ ] Pinnacle closing data quality after 2025-07-23, measured against the decision rule above.
+- [ ] League coverage at both providers, including RPL.
+- [ ] Credit consumption against the estimate.
+- [ ] Sportmonks: RPL coverage, bookmaker list, odds availability.
+- [ ] Payment and account access for a customer in Russia.
+- [ ] Written answers from every provider (the five points above).
+
 ## 10. How to resume
 
 1. Read this file + the spec §14 for the current phase.

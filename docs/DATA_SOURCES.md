@@ -4,8 +4,12 @@ How this project gets football data: what each source is for, how to obtain acce
 key, and what the request budget looks like.
 
 > **Rule:** provider API keys are entered in the **Admin UI** (Admin → Providers → Add provider).
-> They are envelope-encrypted at rest and never returned to the browser — only a masked suffix is
-> shown. The keys in `.env` exist **only** as a local-dev / CI fallback.
+> They are encrypted at rest (Fernet, `DATA_ENCRYPTION_KEY`) and never returned to the browser:
+> only a masked 4-character suffix is shown. The keys in `.env` are a fallback.
+> **Current state:** the stored key is not read yet; the live poller uses `API_FOOTBALL_KEY` from
+> `.env`. Provider PR 1 adds the lookup (DB key first, `.env` fallback).
+> A database dump holds only ciphertext. `DATA_ENCRYPTION_KEY` lives in the server `.env` and must
+> be backed up **separately** from the dumps (see HANDOFF §9l).
 
 ---
 
@@ -13,10 +17,12 @@ key, and what the request budget looks like.
 
 We deliberately use **two different sources**, because no single one does both jobs well.
 
-| Plane | Purpose | Source |
-|---|---|---|
-| **Historical** | ML training, calibration, strategy backtester, ROI/CLV | football-data.co.uk (free CSV) |
-| **Live / upcoming** | Fixtures, in-play state, odds, stats | API-Football (api-sports.io) |
+| Plane | Purpose | Production source | Dev / local |
+|---|---|---|---|
+| **Historical** | ML training, calibration, strategy backtester, ROI/CLV | Sportmonks (fixtures, results, stats) + The Odds API (closing odds) — §3, §4 | football-data.co.uk (free CSV, never in production) |
+| **Live / upcoming** | Fixtures, in-play state, odds, stats | API-Football today; Sportmonks later; forward odds from The Odds API | same |
+
+Owner decisions, licence status and the PR order: HANDOFF §9l.
 
 Roles are assigned per provider in the admin UI: `historical`, `live`, `odds`, `xg`. A provider can
 hold several roles. Ingestion picks the **highest-priority provider that has the required role and
@@ -31,8 +37,9 @@ remaining quota**.
 > **Not for production.** The site grants no licence for commercial use, so the adapter is
 > `licensed_for_production = False` and the ingestion core refuses it when `ENVIRONMENT=production`
 > (CLI exits 2, the admin re-scan answers 409). Use it only for local / dev data. The production
-> historical source is a paid, properly licensed provider — **not chosen yet**; it plugs in as a new
-> `SourceAdapter` without schema changes.
+> historical sources are **Sportmonks** (fixtures, results, stats) and **The Odds API** (odds),
+> §3–§4. Each plugs in as a new `SourceAdapter` without schema changes. Any football-data rows found
+> in production are replaced by Sportmonks data after the backfill.
 
 **What it is.** Free CSV archives of European league results, going back 30+ seasons. Each row has
 full-time and **half-time** scores, shots, corners, cards — and **closing odds from 10+ bookmakers**
@@ -225,14 +232,170 @@ never a source of probabilities). It is any **OpenAI-compatible** chat-completio
 - **No key committed anywhere** — like every provider key, it exists in the DB (encrypted) or, for
   local dev / CI only, as an env fallback.
 
-## 3. Optional future sources
+## 3. Sportmonks — production fixtures, results, stats (roles: `historical`, later `live`)
 
-| Source | Role | Why you might add it |
+**Status.** Chosen (Growth plan); not implemented yet (provider PR 2).
+`licensed_for_production = False` until the owner has Sportmonks' written confirmation: their ToS
+allow commercial use and storage and forbid direct resale, but say nothing about ML training.
+
+**Plan.** Growth: €99/month (€79 yearly), any 30 leagues, 2,500 calls **per entity per hour**,
+14-day trial. ([plans](https://www.sportmonks.com/football-api/))
+
+**API facts we rely on** (Sportmonks v3; docs read 2026-10-03)
+
+*Access and limits*
+- **Base and auth.** Base `https://api.sportmonks.com/v3/football`; the token goes in the
+  `Authorization` header (`api_token` in the query also works — we do not use it).
+  ([getting started](https://docs.sportmonks.com/football/welcome/getting-started))
+- **Rate limit** is per entity: `/fixtures/123` and `/fixtures/between/...` share the Fixture bucket.
+  - Every response carries `rate_limit {resets_in_seconds, remaining, requested_entity}`.
+  - A 429 carries `retry_after`.
+  - ([rate limit](https://docs.sportmonks.com/v3/api/rate-limit))
+- **Errors:** 400 (`message`, `errors`), 401, 403 "not available in your current subscription"
+  (`plan_required`), 404, 429, 500 (`error_id`).
+  ([error codes](https://docs.sportmonks.com/v3/api/error-codes))
+
+*Fixtures*
+- **Endpoint:** `GET /fixtures/between/{start}/{end}`, YYYY-MM-DD, at most **100 days** per call,
+  `per_page` ≤ 50.
+  - Filter by league with `filters=fixtureLeagues:{id}`.
+  - Includes we need: `participants`, `scores`, `state`, `statistics`.
+  - ([fixtures by date range](https://docs.sportmonks.com/football/endpoints-and-entities/endpoints/fixtures/get-fixtures-by-date-range),
+    [leagues](https://docs.sportmonks.com/v3/tutorials-and-guides/tutorials/leagues-and-seasons/leagues))
+- **Time.** `starting_at` is `YYYY-MM-DD HH:MM:SS`, UTC unless a `timezone` parameter is passed;
+  `starting_at_timestamp` is unix. We use the unix value.
+  ([fixture](https://docs.sportmonks.com/v3/endpoints-and-entities/entities/fixture))
+- **Scores** ([scores](https://docs.sportmonks.com/v3/tutorials-and-guides/tutorials/includes/scores)):
+
+  | Description | Meaning | Our field |
+  |---|---|---|
+  | `1ST_HALF` | Half-time score | HT |
+  | `2ND_HALF` | Cumulative score after 90 minutes | FT |
+  | `CURRENT` | Includes extra time | — |
+
+  Each entry also carries `score.participant` (`home`/`away`).
+- **Statistics type ids** ([types](https://docs.sportmonks.com/v3/definitions/types/statistics)):
+
+  | Id | Name |
+  |---|---|
+  | 42 | `SHOTS_TOTAL` |
+  | 86 | `SHOTS_ON_TARGET` |
+  | 34 | `CORNERS` |
+  | 45 | `BALL_POSSESSION` |
+  | 5304 | `EXPECTED_GOALS` |
+
+  A type can be absent from a response; absence is not zero.
+
+*Coverage gaps*
+- **xG** exists only from the **2024** season. It is a paid add-on, and we do **not** buy it now:
+  mixing it with shot-based approximate xG for older seasons is a distribution-shift risk. See
+  HANDOFF §9l. ([xG](https://www.sportmonks.com/football-api/xg-data/))
+- **Odds history** lasts only ≈ 7 days after kickoff, so Sportmonks cannot backfill odds.
+  ([historical odds](https://docs.sportmonks.com/v3/endpoints-and-entities/endpoints/premium-odds-feed/premium-pre-match-odds/get-all-historical-odds))
+
+**To confirm with a real call** (during the trial):
+- the season name format (mapped to our canonical `YYYY-YYYY`) and the league ids;
+- `participants[].meta.location`;
+- the state ids and names (FT 5, AET 7, FT_PEN 8, POSTP 10, CANCL 12, ABAN 15 — from the docs
+  Q&A, not a reference page);
+- whether includes count against the rate limit;
+- what Growth includes (one page lists xG in every plan, another sells it as an add-on);
+- RPL coverage.
+
+---
+
+## 4. The Odds API — production odds (role: `odds`)
+
+**Status.** Chosen; not implemented yet (provider PRs 4–5). Its ToS explicitly allow commercial
+use, indefinite storage, ML training and derived data, so the adapter may declare
+`licensed_for_production = True`.
+
+**Plans.** ([plans](https://the-odds-api.com/#get-access), read 2026-10-03)
+
+| Plan | Price / month | Credits / month |
 |---|---|---|
-| Sportmonks | `xg`, `live` | Paid xG and shot-level data on higher tiers |
-| The Odds API | `odds` | Multi-bookmaker line comparison / value detection |
-| StatsBomb open data | `xg` | Free shot coordinates for a limited set of competitions — good for training the xG model |
-| Sportradar | `live`, `odds` | Officially licensed feeds if the product ever needs them |
+| Free | $0 | 500 |
+| 20K | $30 | 20,000 |
+| 100K | $59 | 100,000 |
+| 5M | $119 | 5,000,000 |
+| 15M | $249 | 15,000,000 |
+
+**API facts we rely on** (v4; [guide](https://the-odds-api.com/liveapi/guides/v4/))
+
+*Access and quota*
+- **Host and auth.** Host `https://api.the-odds-api.com`; the key is the `apiKey` **query
+  parameter** — there is no header option. It is therefore scrubbed from every logged URL and
+  exception.
+- **Quota headers** on every response: `x-requests-remaining`, `x-requests-used`,
+  `x-requests-last`. A 429 means rate limited. An empty result costs nothing.
+- **Time:** ISO 8601 UTC (`Z`).
+- **Events:** `id`, `commence_time`, `home_team` / `away_team` as **strings**, no team ids.
+
+*Leagues, bookmakers and markets*
+- **Sport keys:** `soccer_epl`, `soccer_spain_la_liga`, `soccer_italy_serie_a`,
+  `soccer_germany_bundesliga`, `soccer_france_ligue_one`; `soccer_russia_premier_league` is listed
+  too (coverage unverified). ([sports](https://the-odds-api.com/sports-odds-data/sports-apis.html))
+- **Pinnacle:** key `pinnacle`, region `eu` only, with the note "odds are from public website which
+  may incur a delay". Up to 10 bookmakers count as 1 region.
+  ([bookmakers](https://the-odds-api.com/sports-odds-data/bookmaker-apis.html))
+- **Markets:** `h2h` includes the draw for soccer; `totals` outcomes carry a `point`. Spreads and
+  totals are "mainly available for US sports and bookmakers", so expect sparse totals in `eu`.
+  Exchanges add `h2h_lay`. ([markets](https://the-odds-api.com/sports-odds-data/betting-markets.html))
+
+*Endpoints and cost*
+
+| Endpoint | Cost (credits) |
+|---|---|
+| `/v4/sports`, `/v4/sports/{sport}/events` | 0 |
+| `/v4/sports/{sport}/odds` | markets × regions |
+| `/v4/historical/sports/{sport}/events` | 1 (0 when empty) |
+| `/v4/historical/sports/{sport}/odds?date=` | **10 × markets × regions** |
+
+The historical odds endpoint returns the closest snapshot **at or before** `date`, with `timestamp`,
+`previous_timestamp` and `next_timestamp`.
+- History starts **2020-06-06**: 10-minute snapshots, 5-minute from 2022-09-18. Consequence: the
+  2019-20 matches before the restart have no closing odds in production.
+
+**Closing quote rules** (provider PR 4)
+- **Requests.** One historical request per (league, distinct kickoff instant), at
+  `date = min(stored kickoff, commence_time)`. A snapshot therefore never lies after the kickoff,
+  and the HI-3 time rule holds.
+- **Stored rows.** Every `eu` bookmaker's quote in the snapshot is stored with `ts` = the snapshot
+  `timestamp`. A quote is `is_closing = true` only when:
+  - the snapshot is at most 15 minutes before kickoff; and
+  - the market's `last_update` is recent (threshold tuned in the trial).
+  Stale quotes are stored as pre-closing.
+- **`market_avg` definition.**
+  - Input: decimal prices from the same closing snapshot, `eu` region.
+  - Excluded: exchanges (`betfair_ex_*`, `matchbook`).
+  - Outlier guard: quotes far from the per-outcome median are dropped.
+  - Minimum: at least 5 bookmakers per outcome.
+  - The price is the mean of the remaining quotes, stored as bookmaker `market_avg` together with
+    its bookmaker count.
+  - This is our own definition, not football-data's `AvgC*`.
+- **Budget.** A `--dry-run` prints the request count and credits before anything is spent. A
+  per-run credit cap is checked against `x-requests-remaining`. A ledger of paid snapshots stops a
+  re-run from paying twice.
+- **Estimate.** h2h only, ≈ 1,000–1,300 kickoff instants per season for 5 leagues gives about
+  65–80k credits for 2019-20..2025-26. Totals double that; adding the `uk` region doubles it again.
+
+**To confirm with a real call:**
+- the error body format (401/422/429);
+- whether historical endpoints work on the free plan;
+- the cost of historical event-odds (the docs are ambiguous);
+- whether `/odds` can return team ids;
+- totals and RPL coverage in `eu`.
+
+---
+
+## 5. Fallback candidates and optional sources (not implemented)
+
+| Source | Role | Note |
+|---|---|---|
+| API-Football | fixtures, results, live | Fallback. Its ToS say betting-related use may need extra licences from rights holders and say nothing on storage/ML. The live poll already runs in production; it gets an explicit licence flag, kept enabled until the owner confirms |
+| TheStatsAPI | fixtures, stats | Fallback only on paper. Its ToS forbid storing data beyond what is reasonably necessary and end the right to use data on termination, so it is unusable for training/history without written confirmation |
+| StatsBomb open data | `xg` | Free shot coordinates for a few competitions (xG model training) |
+| Sportradar | `live`, `odds` | Officially licensed feeds if ever needed |
 
 ---
 
