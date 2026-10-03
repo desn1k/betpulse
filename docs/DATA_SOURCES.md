@@ -89,8 +89,9 @@ closing", the market model and the backtester. The 1X2 market is `market='1x2'`,
 feeds the backtester's totals bets, spec §6).
 
 **Reference bookmaker.** Which bookmaker's closing quote is "the" closing price depends on the
-kickoff date (`REFERENCE_BOOKMAKERS`): Pinnacle until 2025-07-23 — after that date Pinnacle's feed is
-unreliable (football-data's own warning) — and the market average (`market_avg`) from then on.
+kickoff date (`REFERENCE_BOOKMAKERS`): Pinnacle for kickoffs **before** 2025-07-23, and the market
+average (`market_avg`) **from** 2025-07-23 on (that day included), because football-data warns that
+Pinnacle's feed is unreliable from that date. `until_date` is exclusive, `from_date` inclusive.
 
 **ID mapping (seed behaviour).** football-data.co.uk is a **seed source** (`may_seed_canonical`): the
 first time a team/league name is seen it creates the canonical `teams`/`leagues` row (teams keyed by

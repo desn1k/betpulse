@@ -282,7 +282,7 @@ covered by Vitest + React Testing Library.
   backtester. football-data pre-closing quotes (`PSH`, `P>2.5`) sit at `kickoff − 1 day` — an
   approximation documented in `docs/DATA_SOURCES.md`. *Reference bookmaker* per kickoff date:
   `REFERENCE_BOOKMAKERS` (JSON list of `{bookmaker, from_date, until_date}`; validated contiguous,
-  no gaps/overlaps, open at both ends), default Pinnacle until 2025-07-23 and `market_avg` after.
+  no gaps/overlaps, open at both ends), default Pinnacle before 2025-07-23 and `market_avg` from that date (inclusive).
   *Corrections:* when a record finds an existing fixture, empty fields are filled from any source;
   the fixture's **own** source may correct the score — and, found by its own id, move the kickoff
   (postponement; no quote taken for the old date stays closing; when the kickoff moves earlier, quotes at or after the new kickoff are removed, counted in the audit as `odds_removed`) — audited as

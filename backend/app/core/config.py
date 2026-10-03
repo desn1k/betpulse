@@ -135,9 +135,10 @@ class Settings(BaseSettings):
     accuracy_window_days: int = 90
     # Reference bookmaker per kickoff date range (JSON list in the env, e.g.
     # [{"bookmaker":"pinnacle","until_date":"2025-07-23"},
-    #  {"bookmaker":"market_avg","from_date":"2025-07-23"}]). Ranges must be
-    # contiguous, ordered, and cover every date (first open at the start, last
-    # open at the end) — see app.ml.odds_selection.reference_bookmaker_for.
+    #  {"bookmaker":"market_avg","from_date":"2025-07-23"}]); ``until_date`` is
+    # exclusive, ``from_date`` inclusive. Ranges must be contiguous, ordered, and
+    # cover every date (first open at the start, last open at the end) — see
+    # app.ml.odds_selection.reference_bookmaker_for.
     reference_bookmakers: list[ReferenceBookmakerRange] = DEFAULT_REFERENCE_BOOKMAKERS
     # A historical-ingestion run still "running" after this long belongs to a
     # dead worker (2x the batch queue's 30-minute job timeout) and is marked

@@ -15,8 +15,8 @@ time:
   closing", the market model and the backtester), rather than being scored on
   a stale price;
 * the **reference bookmaker** depends on the kickoff date
-  (``settings.reference_bookmakers``): Pinnacle until 2025-07-23, the market
-  average closing price (``market_avg``) from then on.
+  (``settings.reference_bookmakers``): Pinnacle before 2025-07-23, the market
+  average closing price (``market_avg``) from that date on (inclusive).
 * a simulated bet uses ``quote_at(..., decision_time)``. The backtester decides
   at kickoff, i.e. it settles at the closing quote (``odds_basis = closing``).
 """
