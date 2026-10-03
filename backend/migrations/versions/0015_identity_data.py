@@ -306,6 +306,51 @@ def downgrade() -> None:
             ),
             [{"f": f, "c": k, "o": _original(k, known)} for f, k, known in rows],
         )
+    # Same rule as the upgrade: pre-check, STOP with the list, never merge or
+    # drop a row.
+    _stop_on_conflicts(
+        "restored kickoffs would duplicate fixtures (league, season, pairing, kickoff)",
+        list(
+            bind.execute(
+                sa.text(
+                    """
+                    WITH target AS (
+                        SELECT f.id, f.league_id, f.season, f.home_team_id, f.away_team_id,
+                               coalesce(k.old_kickoff, f.kickoff_at) AS kickoff_at
+                        FROM fixtures f LEFT JOIN kickoff_back k ON k.fixture_id = f.id
+                    )
+                    SELECT league_id, season, home_team_id, away_team_id, kickoff_at,
+                           string_agg(id::text, ', ')
+                    FROM target
+                    GROUP BY league_id, season, home_team_id, away_team_id, kickoff_at
+                    HAVING count(*) > 1
+                    """
+                )
+            )
+        ),
+    )
+    _stop_on_conflicts(
+        "quotes moved back would collide with existing odds rows",
+        list(
+            bind.execute(
+                sa.text(
+                    """
+                    SELECT o.fixture_id, o.bookmaker, o.market, o.outcome, k.old_kickoff
+                    FROM odds o
+                    JOIN kickoff_back k
+                      ON k.fixture_id = o.fixture_id AND o.ts = k.cur_kickoff
+                    WHERE k.old_kickoff <> k.cur_kickoff
+                      AND EXISTS (
+                        SELECT 1 FROM odds x
+                        WHERE x.fixture_id = o.fixture_id AND x.bookmaker = o.bookmaker
+                          AND x.market = o.market AND x.outcome = o.outcome
+                          AND x.ts = k.old_kickoff
+                      )
+                    """
+                )
+            )
+        ),
+    )
     bind.execute(
         sa.text(
             "UPDATE fixtures f SET kickoff_at = k.old_kickoff "
@@ -327,7 +372,6 @@ def downgrade() -> None:
             FROM odds o
             JOIN kickoff_back k ON k.fixture_id = o.fixture_id AND o.ts = k.cur_kickoff
             WHERE k.old_kickoff <> k.cur_kickoff
-            ON CONFLICT DO NOTHING
             """
         )
     )
