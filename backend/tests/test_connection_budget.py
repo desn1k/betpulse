@@ -9,6 +9,7 @@ re-runs the arithmetic. See HANDOFF "Database connection budget".
 from __future__ import annotations
 
 import re
+import textwrap
 from pathlib import Path
 from typing import Any
 
@@ -71,14 +72,20 @@ def _load_compose(text: str) -> Any:
         loader.dispose()
 
 
-def _merged_services(files: list[str]) -> dict[str, dict[str, Any]]:
-    """Per service, the three fields the budget reads, merged across overlays
-    (later files win; ``environment`` merges key by key, as compose does;
-    ``!reset`` clears a field and ``!override`` replaces it)."""
+def _command_text(command: Any) -> str:
+    if command is None:
+        return ""
+    return " ".join(map(str, command)) if isinstance(command, list) else str(command)
+
+
+def _merge_docs(docs: list[Any]) -> dict[str, dict[str, Any]]:
+    """Per service, the three fields the budget reads, merged across parsed
+    compose documents (later documents win; ``environment`` merges key by key,
+    as compose does; ``!reset`` clears a field and ``!override`` replaces it,
+    even with an empty value)."""
     merged: dict[str, dict[str, Any]] = {}
-    for name in files:
-        doc = _load_compose((INFRA / name).read_text(encoding="utf-8")) or {}
-        for service, spec in (doc.get("services") or {}).items():
+    for doc in docs:
+        for service, spec in ((doc or {}).get("services") or {}).items():
             entry = merged.setdefault(service, {"environment": {}, "command": "", "replicas": 1})
             spec = spec or {}
             env = spec.get("environment") or {}
@@ -89,18 +96,22 @@ def _merged_services(files: list[str]) -> dict[str, dict[str, Any]]:
             if isinstance(env, list):
                 env = dict(item.split("=", 1) for item in env)
             entry["environment"].update({k: str(v) for k, v in env.items()})
-            if isinstance(spec.get("command"), _Reset):
+            command = spec.get("command")
+            if isinstance(command, _Reset):
                 entry["command"] = ""
-                spec = {**spec, "command": None}
-            elif isinstance(spec.get("command"), _Override):
-                spec = {**spec, "command": spec["command"].value}
-            if spec.get("command"):
-                command = spec["command"]
-                entry["command"] = " ".join(command) if isinstance(command, list) else command
+            elif isinstance(command, _Override):
+                entry["command"] = _command_text(command.value)
+            elif command:
+                entry["command"] = _command_text(command)
             replicas = (spec.get("deploy") or {}).get("replicas")
             if replicas is not None:
                 entry["replicas"] = int(replicas)
     return merged
+
+
+def _merged_services(files: list[str]) -> dict[str, dict[str, Any]]:
+    docs = [_load_compose((INFRA / name).read_text(encoding="utf-8")) for name in files]
+    return _merge_docs(docs)
 
 
 def _flag(command: str, pattern: str, default: int) -> int:
@@ -202,3 +213,48 @@ def test_loader_understands_compose_merge_tags() -> None:
     assert isinstance(service["command"], _Reset)
     assert isinstance(service["environment"], _Override)
     assert service["environment"].value == {"DB_POOL_SIZE": "1"}
+
+
+@pytest.mark.parametrize("empty", ["[]", '""'])
+def test_merge_applies_reset_and_empty_override(empty: str) -> None:
+    base = _load_compose(
+        textwrap.dedent(
+            """
+            services:
+              a:
+                command: [postgres, -c, max_connections=120]
+                environment: {DB_POOL_SIZE: '5', DB_MAX_OVERFLOW: '10'}
+              b:
+                command: arq app.workers.arq_app.MlWorker
+            """
+        )
+    )
+    overlay = _load_compose(
+        textwrap.dedent(
+            f"""
+            services:
+              a:
+                command: !override {empty}
+                environment: !override {{DB_POOL_SIZE: '1'}}
+              b:
+                command: !reset null
+            """
+        )
+    )
+    merged = _merge_docs([base, overlay])
+    assert merged["a"]["command"] == ""  # an empty !override still replaces
+    assert merged["a"]["environment"] == {"DB_POOL_SIZE": "1"}
+    assert merged["b"]["command"] == ""
+    # Plain values still merge as compose does.
+    extra = _load_compose(
+        textwrap.dedent(
+            """
+            services:
+              a:
+                environment: {X: '1'}
+            """
+        )
+    )
+    plain = _merge_docs([base, extra])
+    assert plain["a"]["command"] == "postgres -c max_connections=120"
+    assert plain["a"]["environment"] == {"DB_POOL_SIZE": "5", "DB_MAX_OVERFLOW": "10", "X": "1"}
