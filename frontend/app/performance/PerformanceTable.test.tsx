@@ -1,11 +1,13 @@
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+
+import { renderWithProviders } from "@/test/test-utils";
 
 import { PerformanceTable, type PerformanceData } from "./PerformanceTable";
 
 describe("PerformanceTable", () => {
   it("shows a clear message when no evaluation has run", () => {
-    render(<PerformanceTable data={{ status: "no_evaluation_yet" }} />);
+    renderWithProviders(<PerformanceTable data={{ status: "no_evaluation_yet" }} />);
     expect(screen.getByTestId("no-eval")).toBeInTheDocument();
   });
 
@@ -28,9 +30,25 @@ describe("PerformanceTable", () => {
         },
       ],
     };
-    render(<PerformanceTable data={data} />);
+    renderWithProviders(<PerformanceTable data={data} />);
     expect(screen.getByText(/dixon_coles ★/)).toBeInTheDocument();
     expect(screen.getByText("12.50")).toBeInTheDocument();
     expect(screen.getByTestId("evaluated-at")).toHaveTextContent("2026-07-14");
+  });
+
+  it("labels every figure as retrospective (ru)", () => {
+    renderWithProviders(
+      <PerformanceTable data={{ status: "ok", evaluated_at: "2026-07-14", methods: [] }} />,
+      { locale: "ru" },
+    );
+    expect(screen.getByText("Индекс Brier, %")).toBeInTheDocument();
+    expect(
+      screen.getByText("ROI по закрывающим коэффициентам (ретроспективно)"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("brier-index-note")).toHaveTextContent(
+      "0 % — не лучше частот.",
+    );
+    // No column is called "accuracy" any more.
+    expect(screen.queryByText(/Точность/)).toBeNull();
   });
 });

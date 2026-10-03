@@ -99,9 +99,10 @@ with stored closing odds); the response lists `available_bet_types` for the filt
 
 Results carry matched count, win-rate, **ROI on closing odds**, an equity curve, max drawdown, a
 **Wilson 95 % CI**, and per-league/season breakdowns. `roi_disclaimer` is always set, and
-`small_sample_warning` fires below 100 matches (the UI shows a yellow card). `?walk_forward=true`
-splits chronologically by season (earlier seasons train, later seasons are out-of-sample) and adds
-`out_of_sample_roi`. Runs are limited per tier (`backtester_runs_per_day`); saving strategies and
+`small_sample_warning` fires below 100 matches (the UI shows a yellow card). Every result states
+`evaluation_protocol = historical_rule_simulation` and `odds_basis = closing`: a fixed rule replayed
+over past matches — nothing is trained, so it is **not** an out-of-sample test. `?season_split=true`
+adds a per-season breakdown (every season, oldest first). Runs are limited per tier (`backtester_runs_per_day`); saving strategies and
 CSV export are expert-tier feature flags. The CSV holds match date, teams, league, season, bet,
 odds, outcome and running P/L — no internal IDs.
 
@@ -147,8 +148,11 @@ Each training run stores its **model binary**, **feature schema** (JSON), **trai
 (sha256 of the input DataFrame) and **metrics** in MLflow. MLflow keeps tracking metadata in a
 dedicated `mlflow` Postgres database and writes **artifacts to MinIO/S3** (`S3_BUCKET_ARTIFACTS`) —
 never to local disk, so any past model version can be rolled back (§16/§17). A nightly
-`reevaluate_champions` ARQ task recomputes rolling out-of-sample accuracy and promotes the champion,
-snapshotting the full registry first for one-click rollback.
+`reevaluate_champions` ARQ task recomputes rolling **prequential** metrics — each prediction made
+only from matches before its kickoff, one explicit model version per method, all methods on the same
+fixtures — and promotes the champion, snapshotting the full registry first for one-click rollback.
+These are retrospective scores on past matches, labelled as such in the API and UI, not a verified
+forward test.
 
 > LightGBM and the consensus stack need a real dataset; on tiny inputs (e.g. CI's fixture) the
 > pipeline **skips** them with a logged note and trains Elo / Glicko-2 / Dixon-Coles / market. Run

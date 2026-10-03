@@ -56,9 +56,10 @@ describe("BacktesterView", () => {
           available_bet_types: ["1x2"],
           roi_disclaimer: true,
           small_sample_warning: true,
-          walk_forward: false,
-          out_of_sample_roi: null,
-          folds: [],
+          evaluation_protocol: "historical_rule_simulation",
+          odds_basis: "closing",
+          season_split: false,
+          season_splits: [],
         }),
       ),
     );

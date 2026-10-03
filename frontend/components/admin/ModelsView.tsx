@@ -141,6 +141,11 @@ export function ModelsView() {
         </p>
       )}
 
+      {/* Every quality / ROI figure says how it was obtained (no unverified claims). */}
+      <p className="text-xs leading-relaxed text-muted" data-testid="models-metrics-note">
+        {t("admin.models.metricsNote")}
+      </p>
+
       {models.isPending ? (
         <div className="h-40 rounded-card bg-surface-muted" aria-busy="true" />
       ) : (

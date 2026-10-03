@@ -1,9 +1,12 @@
-// Presentational table for the public model-performance page.
-// Unstyled for now — the Phase 6 design system restyles it. Data comes from the
-// backend /performance endpoint (served from model_registry, not recomputed).
+// Presentational table for the public model-performance page. Data comes from
+// the backend /performance endpoint (served from model_registry, not
+// recomputed). Every figure is labelled as retrospective: the backend reports
+// evaluation_protocol = "prequential_historical", verified_out_of_sample = false.
+import { useTranslations } from "next-intl";
 
 export interface MethodPerformance {
   method: string;
+  version?: string;
   status: string;
   accuracy_pct: number | null;
   brier: number | null;
@@ -16,6 +19,8 @@ export interface MethodPerformance {
 
 export interface PerformanceData {
   status: string;
+  evaluation_protocol?: string;
+  verified_out_of_sample?: boolean;
   evaluated_at?: string | null;
   champion?: string | null;
   methods?: MethodPerformance[];
@@ -26,29 +31,26 @@ function fmt(value: number | null, digits = 2): string {
 }
 
 export function PerformanceTable({ data }: { data: PerformanceData }) {
+  const t = useTranslations("performance");
+
   if (data.status === "no_evaluation_yet") {
-    return (
-      <p data-testid="no-eval">
-        No out-of-sample evaluation has run yet. Metrics appear after the nightly
-        re-evaluation.
-      </p>
-    );
+    return <p data-testid="no-eval">{t("noEvaluation")}</p>;
   }
 
   return (
     <div>
-      <p data-testid="evaluated-at">Last evaluated: {data.evaluated_at ?? "—"}</p>
+      <p data-testid="evaluated-at">{t("lastEvaluated", { date: data.evaluated_at ?? "—" })}</p>
       <table>
         <thead>
           <tr>
-            <th>Method</th>
-            <th>Status</th>
-            <th>Accuracy %</th>
-            <th>Brier</th>
-            <th>Log-loss</th>
-            <th>ROI vs closing</th>
-            <th>Samples</th>
-            <th>Weight</th>
+            <th>{t("method")}</th>
+            <th>{t("status")}</th>
+            <th>{t("brierIndex")}</th>
+            <th>{t("brier")}</th>
+            <th>{t("logLoss")}</th>
+            <th>{t("roi")}</th>
+            <th>{t("samples")}</th>
+            <th>{t("weight")}</th>
           </tr>
         </thead>
         <tbody>
@@ -69,6 +71,7 @@ export function PerformanceTable({ data }: { data: PerformanceData }) {
           ))}
         </tbody>
       </table>
+      <p data-testid="brier-index-note">{t("brierIndexNote")}</p>
     </div>
   );
 }

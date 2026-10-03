@@ -1,21 +1,41 @@
-"""Rolling out-of-sample evaluation for the champion re-evaluation job."""
+"""Rolling evaluation for the champion re-evaluation job.
+
+What is scored, explicitly:
+
+* **one model version per method** — the caller's ``versions`` or, by default,
+  each method's latest registered version (``model_registry.last_trained_at``,
+  then version). Predictions of other versions never mix in, not even per
+  outcome;
+* **the same fixtures for every method compared** — the fixtures every
+  participating method predicted completely in the window. A method with fewer
+  than ``min_samples`` complete predictions does not participate (and so gets
+  no metrics), rather than shrinking the common set for everyone;
+* ROI settles at the **closing quote** chosen by :mod:`app.ml.odds_selection`.
+
+Protocol: the predictions being scored were produced by a chronological,
+batch-wise pass (each one from matches strictly before its kickoff), so these
+are *prequential* metrics on historical matches — not a verified forward test.
+"""
 
 from __future__ import annotations
 
 import uuid
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ml import metrics as metrics_mod
+from app.ml.odds_selection import closing_quotes
 from app.ml.registry import MethodMetrics
 from app.models.fixture import Fixture
-from app.models.market import Odds
+from app.models.model_registry import ModelRegistry
 from app.models.prediction import Prediction
 
-_OUTCOME_INDEX = {"home": 0, "draw": 1, "away": 2}
+EVALUATION_PROTOCOL = "prequential_historical"
+_OUTCOMES = ("home", "draw", "away")
 
 
 def _label(fx: Fixture) -> int:
@@ -26,14 +46,36 @@ def _label(fx: Fixture) -> int:
     return 2
 
 
+async def latest_versions(session: AsyncSession) -> dict[str, str]:
+    """Each registered method's most recently trained version."""
+    rows = (await session.execute(select(ModelRegistry))).scalars().all()
+    epoch = datetime.min.replace(tzinfo=UTC)
+    best: dict[str, ModelRegistry] = {}
+    for row in rows:
+        key = (row.last_trained_at or epoch, row.version)
+        current = best.get(row.method)
+        if current is None or key > (current.last_trained_at or epoch, current.version):
+            best[row.method] = row
+    return {method: row.version for method, row in best.items()}
+
+
 async def compute_rolling_metrics(
-    session: AsyncSession, *, window_days: int, now: datetime | None = None
+    session: AsyncSession,
+    *,
+    window_days: int,
+    now: datetime | None = None,
+    versions: dict[str, str] | None = None,
+    min_samples: int = 0,
 ) -> dict[str, MethodMetrics]:
     now = now or datetime.now(UTC)
     start = now - timedelta(days=window_days)
+    versions = versions if versions is not None else await latest_versions(session)
+    if not versions:
+        return {}
 
-    fixtures = (
-        (
+    fixtures = {
+        fx.id: fx
+        for fx in (
             await session.execute(
                 select(Fixture).where(
                     Fixture.ft_home.is_not(None),
@@ -41,77 +83,55 @@ async def compute_rolling_metrics(
                     Fixture.kickoff_at <= now,
                 )
             )
-        )
-        .scalars()
-        .all()
-    )
+        ).scalars()
+    }
     if not fixtures:
         return {}
-
-    fixture_ids = [fx.id for fx in fixtures]
-    labels = {fx.id: _label(fx) for fx in fixtures}
-    odds = await _closing_odds(session, fixture_ids)
 
     preds = (
         (
             await session.execute(
                 select(Prediction).where(
-                    Prediction.fixture_id.in_(fixture_ids), Prediction.market == "1x2"
+                    Prediction.fixture_id.in_(list(fixtures)),
+                    Prediction.market == "1x2",
+                    tuple_(Prediction.method, Prediction.model_version).in_(list(versions.items())),
                 )
             )
         )
         .scalars()
         .all()
     )
-
-    grouped: dict[str, dict[uuid.UUID, dict[str, float]]] = {}
+    grouped: dict[str, dict[uuid.UUID, dict[str, float]]] = defaultdict(lambda: defaultdict(dict))
     for p in preds:
-        grouped.setdefault(p.method, {}).setdefault(p.fixture_id, {})[p.outcome] = float(
-            p.probability
-        )
+        grouped[p.method][p.fixture_id][p.outcome] = float(p.probability)
+    complete = {
+        method: {fid for fid, outcomes in by_fixture.items() if set(_OUTCOMES) <= set(outcomes)}
+        for method, by_fixture in grouped.items()
+    }
+    participants = [m for m, fids in complete.items() if len(fids) >= max(min_samples, 1)]
+    if not participants:
+        return {}
+    common = sorted(set.intersection(*(complete[m] for m in participants)))
+    if not common:
+        return {}
+
+    y = np.array([_label(fixtures[fid]) for fid in common])
+    odds = await closing_quotes(session, [fixtures[fid] for fid in common])
+    odds_matrix = np.array(
+        [[float(odds.get(fid, {}).get(o, 0.0)) for o in _OUTCOMES] for fid in common]
+    )
+    baseline = metrics_mod.brier_baseline(y)
 
     result: dict[str, MethodMetrics] = {}
-    for method, by_fixture in grouped.items():
-        probs_list, y_list, odds_list = [], [], []
-        for fid, outcomes in by_fixture.items():
-            if {"home", "draw", "away"} <= set(outcomes):
-                probs_list.append([outcomes["home"], outcomes["draw"], outcomes["away"]])
-                y_list.append(labels[fid])
-                fo = odds.get(fid, {})
-                odds_list.append([fo.get("home", 0.0), fo.get("draw", 0.0), fo.get("away", 0.0)])
-        if not probs_list:
-            continue
-        probs = np.array(probs_list)
-        y = np.array(y_list)
+    for method in sorted(participants):
+        probs = np.array([[grouped[method][fid][o] for o in _OUTCOMES] for fid in common])
         brier = metrics_mod.brier_multiclass(probs, y)
-        baseline = metrics_mod.brier_baseline(y)
         result[method] = MethodMetrics(
             accuracy_pct=metrics_mod.accuracy_pct(brier, baseline),
             brier=brier,
             log_loss=metrics_mod.log_loss(probs, y),
-            roi_vs_closing=metrics_mod.roi_vs_closing(probs, y, np.array(odds_list)),
+            roi_vs_closing=metrics_mod.roi_vs_closing(probs, y, odds_matrix),
             sample_count=len(y),
+            version=versions[method],
         )
     return result
-
-
-async def _closing_odds(
-    session: AsyncSession, fixture_ids: list[uuid.UUID]
-) -> dict[uuid.UUID, dict[str, float]]:
-    rows = (
-        (
-            await session.execute(
-                select(Odds).where(
-                    Odds.fixture_id.in_(fixture_ids),
-                    Odds.market == "1x2",
-                    Odds.bookmaker == "pinnacle",
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    out: dict[uuid.UUID, dict[str, float]] = {}
-    for o in rows:
-        out.setdefault(o.fixture_id, {})[o.outcome] = float(o.price)
-    return out

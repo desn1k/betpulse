@@ -3,7 +3,7 @@
     "tagline": "Football analytics & ML predictions"
   },
   "nav": {
-    "performance": "Model performance",
+    "performance": "Model quality",
     "settings": "Settings"
   },
   "admin": {
@@ -112,8 +112,8 @@
       "saveWeights": "Save weights",
       "method": "Method",
       "status": "Status",
-      "accuracy": "Accuracy %",
-      "roi": "ROI",
+      "accuracy": "Brier index, %",
+      "roi": "ROI at closing odds (retrospective)",
       "samples": "Samples",
       "weight": "Weight %",
       "visible": "Visible",
@@ -133,7 +133,8 @@
       },
       "warning": {
         "below_min_samples": "Promoted below the minimum sample count — recorded as an override."
-      }
+      },
+      "metricsNote": "Metrics are computed on past matches: each prediction uses only data known before kickoff. This is a retrospective check, not verified accuracy of future predictions. Past results do not guarantee future results."
     },
     "providers": {
       "title": "Providers",
@@ -289,7 +290,9 @@
     "dataDelayed": "Data delayed",
     "tierLocked": "Available on the {tier} tier",
     "signInToView": "Sign in to view the full breakdown",
-    "disclaimer": "Statistical estimate, not betting advice. 18+"
+    "disclaimer": "Statistical estimate, not betting advice. 18+",
+    "retroValue": "{value}% · retro",
+    "retroHint": "Brier index on past matches, not a guarantee of accuracy"
   },
   "methods": {
     "elo": "Elo",
@@ -343,7 +346,6 @@
     "oddsMax": "Max odds",
     "eloDiffMin": "Min Elo diff",
     "eloDiffMax": "Max Elo diff",
-    "walkForward": "Walk-forward validation",
     "run": "Run backtest",
     "running": "Running…",
     "save": "Save strategy",
@@ -359,8 +361,7 @@
       "winRate": "Win rate",
       "roi": "ROI (closing odds)",
       "drawdown": "Max drawdown",
-      "ci": "Win-rate 95% CI",
-      "outOfSample": "Out-of-sample ROI"
+      "ci": "Win-rate 95% CI"
     },
     "equity": "Equity curve",
     "byLeague": "By league",
@@ -371,6 +372,27 @@
       "away": "Away",
       "over": "Over 2.5",
       "under": "Under 2.5"
-    }
+    },
+    "seasonSplit": "Per-season breakdown",
+    "seasonSplitTitle": "Per-season breakdown",
+    "protocolNote": "Simulation of a fixed rule on historical data at closing odds. No model is re-trained, so this is not an out-of-sample test. Past results do not guarantee future results."
+  },
+  "performance": {
+    "title": "Model quality (retrospective evaluation)",
+    "intro": "Metrics are computed on past matches: each prediction uses only data known before kickoff. This is a retrospective check, not verified accuracy of future predictions. Past results do not guarantee future results.",
+    "championMark": "The champion is marked ★.",
+    "unavailable": "Model quality data is temporarily unavailable.",
+    "noEvaluation": "No evaluation has run yet. Metrics appear after the nightly re-evaluation.",
+    "lastEvaluated": "Last evaluated: {date}",
+    "method": "Method",
+    "status": "Status",
+    "brierIndex": "Brier index, %",
+    "brierIndexNote": "How much smaller the prediction error (Brier) is than that of predicting the average outcome frequencies over the same period. 0% means no better than the frequencies.",
+    "brier": "Brier",
+    "logLoss": "Log-loss",
+    "roi": "ROI at closing odds (retrospective)",
+    "samples": "Samples",
+    "weight": "Weight",
+    "disclaimer": "Analytical and informational purposes only. Past results do not guarantee future results. 18+."
   }
 }

@@ -38,7 +38,7 @@ async def run(
     user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_db)],
     redis: Annotated[Redis, Depends(get_redis_dep)],
-    walk_forward: Annotated[bool, Query()] = False,
+    season_split: Annotated[bool, Query()] = False,
 ) -> BacktestResult:
     tier = await resolve_tier_context(session, redis, user)
     try:
@@ -48,7 +48,7 @@ async def run(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "backtester_daily_limit", "tier_required": PRO},
         ) from exc
-    return await run_backtest(session, request, walk_forward=walk_forward)
+    return await run_backtest(session, request, season_split=season_split)
 
 
 @router.post("/strategies", response_model=StrategyOut, status_code=status.HTTP_201_CREATED)

@@ -3,7 +3,6 @@
 import { useTranslations } from "next-intl";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
-import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { pct } from "@/lib/format";
 import type { BacktestResult } from "@/types/backtester";
@@ -61,14 +60,37 @@ export function BacktestResults({ result }: { result: BacktestResult }) {
         />
       </div>
 
-      {result.walk_forward && result.out_of_sample_roi !== null && (
-        <div className="flex flex-wrap items-center gap-2" data-testid="out-of-sample-roi">
-          <Badge variant="brand">
-            {t("backtester.metrics.outOfSample")}: {(result.out_of_sample_roi * 100).toFixed(1)}%
-          </Badge>
+      {/* How the numbers were obtained — shown with every result. */}
+      <p className="text-xs leading-relaxed text-muted" data-testid="backtest-protocol">
+        {t("backtester.protocolNote")}
+      </p>
+
+      {result.season_split && result.season_splits.length > 0 && (
+        <Card className="p-4" data-testid="season-splits">
+          <h3 className="mb-3 text-sm font-semibold text-muted-strong">
+            {t("backtester.seasonSplitTitle")}
+          </h3>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-muted">
+                <th className="py-1">{t("backtester.season")}</th>
+                <th className="py-1">{t("backtester.metrics.matched")}</th>
+                <th className="py-1">{t("backtester.metrics.roi")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result.season_splits.map((s) => (
+                <tr key={s.season}>
+                  <td className="py-1">{s.season}</td>
+                  <td className="py-1 tabular-nums">{s.matched_count}</td>
+                  <td className="py-1 tabular-nums">{(s.roi * 100).toFixed(1)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
           {/* Every ROI figure carries the inline disclaimer (spec §19). */}
-          <span className="text-xs italic text-muted">{t("backtester.roiDisclaimerInline")}</span>
-        </div>
+          <p className="mt-2 text-xs italic text-muted">{t("backtester.roiDisclaimerInline")}</p>
+        </Card>
       )}
 
       <Card className="p-4">

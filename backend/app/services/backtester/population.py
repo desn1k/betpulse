@@ -17,9 +17,9 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ml.features import build_feature_table
+from app.ml.odds_selection import closing_quotes
 from app.models.backtester import BacktestFeature
 from app.models.fixture import Fixture
-from app.models.market import Odds
 from app.models.reference import League, Team
 
 _OU_MARKET = "ou_2.5"
@@ -27,29 +27,12 @@ _X12_MARKET = "1x2"
 
 
 async def _closing_odds(
-    session: AsyncSession, fixture_ids: list[uuid.UUID]
+    session: AsyncSession, fixtures: list[Fixture]
 ) -> dict[uuid.UUID, dict[str, Decimal]]:
-    """Latest closing price per (fixture, market, outcome) — Pinnacle preferred."""
-    out: dict[uuid.UUID, dict[str, Decimal]] = {}
-    if not fixture_ids:
-        return out
-    rows = (
-        (
-            await session.execute(
-                select(Odds).where(
-                    Odds.fixture_id.in_(fixture_ids),
-                    Odds.market.in_([_X12_MARKET, _OU_MARKET]),
-                    Odds.is_closing.is_(True),
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    for o in rows:
-        # 1x2 (home/draw/away) and ou_2.5 (over/under) outcomes never collide.
-        out.setdefault(o.fixture_id, {}).setdefault(o.outcome, o.price)
-    return out
+    """Closing Pinnacle 1X2 + O/U 2.5 quote per fixture: the latest complete
+    snapshot with ``ts <= kickoff`` (:mod:`app.ml.odds_selection`). Bets are
+    simulated at kickoff, so this is also the decision-time quote."""
+    return await closing_quotes(session, fixtures, markets=(_X12_MARKET, _OU_MARKET))
 
 
 async def populate_backtest_features(session: AsyncSession) -> int:
@@ -67,7 +50,7 @@ async def populate_backtest_features(session: AsyncSession) -> int:
     }
     leagues = {lg.id: lg for lg in (await session.execute(select(League))).scalars()}
     teams = {t.id: t for t in (await session.execute(select(Team))).scalars()}
-    odds = await _closing_odds(session, fixture_ids)
+    odds = await _closing_odds(session, list(fixtures.values()))
 
     written = 0
     for r in features.itertuples():

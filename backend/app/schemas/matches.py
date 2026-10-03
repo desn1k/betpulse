@@ -67,6 +67,10 @@ class MatchSummary(BaseModel):
     consensus: Probs1x2 | None
     champion_method: str | None
     champion_accuracy_pct: float | None
+    # How every accuracy_pct in this payload was obtained: a retrospective
+    # (prequential) score on past matches, not a verified forward test.
+    metrics_protocol: str = "prequential_historical"
+    metrics_verified: bool = False
     last_polled_at: datetime | None
     # True when last_polled_at is older than the freshness window (provider quota
     # exhaustion / stalled polling). Null last_polled_at (never polled) is not delayed.

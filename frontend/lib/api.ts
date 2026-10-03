@@ -72,9 +72,9 @@ export async function redeemPromo(code: string): Promise<RedeemEffect> {
 
 export async function runBacktest(
   request: RunRequest,
-  walkForward = false,
+  seasonSplit = false,
 ): Promise<BacktestResult> {
-  const url = `/api/backtester/run${walkForward ? "?walk_forward=true" : ""}`;
+  const url = `/api/backtester/run${seasonSplit ? "?season_split=true" : ""}`;
   const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json", ...authHeader() },

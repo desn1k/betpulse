@@ -67,7 +67,7 @@ mlflow_utils), `app/workers` (arq_app, tasks), `app/api` (health, auth, admin, p
 | 6 | Frontend: design system + match list/card (all method bars + consensus) + light sporty theme + skeletons + i18n RU/EN | ✅ merged |
 | 7 | Tiers + feature flags + server-side limit enforcement + guest blur/lock + minimal login | ✅ merged |
 | 8 | Promo codes (500-multiple batches, binding, kill-switch, CSV) + redemption + billing seam | ✅ merged |
-| 9 | Strategy backtester (filters, matched count, ROI, equity, drawdown, Wilson CI, walk-forward, save/export) | ✅ merged |
+| 9 | Strategy backtester (filters, matched count, ROI, equity, drawdown, Wilson CI, per-season breakdown, save/export) | ✅ merged |
 | 10 | LLM match analysis (OpenAI-compatible, tier-gated by daily rank, token budget + cost, admin config) | ✅ merged |
 | 11 | Push (Telegram + Web Push) on probability swings: per-match follow, tier-gated, `pushes_per_day` | ✅ merged |
 | 12 | Admin dashboard (sub-PRs 12a–12d). 12a shell+providers+ingestion ✅ · 12b ML management ✅ · 12c spend+users+promo/tiers ✅ · 12d-core system health/audit/test ops alerts ✅ · 12d follow-ups tracked below | 🚧 follow-up hardening pending |
@@ -177,6 +177,25 @@ covered by Vitest + React Testing Library.
   consumers when the sum exceeds the budget — update it when you add a service, a replica,
   `uvicorn --workers`, or raise a pool. Pool overrides in `.env` are not visible to the guard;
   set per-service values in compose `environment` instead.
+- **ML evaluation integrity (ML-A).** Every rating/feature pass walks fixtures through
+  `app/ml/chronology.py`: order `(kickoff_at, id)`, and fixtures sharing a kickoff instant form one
+  **batch** — all predicted from the pre-batch state, then updated together (Elo: deltas from
+  pre-batch ratings; Glicko-2: one rating period per batch; features: rows before updates). Dixon-
+  Coles uses running sufficient statistics (goals for/against, matches) read before and updated after
+  each batch — the old version fitted strengths on *all* fixtures, its own result included. Tests:
+  changing a match's own score, a later result, or a same-kickoff neighbour's result never changes its
+  prediction. **Odds** are picked by time (`app/ml/odds_selection.py`): the latest *complete*
+  snapshot with `ts <= as_of`; closing = `as_of = kickoff` (inclusive — closing odds are stored at
+  `ts = kickoff`), in-play quotes are never used; training (market), evaluation (ROI) and the
+  backtester store all use it. **Evaluation** (`compute_rolling_metrics`) scores one explicit
+  version per method (default: latest registered) on the fixtures *every* participating method
+  predicted; metrics land on that version's registry row. User-facing APIs show only each method's
+  current version (`current_registry_rows`), serve each fixture's probabilities from a single
+  version, and label every quality figure `prequential_historical` / not verified out-of-sample.
+  UI wording (ru, approved): "Индекс Brier, %" (never "Точность"), "ROI по закрывающим
+  коэффициентам (ретроспективно)", "… · ретро", plus "прошлые результаты не гарантируют будущих"
+  wherever a quality/ROI number appears. `accuracy_pct` is a Brier skill score against the base
+  rates of the same window, not accuracy.
 - **Idempotency everywhere.** Ingestion upserts use `ON CONFLICT DO NOTHING` on identity keys
   (`uq_fixture_identity`, odds identity, prediction identity). Tasks keyed by
   `fixture_id + method + model_version` so retries/duplicate deliveries are safe.
@@ -312,9 +331,12 @@ lock; unmapped API-Football team/league during live → structured warning + ski
 - **Metrics**: matched count, win-rate, ROI on closing odds, equity curve, max drawdown, Wilson 95%
   CI (`{lower, upper, confidence}`, formula in a code comment), per-league/season breakdown.
   `roi_disclaimer: true` is always present; `small_sample_warning: true` when matched < 100 (the
-  frontend renders a yellow card above results). Walk-forward (`?walk_forward=true`) splits by season
-  chronologically — the first season is warm-up, later seasons are out-of-sample test folds, and
-  `out_of_sample_roi` aggregates them (in-sample never includes future seasons).
+  frontend renders a yellow card above results). Every result carries `evaluation_protocol =
+  "historical_rule_simulation"` and `odds_basis = "closing"`: a fixed rule replayed over past matches,
+  nothing trained. `?season_split=true` adds `season_splits` — every season, oldest first, the first
+  one included — which is a **breakdown, not walk-forward**: the former `walk_forward` /
+  `out_of_sample_roi` / `folds` were removed because no model is re-fitted per season, so no part of
+  the result is out-of-sample. The UI says so under every result (`backtester.protocolNote`).
 - **Tiering**: runs consume `backtester_runs_per_day` (guest 0 / free 3 / pro 50 / expert ∞) via a
   Redis UTC-day counter; **save** and **export** are the `backtester_save`/`backtester_export` feature
   flags (expert only). Migration `0009` also patches the flags onto the tier rows seeded by `0007`.
@@ -659,6 +681,14 @@ as its own Compose service:
 4. Post the phase plan, wait for "go", then implement → tests → CI green → PR. The owner merges.
 
 ## 11. Parked work (owner-requested, not yet scheduled)
+
+- **ML follow-ups** (out of scope of the ML honesty PRs):
+  - likelihood-fitted Dixon-Coles with time decay (and shrinkage toward the league mean) replacing
+    the running-mean estimator;
+  - a real forward test (predictions frozen before kickoff, scored after) before any metric is
+    presented as verified;
+  - drift monitoring; dataset snapshots per training run; feature-store restructuring;
+  - an xG predictor (the `xg` method has no training path; it is not a consensus input).
 
 - **Auth hardening follow-ups** (found during the auth-transactions PR; separate small PRs):
   - *Lockout as a victim-DoS vector.* The per-account backoff (`LOGIN_MAX_FAILURES`, then
