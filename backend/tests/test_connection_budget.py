@@ -32,19 +32,68 @@ MLFLOW_STORES = 2
 EXPECTED = {"api", "worker-realtime", "worker-batch", "worker-ml", "mlflow", "postgres"}
 
 
+class _Reset:
+    """A compose ``!reset`` value: the attribute is cleared in the merged model."""
+
+
+class _Override:
+    """A compose ``!override`` value: the attribute replaces, never merges."""
+
+    def __init__(self, value: Any) -> None:
+        self.value = value
+
+
+class _ComposeLoader(yaml.SafeLoader):
+    """SafeLoader that understands compose's merge tags (``!reset``, ``!override``)."""
+
+
+def _construct_reset(loader: yaml.SafeLoader, node: yaml.Node) -> _Reset:
+    return _Reset()
+
+
+def _construct_override(loader: yaml.SafeLoader, node: yaml.Node) -> _Override:
+    if isinstance(node, yaml.MappingNode):
+        return _Override(loader.construct_mapping(node, deep=True))
+    if isinstance(node, yaml.SequenceNode):
+        return _Override(loader.construct_sequence(node, deep=True))
+    return _Override(loader.construct_scalar(node))  # type: ignore[arg-type]
+
+
+_ComposeLoader.add_constructor("!reset", _construct_reset)
+_ComposeLoader.add_constructor("!override", _construct_override)
+
+
+def _load_compose(text: str) -> Any:
+    loader = _ComposeLoader(text)
+    try:
+        return loader.get_single_data()
+    finally:
+        loader.dispose()
+
+
 def _merged_services(files: list[str]) -> dict[str, dict[str, Any]]:
     """Per service, the three fields the budget reads, merged across overlays
-    (later files win; ``environment`` merges key by key, as compose does)."""
+    (later files win; ``environment`` merges key by key, as compose does;
+    ``!reset`` clears a field and ``!override`` replaces it)."""
     merged: dict[str, dict[str, Any]] = {}
     for name in files:
-        doc = yaml.safe_load((INFRA / name).read_text(encoding="utf-8")) or {}
+        doc = _load_compose((INFRA / name).read_text(encoding="utf-8")) or {}
         for service, spec in (doc.get("services") or {}).items():
             entry = merged.setdefault(service, {"environment": {}, "command": "", "replicas": 1})
             spec = spec or {}
             env = spec.get("environment") or {}
+            if isinstance(env, _Reset):
+                entry["environment"], env = {}, {}
+            elif isinstance(env, _Override):
+                entry["environment"], env = {}, env.value or {}
             if isinstance(env, list):
                 env = dict(item.split("=", 1) for item in env)
             entry["environment"].update({k: str(v) for k, v in env.items()})
+            if isinstance(spec.get("command"), _Reset):
+                entry["command"] = ""
+                spec = {**spec, "command": None}
+            elif isinstance(spec.get("command"), _Override):
+                spec = {**spec, "command": spec["command"].value}
             if spec.get("command"):
                 command = spec["command"]
                 entry["command"] = " ".join(command) if isinstance(command, list) else command
@@ -136,3 +185,20 @@ def test_current_budget_numbers() -> None:
         "mlflow": 30,
     }
     assert budget == 120 - 3 - HEADROOM
+
+
+def test_loader_understands_compose_merge_tags() -> None:
+    """The prod overlay clears ports with ``!reset`` (a plain ``[]`` would be
+    appended); the budget must still parse it, and apply both tags."""
+    doc = _load_compose(
+        "services:\n"
+        "  a:\n"
+        "    ports: !reset []\n"
+        "    environment: !override {DB_POOL_SIZE: '1'}\n"
+        "    command: !reset null\n",
+    )
+    service = doc["services"]["a"]
+    assert isinstance(service["ports"], _Reset)
+    assert isinstance(service["command"], _Reset)
+    assert isinstance(service["environment"], _Override)
+    assert service["environment"].value == {"DB_POOL_SIZE": "1"}
