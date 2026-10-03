@@ -27,9 +27,9 @@ from app.providers.football_data_couk import FootballDataCoUkProvider
 from app.services.ingestion.football_data import LEAGUE_META
 from app.services.ingestion.runner import (
     VerifyRow,
-    bootstrap_history,
     network_csv_source,
     offline_csv_source,
+    run_recorded_ingestion,
     verify_history,
 )
 
@@ -41,7 +41,11 @@ def _split(value: str) -> list[str]:
     return [v.strip() for v in value.split(",") if v.strip()]
 
 
-async def _bootstrap(leagues: list[str], seasons: list[str], offline_dir: str | None) -> int:
+async def _bootstrap(
+    leagues: list[str], seasons: list[str], offline_dir: str | None, force: bool = False
+) -> int:
+    """Per-pair committed, resumable ingestion (one ``ingestion_runs`` row per
+    league/season; unchanged payloads are skipped unless ``--force``)."""
     provider = FootballDataCoUkProvider(leagues=leagues)
     csv_source = (
         offline_csv_source(Path(offline_dir)) if offline_dir else network_csv_source(provider)
@@ -50,19 +54,29 @@ async def _bootstrap(leagues: list[str], seasons: list[str], offline_dir: str | 
 
     try:
         async with _write_sessionmaker()() as session:
-            summary = await bootstrap_history(
-                session, leagues=leagues, seasons=seasons, csv_source=csv_source, provider=provider
+            runs = await run_recorded_ingestion(
+                session,
+                leagues=leagues,
+                seasons=seasons,
+                csv_source=csv_source,
+                provider_name=provider.name,
+                triggered_by="cli",
+                force=force,
+                provider=provider,
             )
-            await session.commit()
     except SourceNotLicensed as exc:
         print(f"bootstrap-history: {exc}", file=sys.stderr)
         return 2
-    print(
-        f"bootstrap-history: fixtures +{summary.fixtures_inserted}/{summary.fixtures_seen}, "
-        f"odds +{summary.odds_inserted}, teams +{summary.teams_created}, "
-        f"leagues +{summary.leagues_created}"
-    )
-    return 0
+    failed = 0
+    for r in runs:
+        note = f" ({r.skipped_reason})" if r.skipped_reason else ""
+        print(
+            f"bootstrap-history: {r.league} {r.season}: {r.status.value}{note}, "
+            f"fixtures +{r.fixtures_ingested}, odds +{r.odds_ingested}"
+            + (f", error: {r.error}" if r.error else "")
+        )
+        failed += r.status.value == "failed"
+    return 1 if failed else 0
 
 
 def _print_table(rows: list[VerifyRow]) -> None:
@@ -196,6 +210,7 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--seasons", type=_split, default=DEFAULT_SEASONS)
         if name == "bootstrap-history":
             p.add_argument("--offline-dir", default=None)
+            p.add_argument("--force", action="store_true", help="re-ingest even unchanged payloads")
     report = sub.add_parser("data-report", help="read-only coverage + data-quality report")
     report.add_argument("--leagues", type=_split, default=None)
     report.add_argument("--seasons", type=_split, default=None)
@@ -215,7 +230,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     if args.command == "bootstrap-history":
-        return asyncio.run(_bootstrap(args.leagues, args.seasons, args.offline_dir))
+        return asyncio.run(_bootstrap(args.leagues, args.seasons, args.offline_dir, args.force))
     if args.command == "verify-history":
         return asyncio.run(_verify(args.leagues, args.seasons))
     if args.command == "data-report":

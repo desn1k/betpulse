@@ -9,9 +9,10 @@ recorded-ingestion wrapper; a row is created ``running`` and finalised in place.
 from __future__ import annotations
 
 import enum
+import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Integer, String, Text, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -47,3 +48,34 @@ class IngestionRun(UUIDPrimaryKeyMixin, Base):
     )
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # sha256 of the downloaded source payload: a later run whose payload hashes
+    # the same is skipped (``skipped_reason = "unchanged"``) — resumable runs.
+    content_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    records: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    skipped_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class IngestionConflict(UUIDPrimaryKeyMixin, Base):
+    """A source disagreeing with what another source already stored for the
+    same fixture (e.g. a different final score). Recorded, never applied: only
+    the fixture's own source may correct it. Surfaced by ``data-report``."""
+
+    __tablename__ = "ingestion_conflicts"
+    __table_args__ = (
+        UniqueConstraint("fixture_id", "provider", "field", name="uq_ingestion_conflict"),
+    )
+
+    fixture_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("fixtures.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    external_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    field: Mapped[str] = mapped_column(String(32), nullable=False)
+    existing: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    incoming: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

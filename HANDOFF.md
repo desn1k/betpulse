@@ -273,6 +273,28 @@ covered by Vitest + React Testing Library.
   `python -m app.cli unmapped-teams [--provider P]` lists the worklist and
   `python -m app.cli map-team --provider P --alias NAME (--team-id UUID | --team NAME [--country C])
   [--external-id ID]` binds it (audited as `ingestion.team.mapped`).
+- **Odds, corrections and resumable runs (HI-3).** *Odds kinds:* the ingestion core enforces the
+  rule on the way in — price in `1 < price <= 1000`, a closing quote has `ts <= kickoff`, a
+  pre-closing one `ts < kickoff`, checked against both the source's and the stored fixture's
+  kickoff (they differ for a cross-source link); anything else (e.g. an in-play price labelled closing) is rejected and logged
+  (`odds_quote_rejected`). `closing_quotes` reads **only** `is_closing` rows, so a fixture with
+  just pre-closing quotes has no closing price and is excluded from ROI vs closing / market model /
+  backtester. football-data pre-closing quotes (`PSH`, `P>2.5`) sit at `kickoff − 1 day` — an
+  approximation documented in `docs/DATA_SOURCES.md`. *Reference bookmaker* per kickoff date:
+  `REFERENCE_BOOKMAKERS` (JSON list of `{bookmaker, from_date, until_date}`; validated contiguous,
+  no gaps/overlaps, open at both ends), default Pinnacle before 2025-07-23 and `market_avg` from that date (inclusive).
+  *Corrections:* when a record finds an existing fixture, empty fields are filled from any source;
+  the fixture's **own** source may correct the score — and, found by its own id, move the kickoff
+  (postponement; no quote taken for the old date stays closing; when the kickoff moves earlier, quotes at or after the new kickoff are removed, counted in the audit as `odds_removed`) — audited as
+  `ingestion.fixture.corrected`; a **different** source disagreeing with a stored score changes
+  nothing and is recorded in `ingestion_conflicts`, shown by `data-report` as
+  `score_conflict_across_sources`. *Runs:* `run_recorded_ingestion` (admin re-scan, ARQ task and the
+  `bootstrap-history` CLI) commits after **each** league/season, stores the payload's
+  `content_sha256` and skips a pair whose payload is unchanged since its last successful run
+  (`skipped_reason = "unchanged"`; `--force` re-ingests). `running` rows older than
+  `INGESTION_STALE_RUN_MINUTES` (60 = 2× the batch job timeout) are marked failed at the next start;
+  younger ones may be alive and are left alone. Migration `0016` adds the columns and
+  `ingestion_conflicts` (schema only).
 - **Migrations 0014/0015 (HI-2)** — 0014 schema (refs, `kickoff_time_known`, `season_start_month`,
   alias `external_id`, unmapped worklist, team key), 0015 data (canonical season labels in
   `fixtures`/`backtest_features`/`ingestion_runs`; football-data kickoffs from "UK wall-clock stored

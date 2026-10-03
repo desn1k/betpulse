@@ -6,13 +6,13 @@ from 10+ bookmakers. Parsing (``parse_csv``) is separated from the network fetch
 CSV slice.
 
 Column mapping and season-format drift are handled in ``_COLUMNS`` /
-``_PINNACLE_CLOSING`` — keep ``docs/DATA_SOURCES.md`` in sync with these.
+``_QUOTE_COLUMNS`` — keep ``docs/DATA_SOURCES.md`` in sync with these.
 """
 
 from __future__ import annotations
 
 import io
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
@@ -26,6 +26,8 @@ from app.providers.base import (
     NotSupportedError,
 )
 from app.providers.dtos import (
+    MAX_PRICE,
+    MIN_PRICE,
     BookmakerOddsDTO,
     FixtureDTO,
     LeagueRef,
@@ -53,19 +55,24 @@ LEAGUE_CODE_MAP: dict[str, str] = {
     "LIGUE1": "F1",
 }
 
-# Pinnacle closing over/under 2.5 goals columns, newest first (closing, then
-# generic). Stored as market ``ou_2.5`` with outcomes over/under — the totals
-# market the backtester bets on.
-_PINNACLE_OU_25: list[tuple[str, str]] = [
-    ("PC>2.5", "PC<2.5"),
-    ("P>2.5", "P<2.5"),
-]
+# Quote columns, each read independently and stored with its own kind:
+#   * closing quotes (``...C...`` columns) at ``ts = kickoff``, ``is_closing``;
+#   * Pinnacle **pre-closing** quotes (``PSH`` / ``P>2.5`` — collected some time
+#     before kickoff) at ``ts = kickoff - PRE_CLOSING_LEAD``, never as closing.
+# football-data does not publish when a pre-closing quote was taken (its notes
+# say Friday/Tuesday afternoon for weekend/midweek games), so one day before
+# kickoff is an approximation. It only orders the pre-closing quote before the
+# closing one; the time rule (app.ml.odds_selection) never treats it as closing.
+PRE_CLOSING_LEAD = timedelta(days=1)
 _OU_25_LINE = "2.5"
-
-# Pinnacle closing 1X2 columns, newest first; older files used PSH/PSD/PSA.
-_PINNACLE_CLOSING: list[tuple[str, str, str]] = [
-    ("PSCH", "PSCD", "PSCA"),
-    ("PSH", "PSD", "PSA"),
+# (bookmaker, market, outcome -> column, is_closing)
+_QUOTE_COLUMNS: list[tuple[str, str, dict[str, str], bool]] = [
+    ("pinnacle", "1x2", {"home": "PSCH", "draw": "PSCD", "away": "PSCA"}, True),
+    ("pinnacle", "1x2", {"home": "PSH", "draw": "PSD", "away": "PSA"}, False),
+    ("market_avg", "1x2", {"home": "AvgCH", "draw": "AvgCD", "away": "AvgCA"}, True),
+    ("pinnacle", f"ou_{_OU_25_LINE}", {"over": "PC>2.5", "under": "PC<2.5"}, True),
+    ("pinnacle", f"ou_{_OU_25_LINE}", {"over": "P>2.5", "under": "P<2.5"}, False),
+    ("market_avg", f"ou_{_OU_25_LINE}", {"over": "AvgC>2.5", "under": "AvgC<2.5"}, True),
 ]
 
 
@@ -165,8 +172,7 @@ class FootballDataCoUkProvider(BaseProvider):
                 continue
             kickoff, time_known, local_date = parsed
 
-            odds = self._parse_pinnacle_closing(row, kickoff)
-            odds.extend(self._parse_pinnacle_ou(row, kickoff))
+            odds = self._parse_quotes(row, kickoff)
             fixtures.append(
                 FixtureDTO(
                     provider=self.name,
@@ -215,31 +221,28 @@ class FootballDataCoUkProvider(BaseProvider):
         return noon, False, local_date
 
     @staticmethod
-    def _parse_pinnacle_closing(row: pd.Series, ts: datetime) -> list[BookmakerOddsDTO]:
-        for home_col, draw_col, away_col in _PINNACLE_CLOSING:
-            h = _to_decimal(row.get(home_col))
-            d = _to_decimal(row.get(draw_col))
-            a = _to_decimal(row.get(away_col))
-            if h and d and a:
-                return [
-                    BookmakerOddsDTO(bookmaker="pinnacle", market="1x2", outcome=o, price=p, ts=ts)
-                    for o, p in (("home", h), ("draw", d), ("away", a))
-                ]
-        return []
-
-    @staticmethod
-    def _parse_pinnacle_ou(row: pd.Series, ts: datetime) -> list[BookmakerOddsDTO]:
-        for over_col, under_col in _PINNACLE_OU_25:
-            over = _to_decimal(row.get(over_col))
-            under = _to_decimal(row.get(under_col))
-            if over and under:
-                return [
-                    BookmakerOddsDTO(
-                        bookmaker="pinnacle", market=f"ou_{_OU_25_LINE}", outcome=o, price=p, ts=ts
-                    )
-                    for o, p in (("over", over), ("under", under))
-                ]
-        return []
+    def _parse_quotes(row: pd.Series, kickoff: datetime) -> list[BookmakerOddsDTO]:
+        """Every complete quote set in the row (see ``_QUOTE_COLUMNS``)."""
+        quotes: list[BookmakerOddsDTO] = []
+        for bookmaker, market, columns, is_closing in _QUOTE_COLUMNS:
+            prices = {outcome: _to_decimal(row.get(col)) for outcome, col in columns.items()}
+            # A set is stored only when every price is a valid decimal odd.
+            if not all(p is not None and MIN_PRICE < p <= MAX_PRICE for p in prices.values()):
+                continue
+            ts = kickoff if is_closing else kickoff - PRE_CLOSING_LEAD
+            quotes.extend(
+                BookmakerOddsDTO(
+                    bookmaker=bookmaker,
+                    market=market,
+                    outcome=outcome,
+                    price=price,
+                    ts=ts,
+                    is_closing=is_closing,
+                )
+                for outcome, price in prices.items()
+                if price is not None
+            )
+        return quotes
 
     @staticmethod
     def _parse_stats(row: pd.Series) -> StatsDTO | None:

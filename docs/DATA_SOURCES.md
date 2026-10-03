@@ -60,8 +60,9 @@ to `--leagues` is **not** silently skipped — the ingester logs a structured `W
 (`event: league_unsupported_by_source`) and moves on. RPL history comes from the live provider and
 is flagged **beta** in the UI.
 
-**Column mapping (as implemented).** The loader (pandas) reads these columns; season-format drift is
-handled by fallbacks:
+**Column mapping (as implemented).** The loader (pandas) reads these columns. Each quote set is read
+independently: a missing closing set is never filled from pre-closing columns, and a set with any
+price outside `1 < price <= 1000` is skipped:
 
 | Field | CSV column(s) |
 |---|---|
@@ -70,13 +71,27 @@ handled by fallbacks:
 | half-time goals | `HTHG`, `HTAG` |
 | shots / on target | `HS`,`AS` / `HST`,`AST` |
 | corners | `HC`, `AC` |
-| **Pinnacle closing 1X2** | `PSCH`,`PSCD`,`PSCA` → fallback `PSH`,`PSD`,`PSA` |
-| **Pinnacle closing O/U 2.5** | `PC>2.5`,`PC<2.5` → fallback `P>2.5`,`P<2.5` |
+| **Pinnacle closing 1X2** | `PSCH`,`PSCD`,`PSCA` (closing, `ts = kickoff`) |
+| Pinnacle pre-closing 1X2 | `PSH`,`PSD`,`PSA` (**not** closing, `ts = kickoff − 1 day`) |
+| **Market-average closing 1X2** | `AvgCH`,`AvgCD`,`AvgCA` → `bookmaker='market_avg'` |
+| **Pinnacle closing O/U 2.5** | `PC>2.5`,`PC<2.5` (closing) |
+| Pinnacle pre-closing O/U 2.5 | `P>2.5`,`P<2.5` (**not** closing, `ts = kickoff − 1 day`) |
+| **Market-average closing O/U 2.5** | `AvgC>2.5`,`AvgC<2.5` → `bookmaker='market_avg'` |
 
-Closing odds are stored in the `odds` hypertable as `bookmaker='pinnacle'`, `ts = kickoff`,
-`is_closing = true`: the 1X2 market as `market='1x2'`, `outcome in {home,draw,away}`, and the goals
-total as `market='ou_2.5'`, `outcome in {over,under}`. The over/under market feeds the strategy
-backtester's totals bets (spec §6).
+Each column set is stored independently in the `odds` hypertable: closing quotes with
+`ts = kickoff`, `is_closing = true`; **pre-closing quotes are never stored as closing** —
+`is_closing = false` at `ts = kickoff − 1 day`. That timestamp is an **approximation**:
+football-data does not publish when a pre-closing quote was taken (its notes say Friday/Tuesday
+afternoon before weekend/midweek games); the day only orders it before the closing quote. A
+fixture that has only pre-closing quotes has **no** closing quote, so it is left out of "ROI vs
+closing", the market model and the backtester. The 1X2 market is `market='1x2'`,
+`outcome in {home,draw,away}`, the goals total `market='ou_2.5'`, `outcome in {over,under}` (it
+feeds the backtester's totals bets, spec §6).
+
+**Reference bookmaker.** Which bookmaker's closing quote is "the" closing price depends on the
+kickoff date (`REFERENCE_BOOKMAKERS`): Pinnacle for kickoffs **before** 2025-07-23, and the market
+average (`market_avg`) **from** 2025-07-23 on (that day included), because football-data warns that
+Pinnacle's feed is unreliable from that date. `until_date` is exclusive, `from_date` inclusive.
 
 **ID mapping (seed behaviour).** football-data.co.uk is a **seed source** (`may_seed_canonical`): the
 first time a team/league name is seen it creates the canonical `teams`/`leagues` row (teams keyed by

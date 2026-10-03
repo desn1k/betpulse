@@ -19,13 +19,15 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.models.fixture import Fixture, FixtureStatus
+from app.models.ingestion_run import IngestionConflict
 from app.models.market import Odds
 from app.models.reference import League
+from app.providers.dtos import MAX_PRICE, MIN_PRICE
 
 ERROR = "error"
 WARNING = "warning"
@@ -33,8 +35,6 @@ WARNING = "warning"
 # Same pairing in the same league this close in time is one match recorded twice.
 DUPLICATE_WINDOW = timedelta(hours=36)
 MAX_GOALS = 15
-MIN_PRICE = 1.0
-MAX_PRICE = 1000.0
 OVERROUND_RANGE = (1.0, 1.25)
 TYPICAL_TEAM_COUNTS = {16, 18, 20}
 MIN_ODDS_COVERAGE = 0.9
@@ -262,6 +262,8 @@ async def build_report(
     # Snapshots with an unusable price stay reported as errors but never count
     # as coverage.
     invalid: set[tuple[uuid.UUID, str, str, datetime]] = set()
+    # Pre-closing snapshots never count as closing coverage.
+    not_closing: set[tuple[uuid.UUID, str, str, datetime]] = set()
     for o in odds_rows:
         if o.fixture_id not in by_id:  # pragma: no cover - written after the fixture scan
             continue
@@ -287,6 +289,8 @@ async def build_report(
                 f"{o.bookmaker} {o.market} closing quote at {o.ts.isoformat()} after kickoff",
             )
         snapshots[(o.fixture_id, o.bookmaker, o.market, o.ts)][o.outcome] = price
+        if not o.is_closing:
+            not_closing.add((o.fixture_id, o.bookmaker, o.market, o.ts))
 
     closing_1x2: dict[uuid.UUID, set[str]] = defaultdict(set)
     closing_ou: set[uuid.UUID] = set()
@@ -303,7 +307,8 @@ async def build_report(
                 f"{bookmaker} {market} at {ts.isoformat()}: {sorted(prices)}",
             )
             continue
-        if ts > fx.kickoff_at or (fixture_id, bookmaker, market, ts) in invalid:
+        key = (fixture_id, bookmaker, market, ts)
+        if ts > fx.kickoff_at or key in invalid or key in not_closing:
             continue
         if market == "1x2":
             closing_1x2[fixture_id].add(bookmaker)
@@ -321,6 +326,33 @@ async def build_report(
                     )
         elif market == "ou_2.5":
             closing_ou.add(fixture_id)
+
+    # --- disagreements between sources (recorded, never applied) ---------------
+    conflict_rows = (
+        (
+            await session.execute(
+                select(IngestionConflict).where(
+                    IngestionConflict.fixture_id.in_(scoped_ids) if scope else true()
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for c in conflict_rows:
+        scoped = by_id.get(c.fixture_id)
+        if scoped is None:  # pragma: no cover - scoped by the query
+            continue
+        fx, code = scoped
+        add(
+            WARNING,
+            "score_conflict_across_sources",
+            fx,
+            code,
+            fx.season,
+            f"{c.provider} reports {c.field} = {c.incoming}, stored {c.existing} "
+            f"(from {fx.source}); not applied",
+        )
 
     # --- per (league, season) coverage and season-level checks ----------------
     groups: dict[tuple[str, str], list[Fixture]] = defaultdict(list)
