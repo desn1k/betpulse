@@ -42,9 +42,15 @@ async def reevaluate_champions(
     now: datetime | None = None,
 ) -> str | None:
     """Recompute rolling OOS metrics and re-select the champion. Idempotent."""
-    metrics = await compute_rolling_metrics(session, window_days=window_days, now=now)
+    metrics = await compute_rolling_metrics(
+        session, window_days=window_days, now=now, min_samples=min_samples
+    )
     return await apply_champion_selection(
-        session, metrics, weight_mode=weight_mode, min_samples=min_samples
+        session,
+        metrics,
+        weight_mode=weight_mode,
+        min_samples=min_samples,
+        min_brier_improvement=get_settings().champion_min_brier_improvement,
     )
 
 

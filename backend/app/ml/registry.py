@@ -185,57 +185,98 @@ def _softmax_weights(accuracies: dict[str, float]) -> dict[str, float]:
     return {m: round(100.0 * e / total, 2) for m, e in exps.items()}
 
 
+def _finite(m: MethodMetrics) -> bool:
+    return all(math.isfinite(v) for v in (m.brier, m.log_loss, m.accuracy_pct, m.roi_vs_closing))
+
+
+def _decimal(value: float, digits: int) -> Decimal | None:
+    return Decimal(str(round(value, digits))) if math.isfinite(value) else None
+
+
 async def apply_champion_selection(
     session: AsyncSession,
     metrics_by_method: dict[str, MethodMetrics],
     *,
     weight_mode: str = "auto",
     min_samples: int = 300,
+    min_brier_improvement: float = 0.002,
     actor: str = "system",
 ) -> str | None:
-    """Update metrics, promote the best eligible method to champion (demoting the
-    previous one), and set consensus weights. Idempotent: no change → no snapshot
-    and no audit entry. Returns the champion method (or None)."""
+    """Store the evaluated metrics on each method's evaluated version, apply the
+    champion rule, and set consensus weights. Idempotent: no change → no
+    snapshot and no audit entry. Returns the champion method (or None).
+
+    The rule (``metrics_by_method`` must come from one evaluation that scored
+    every method on the same fixtures, see :func:`app.ml.evaluation.
+    compute_rolling_metrics`):
+
+    1. **eligible** = registry row present and enabled, every metric finite
+       (a failed evaluation never competes), ``sample_count >= min_samples``;
+    2. the best eligible method has the lowest **Brier**, then log loss, then
+       name (``accuracy_pct`` is display-only);
+    3. it replaces a current, eligible champion only if its Brier is at least
+       ``min_brier_improvement`` lower — smaller gaps are noise;
+    4. the incumbent is identified by **method**: an older champion version is
+       represented by its method's evaluated (newest) version, which takes over
+       the champion status when the method keeps the title;
+    5. with no champion, or a champion whose method is not eligible in this
+       evaluation, the best eligible method becomes champion;
+    6. with no eligible method nothing changes.
+    """
     all_rows = list((await session.execute(select(ModelRegistry))).scalars().all())
     rows = _rows_for(all_rows, metrics_by_method)
     for method, m in metrics_by_method.items():
         row = rows.get(method)
         if row is None:
             continue
-        row.accuracy_pct = Decimal(str(round(m.accuracy_pct, 2)))
-        row.brier = Decimal(str(round(m.brier, 6)))
-        row.log_loss = Decimal(str(round(m.log_loss, 6)))
-        row.roi_vs_closing = Decimal(str(round(m.roi_vs_closing, 4)))
+        row.accuracy_pct = _decimal(m.accuracy_pct, 2)
+        row.brier = _decimal(m.brier, 6)
+        row.log_loss = _decimal(m.log_loss, 6)
+        row.roi_vs_closing = _decimal(m.roi_vs_closing, 4)
         row.sample_count = m.sample_count
         row.last_evaluated_at = _now()
 
     eligible = {
-        method: m.accuracy_pct
+        method: m
         for method, m in metrics_by_method.items()
         if rows.get(method) is not None
         and rows[method].is_enabled
+        and _finite(m)
         and m.sample_count >= min_samples
     }
     if not eligible:
         await session.flush()
         return None
 
-    best = max(eligible, key=lambda k: eligible[k])
+    best = min(eligible, key=lambda k: (eligible[k].brier, eligible[k].log_loss, k))
     # Any champion row counts — including another version of the same method.
     champion_rows = [r for r in all_rows if r.status == ModelStatus.champion]
+    # The incumbent is the champion's *method*: after a retrain the champion
+    # row is usually an older version while the evaluation scored the newest
+    # one, and the margin must still protect it.
+    incumbent = next((r.method for r in champion_rows if r.method in eligible), None)
+    winner = best
+    if incumbent is not None and incumbent != best:
+        margin = eligible[incumbent].brier - eligible[best].brier
+        if margin < min_brier_improvement:
+            winner = incumbent  # not a meaningful improvement
 
-    if champion_rows != [rows[best]]:
+    if champion_rows != [rows[winner]]:
         await snapshot_registry(session, reason="champion_reeval", actor=actor)
         for row in champion_rows:
-            if row is not rows[best]:
+            if row is not rows[winner]:
                 row.status = ModelStatus.challenger
                 await record_event(session, action=CHAMPION_DEMOTED, target=row.method)
-        rows[best].status = ModelStatus.champion
+        rows[winner].status = ModelStatus.champion
         await record_event(
             session,
             action=CHAMPION_PROMOTED,
-            target=best,
-            meta={"accuracy_pct": eligible[best]},
+            target=winner,
+            meta={
+                "version": rows[winner].version,
+                "brier": eligible[winner].brier,
+                "sample_count": eligible[winner].sample_count,
+            },
         )
 
     if weight_mode == "auto":
@@ -249,4 +290,4 @@ async def apply_champion_selection(
                 row.display_weight = Decimal("0")
 
     await session.flush()
-    return best
+    return winner

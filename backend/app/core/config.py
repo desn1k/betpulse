@@ -117,6 +117,10 @@ class Settings(BaseSettings):
     accuracy_window_days: int = 90
     consensus_weight_mode: Literal["auto", "manual"] = "auto"
     champion_min_samples: int = 300
+    # A challenger replaces the champion only if its Brier (on the same fixtures)
+    # is at least this much lower. Below the noise level at ~300 matches; a
+    # paired-bootstrap significance test is a documented follow-up.
+    champion_min_brier_improvement: float = 0.002
     # Max expected champion-reeval runtime; the Redis lock TTL is 2x this so a
     # crashed worker never holds the lock forever (see reevaluate_champions_task).
     champion_reeval_max_runtime_seconds: int = 600

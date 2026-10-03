@@ -4,11 +4,12 @@ Full path per method: build features → train → log to MLflow (binary +
 feature_schema.json + training_data_hash + metrics) → write predictions →
 upsert model_registry (+ a model_runs row).
 
-Elo, Glicko-2, Dixon-Coles and the market benchmark train on any amount of data.
-LightGBM and the consensus stack need a minimum sample count; on tiny datasets
-(e.g. the CI fixture) they are **skipped with a logged note** rather than trained
-on unusable data — the skip is recorded in ``TrainingSummary.skipped`` and
-asserted by the fixture test.
+Elo, Glicko-2, Dixon-Coles and the market benchmark run on any amount of data;
+their predictions are prequential (each from matches strictly before kickoff).
+LightGBM and the consensus stack (:mod:`app.ml.ml_training`) train on temporal
+windows and predict only their later test window, so their stored predictions
+are out-of-sample. With too little data they are **skipped with an explicit
+reason** in ``TrainingSummary.skipped`` — never silently.
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ from app.ml.elo import DEFAULT_RATING, Elo, EloConfig
 from app.ml.features import build_feature_table, feature_schema, finished_scores
 from app.ml.glicko2 import Glicko2, GlickoPlayer, MatchResult
 from app.ml.market import shin_devig
+from app.ml.ml_training import MlSkipped, train_consensus, train_lightgbm
 from app.ml.mlflow_utils import log_training_run, training_data_hash
 from app.ml.odds_selection import closing_quotes
 from app.ml.registry import upsert_run
@@ -42,7 +44,6 @@ from app.models.prediction import ModelRun, Prediction
 
 logger = logging.getLogger("ml.training")
 _OUTCOMES = ("home", "draw", "away")
-_ML_MIN_SAMPLES = 200
 
 
 @dataclass(slots=True)
@@ -51,6 +52,8 @@ class TrainingSummary:
     trained: list[str] = field(default_factory=list)
     predictions_written: int = 0
     skipped: dict[str, str] = field(default_factory=dict)
+    # Test-window metrics of the temporally evaluated methods (LightGBM, consensus).
+    metrics: dict[str, dict[str, float]] = field(default_factory=dict)
 
 
 async def run_training(session: AsyncSession, *, version: str | None = None) -> TrainingSummary:
@@ -98,7 +101,7 @@ async def run_training(session: AsyncSession, *, version: str | None = None) -> 
             model=model,
             feature_schema=schema,
             data_hash=data_hash,
-            metrics=_in_sample_metrics(preds, fixtures),
+            metrics=_prequential_metrics(preds, fixtures),
         )
         session.add(ModelRun(method=method.value, mlflow_run_id=run_id, status="done", metrics={}))
         await upsert_run(
@@ -111,14 +114,51 @@ async def run_training(session: AsyncSession, *, version: str | None = None) -> 
         )
         summary.trained.append(method.value)
 
-    # --- LightGBM + consensus: gated by sample size -------------------------
-    for method in (Method.lightgbm, Method.consensus):
-        if len(fixtures) < _ML_MIN_SAMPLES:
-            reason = f"insufficient samples ({len(fixtures)} < {_ML_MIN_SAMPLES})"
-            summary.skipped[method.value] = reason
+    # --- LightGBM + consensus: temporal windows, test-window predictions ---
+    lightgbm = train_lightgbm(feature_df)
+    consensus = train_consensus(
+        feature_df,
+        {
+            Method.elo.value: elo_preds,
+            Method.glicko2.value: glicko_preds,
+            Method.dixon_coles.value: dc_preds,
+        },
+    )
+    for outcome in (lightgbm, consensus):
+        if isinstance(outcome, MlSkipped):
+            summary.skipped[outcome.method] = outcome.reason
             logger.warning(
-                json.dumps({"event": "method_skipped", "method": method.value, "reason": reason})
+                json.dumps(
+                    {"event": "method_skipped", "method": outcome.method, "reason": outcome.reason}
+                )
             )
+            continue
+        n = await _write_predictions(session, outcome.method, version, outcome.predictions)
+        summary.predictions_written += n
+        run_id = log_training_run(
+            method=outcome.method,
+            version=version,
+            model=outcome.model,
+            feature_schema=schema,
+            data_hash=data_hash,
+            metrics=outcome.metrics,
+            params=outcome.params,
+        )
+        session.add(
+            ModelRun(
+                method=outcome.method, mlflow_run_id=run_id, status="done", metrics=outcome.metrics
+            )
+        )
+        await upsert_run(
+            session,
+            method=outcome.method,
+            version=version,
+            mlflow_run_id=run_id,
+            sample_count=outcome.sample_count,
+            min_samples=settings.champion_min_samples,
+        )
+        summary.trained.append(outcome.method)
+        summary.metrics[outcome.method] = outcome.metrics
 
     await session.flush()
     return summary
@@ -238,7 +278,7 @@ def _label_from_scores(ft_home: int, ft_away: int) -> int:
     return 0 if ft_home > ft_away else (1 if ft_home == ft_away else 2)
 
 
-def _in_sample_metrics(
+def _prequential_metrics(
     preds: dict[uuid.UUID, dict[str, float]], fixtures: list[Fixture]
 ) -> dict[str, float]:
     label = {fx.id: _label_from_scores(*finished_scores(fx)) for fx in fixtures}
@@ -247,7 +287,7 @@ def _in_sample_metrics(
         return {}
     probs = np.array([[p["home"], p["draw"], p["away"]] for p, _ in rows])
     y = np.array([lbl for _, lbl in rows])
-    return {"in_sample_brier": metrics_mod.brier_multiclass(probs, y)}
+    return {"prequential_brier": metrics_mod.brier_multiclass(probs, y)}
 
 
 async def _write_predictions(
