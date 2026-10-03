@@ -1003,6 +1003,119 @@ PR sequence:
 - [ ] Payment and account access for a customer in Russia.
 - [ ] Written answers from every provider (the five points above).
 
+## Session state 2026-10-03
+
+Saved before the owner restarts the dev machine (Docker Desktop + WSL2 install), so that a new
+session can resume without losing context. **No new code work starts until the owner says "go"
+after the restart.**
+
+**1. Order of work (decided)**
+1. **Done.** PR #69 (model governance) and PR #70 (PR 0, paid-provider decisions docs) are
+   **merged** (2026-10-03).
+2. **PR 1 `fix/compose-ports`.**
+   - In `infra/docker-compose.prod.yml`, use `ports: !reset []` for postgres, redis, minio, api,
+     web **and mlflow** (mlflow has no override at all today).
+   - Add a CI check that the rendered prod config publishes **only caddy 80/443**.
+   - Redis `requirepass` is a separate follow-up PR.
+3. **PR 2 `docs/vps-runbook`: `docs/DEPLOY_VPS.md`** (in Russian), following the posted plan,
+   sections 0–15:
+
+   | § | Section |
+   |---|---|
+   | 0 | Warnings |
+   | 1 | Server requirements |
+   | 2 | OS hardening |
+   | 3 | Docker Engine |
+   | 4 | DNS + Caddy |
+   | 5 | Code + `.env` |
+   | 6 | GHCR |
+   | 7 | First deploy |
+   | 8 | Migrations |
+   | 9 | First admin |
+   | 10 | Health checks |
+   | 11 | Backups + restore drill |
+   | 12 | Upgrading an existing server |
+   | 13 | Rollback |
+   | 14 | Read-only prod commands |
+   | 15 | Unverified items |
+
+   Requirements for the runbook:
+   - Docker Engine is installed from Docker's official apt repository.
+   - Where `.env` lives: on the server it sits at the **repo root**, `chmod 600`, copied there
+     manually; the local dev `.env` is a separate file.
+   - Every unverified item is marked.
+   - Facts already established for it:
+     - `make backup` / `make restore-drill` are stubs, so backups are manual commands.
+     - MLflow is built on the server (there is no GHCR image for it).
+     - `make data-report` / `make migrate` run host Python; in prod use
+       `docker compose … exec api python -m app.cli …`.
+     - The locale is chosen by the `NEXT_LOCALE` cookie or `Accept-Language`; URLs have no
+       prefix.
+     - `create-admin` prints a one-time password.
+4. **Then, in order:**
+   - PR 0b: fixture counts by source in `data-report`;
+   - live base rates from current Dixon-Coles estimates (variant a);
+   - the provider adapters (Sportmonks Growth + The Odds API), written **from real saved
+     responses** (§9l).
+
+**2. Security blocker — do not deploy until PR 1 is merged**
+- In the prod overlay, `ports: []` **appends** to the base file's ports instead of replacing
+  them (Compose merge rules; only `!reset` clears a list).
+- The internal ports **5432, 6379, 9000/9001, 8000, 3000, 5000** may be published on `0.0.0.0`:
+  - Redis has no password, and ARQ jobs are pickled;
+  - MLflow has no auth.
+- Not yet verified with a real `docker compose config`.
+- Checking a running server:
+  ```bash
+  docker ps --format '{{.Names}}\t{{.Ports}}'
+  sudo ss -tlnp
+  ```
+- If any of those ports listens publicly, close everything except 22/80/443 **in the provider
+  firewall**. ufw does not cover ports published by Docker.
+
+**3. Environment after the restart**
+- Docker Desktop (WSL2) is being installed on the dev machine.
+- First, verify `docker compose version` is **≥ 2.24** (needed for `!reset`; the exact version
+  is to be confirmed).
+- Then render the prod config and check its published ports:
+  `docker compose -f infra/docker-compose.yml -f infra/docker-compose.prod.yml config`
+  (use `--env-file` with a dummy `.env` if the required variables are unset).
+- The previous recipe without Docker (portable PG16 + Redis + venv in the session scratchpad)
+  is in the agent's local notes. CI remains the reference.
+
+**4. Provider trial state**
+- The owner has a **Sportmonks Growth trial** (14 days, 2,500 calls/entity/hour) and a **The
+  Odds API free key** (500 credits).
+- Keys go **only** into the local `.env` or Admin → Providers — never into chat or git.
+- The planned calls are scripted, with keys scrubbed from URLs and logs. Sanitised responses
+  are saved as fixtures under `backend/tests/fixtures/{sportmonks,the_odds_api}/`.
+- **The Odds API (free key):**
+
+  | Call | Credits |
+  |---|---|
+  | `/v4/sports?all=true` | 0 |
+  | `/v4/sports/soccer_epl/events` | 0 |
+  | `/v4/sports/soccer_epl/odds?regions=eu&markets=h2h,totals` | 2 |
+  | RPL `h2h` `eu` | 1 |
+  | One bad-key call | 0 |
+
+  Historical calls (≈ 51 credits) only after the owner buys the $30 plan.
+- **Sportmonks:**
+  - `/leagues?include=seasons`;
+  - `fixtures/between` for one week of August 2023 and one of August 2019 (EPL), with
+    `scores;participants;statistics;xGFixture`;
+  - one match with `include=odds`;
+  - one bad-token call and one 404.
+
+**5. Standing rules**
+- One branch per task, from fresh `main`.
+- Never push to `main`; the owner merges.
+- **No model identity** in commits or PRs.
+- Plan first and wait for "go"; Step 0 failing test first for every claim.
+- Commit via `git commit -F msg.txt`.
+- Read all PR comments, inline comments and unresolved threads before declaring done.
+- Report in Russian.
+
 ## 10. How to resume
 
 1. Read this file + the spec §14 for the current phase.
