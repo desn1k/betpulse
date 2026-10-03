@@ -396,7 +396,7 @@ The historical odds endpoint returns the closest snapshot **at or before** `date
 
 | Source | Role | Note |
 |---|---|---|
-| API-Football | live (**in production today**, §2); fixtures/results as a future fallback | The live poll is implemented and running; only a fixtures/results fallback adapter is unimplemented. Its ToS say betting-related use may need extra licences from rights holders and say nothing on storage/ML. The poll gets an explicit licence flag, kept **enabled** by owner decision until the written answer arrives; the answer must cover publishing live data and derived predictions |
+| API-Football | live (implemented, §2; dev only so far, production has never been launched); fixtures/results as a future fallback | The live poll is implemented; only a fixtures/results fallback adapter is unimplemented. Its ToS say betting-related use may need extra licences from rights holders and say nothing on storage/ML. The poll gets an explicit licence flag, kept **enabled** by owner decision until the written answer arrives; the answer must cover publishing live data and derived predictions |
 | TheStatsAPI | fixtures, stats | Fallback only on paper. Its ToS forbid storing data beyond what is reasonably necessary and end the right to use data on termination, so it is unusable for training/history without written confirmation |
 | StatsBomb open data | `xg` | Free shot coordinates for a few competitions (xG model training) |
 | Sportradar | `live`, `odds` | Officially licensed feeds if ever needed |

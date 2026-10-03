@@ -181,6 +181,19 @@ jobs:
   docker-build:
     name: Docker images build
     runs-on: ubuntu-latest
+    services:
+      # Same image/version as production (infra/docker-compose.yml).
+      postgres:
+        image: timescale/timescaledb:2.17.2-pg16
+        env:
+          POSTGRES_USER: football
+          POSTGRES_PASSWORD: football
+          POSTGRES_DB: football
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U football -d football"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -190,9 +203,31 @@ jobs:
         with:
           context: ./backend
           push: false
-          load: false
+          load: true
+          tags: betpulse-api:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # deploy.sh runs `alembic upgrade head` in a one-off api container, so the
+      # image itself must carry alembic.ini + migrations and apply them to an
+      # empty Timescale database; the CLI entrypoints the runbook uses must start.
+      - name: Migrations and CLI entrypoints in the built API image
+        run: |
+          run_api() {
+            docker run --rm --network host \
+              -e DATABASE_URL=postgresql+asyncpg://football:football@localhost:5432/football \
+              betpulse-api:ci "$@"
+          }
+          heads="$(run_api alembic heads)"
+          echo "heads: $heads"
+          run_api alembic upgrade head
+          current="$(run_api alembic current)"
+          echo "current: $current"
+          # An image without migrations would print nothing for both.
+          [[ -n "${heads%% *}" ]] || { echo "alembic heads is empty: no migrations in the image" >&2; exit 1; }
+          [[ "${current%% *}" == "${heads%% *}" ]] || { echo "alembic current != heads" >&2; exit 1; }
+          run_api python -m app.cli data-report --help >/dev/null
+          run_api python -m app.bootstrap --help >/dev/null
 
       - name: Build web image
         uses: docker/build-push-action@v6
