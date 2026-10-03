@@ -4,6 +4,7 @@ Usage:
     python -m app.cli bootstrap-history [--leagues EPL,LALIGA] [--seasons 2023-2024]
                                         [--offline-dir DIR]
     python -m app.cli verify-history   [--leagues ...] [--seasons ...]
+    python -m app.cli data-report      [--leagues ...] [--seasons ...] [--json] [--strict]
 
 ``--offline-dir`` reads committed CSV fixtures instead of downloading — used by
 CI. Without it, CSVs are fetched from football-data.co.uk (local dev / VPS).
@@ -13,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -72,6 +74,22 @@ async def _verify(leagues: list[str], seasons: list[str]) -> int:
     return 0
 
 
+async def _data_report(
+    leagues: list[str] | None, seasons: list[str] | None, as_json: bool, strict: bool
+) -> int:
+    """Read-only coverage + quality report (safe on production)."""
+    from app.core.db import _read_sessionmaker
+    from app.services.data_quality import build_report, format_report
+
+    async with _read_sessionmaker()() as session:
+        report = await build_report(session, leagues=leagues, seasons=seasons)
+    if as_json:
+        print(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
+    else:
+        print(format_report(report))
+    return report.exit_code(strict=strict)
+
+
 async def _train() -> int:
     from app.ml.training import run_training
 
@@ -95,6 +113,11 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--seasons", type=_split, default=DEFAULT_SEASONS)
         if name == "bootstrap-history":
             p.add_argument("--offline-dir", default=None)
+    report = sub.add_parser("data-report", help="read-only coverage + data-quality report")
+    report.add_argument("--leagues", type=_split, default=None)
+    report.add_argument("--seasons", type=_split, default=None)
+    report.add_argument("--json", action="store_true", help="machine-readable output")
+    report.add_argument("--strict", action="store_true", help="warnings also fail")
     sub.add_parser("train")
 
     args = parser.parse_args(argv)
@@ -102,6 +125,8 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_bootstrap(args.leagues, args.seasons, args.offline_dir))
     if args.command == "verify-history":
         return asyncio.run(_verify(args.leagues, args.seasons))
+    if args.command == "data-report":
+        return asyncio.run(_data_report(args.leagues, args.seasons, args.json, args.strict))
     if args.command == "train":
         return asyncio.run(_train())
     parser.error(f"unknown command: {args.command}")

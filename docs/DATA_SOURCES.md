@@ -235,6 +235,15 @@ class MyProvider(BaseProvider):
 
 ---
 
+## Checking what is loaded
+
+`make data-report` prints, per league and season, fixtures vs expected, teams, score and
+kickoff-time coverage, closing 1X2 coverage per bookmaker and O/U 2.5 coverage, and lists
+data-quality issues (duplicates across sources, missing/impossible scores, unusable or mislabelled
+odds). It only reads, so it is safe on production; `--json` gives machine-readable output and
+`--strict` makes warnings fail too. `make verify-history` remains the narrower "every configured
+league/season has fixtures" gate.
+
 ## Troubleshooting
 
 | Symptom | Likely cause |

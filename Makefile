@@ -12,7 +12,7 @@ COMPOSE_PROD := docker compose --env-file .env -f infra/docker-compose.yml -f in
 
 .DEFAULT_GOAL := help
 .PHONY: help dev up down logs ps build test test-backend test-frontend test-e2e lint lint-backend lint-frontend \
-        migrate seed bootstrap-history verify-history train backup restore-drill deploy rollback logs-prod ps-prod config-prod
+        migrate seed bootstrap-history verify-history data-report train backup restore-drill deploy rollback logs-prod ps-prod config-prod
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -71,6 +71,9 @@ bootstrap-history: ## Ingest football-data.co.uk historical CSVs (HISTORY_ARGS t
 
 verify-history: ## Print per league/season fixture+odds counts; fail on gaps
 	cd backend && python -m app.cli verify-history $(HISTORY_ARGS)
+
+data-report: ## Read-only coverage + data-quality report (REPORT_ARGS: --leagues/--seasons/--json/--strict)
+	cd backend && python -m app.cli data-report $(REPORT_ARGS)
 
 train: ## Train all enabled ML methods and register them (MLflow + model_registry)
 	cd backend && python -m app.cli train
