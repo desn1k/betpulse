@@ -714,6 +714,22 @@ implemented.
   staging/production rollback.
 - **Production infra:** finalize `docker-compose.prod.yml` resource limits and Caddy reverse-proxy/TLS
   configuration with security headers.
+- **Published ports (fixed 2026-10-03).** Only Caddy may publish ports (80/443).
+  - **The bug.** The prod overlay used `ports: []`, but Compose **appends** an override's list to
+    the base file's list, so nothing was removed. Only `ports: !reset []` clears it.
+  - **Proof.** Rendered with Compose v5.5.1, the prod config published every internal port on
+    `0.0.0.0`: Postgres 5432, Redis 6379 (no password; ARQ jobs are pickled), MinIO 9000/9001,
+    MLflow 5000 (no auth), api 8000 and web 3000. Ports published by Docker bypass ufw.
+  - **The fix.**
+    - The overlay now uses `!reset` for postgres, redis, minio, api, web and mlflow.
+    - `scripts/check-compose-ports.sh [ENV_FILE]` renders the merged prod config and fails on any
+      published port other than caddy 80/443 (or on `network_mode: host`).
+    - CI runs it after `config --quiet`.
+  - **Minimum Compose version.** Docker documents no minimum for `!reset`: the docs require
+    2.24.4 only for `!override`, and `!reset` exists in compose-go at least since v1.14 (2023) with
+    fixes since. Do not rely on a version number — run the script on the server after installing
+    or upgrading Docker.
+  - **Follow-up (separate PR):** Redis `requirepass`.
 - **Backups:** add WAL-G continuous Postgres archiving to S3-compatible storage, `make backup`, weekly
   `make restore-drill`, backup freshness checks, and Telegram ops alerting when backups are stale
   (owner target: alert if backup is older than 15 minutes).
@@ -721,6 +737,15 @@ implemented.
   backup and restore-drill commands.
 
 ### Pre-deploy manual checklist
+
+Run before **every** deploy:
+
+- [ ] `bash scripts/check-compose-ports.sh .env` on the server prints `OK`, so only caddy 80/443 are
+  published. On a server that is already running, also check what is actually listening:
+  `docker ps --format '{{.Names}}\t{{.Ports}}'` and `sudo ss -tlnp`. If 5432, 6379, 9000/9001,
+  5000, 8000 or 3000 listen on a public address, close everything except 22/80/443 **in the
+  provider firewall** right away (ufw does not filter Docker-published ports), then deploy this
+  fix.
 
 Run before deploying a release that contains data migrations — **currently 0014/0015 (HI-2) and 0017**:
 

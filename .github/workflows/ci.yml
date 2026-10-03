@@ -213,7 +213,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck
 
       - name: Validate deployment scripts
-        run: shellcheck scripts/deploy.sh scripts/rollback.sh scripts/caddy-smoke.sh
+        run: shellcheck scripts/deploy.sh scripts/rollback.sh scripts/caddy-smoke.sh scripts/check-compose-ports.sh
 
       - name: Validate Compose configuration (development and production)
         env:
@@ -226,6 +226,9 @@ jobs:
           cp .env.example .env
           docker compose --env-file .env -f infra/docker-compose.yml config --quiet
           docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.prod.yml config --quiet
+          # Production may publish only caddy 80/443 (ports: [] in an override does not reset).
+          docker compose version
+          bash scripts/check-compose-ports.sh .env
 
       - name: Validate Caddy configuration
         env:

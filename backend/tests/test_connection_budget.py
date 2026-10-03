@@ -9,6 +9,7 @@ re-runs the arithmetic. See HANDOFF "Database connection budget".
 from __future__ import annotations
 
 import re
+import textwrap
 from pathlib import Path
 from typing import Any
 
@@ -32,26 +33,87 @@ MLFLOW_STORES = 2
 EXPECTED = {"api", "worker-realtime", "worker-batch", "worker-ml", "mlflow", "postgres"}
 
 
-def _merged_services(files: list[str]) -> dict[str, dict[str, Any]]:
-    """Per service, the three fields the budget reads, merged across overlays
-    (later files win; ``environment`` merges key by key, as compose does)."""
+class _Reset:
+    """A compose ``!reset`` value: the attribute is cleared in the merged model."""
+
+
+class _Override:
+    """A compose ``!override`` value: the attribute replaces, never merges."""
+
+    def __init__(self, value: Any) -> None:
+        self.value = value
+
+
+class _ComposeLoader(yaml.SafeLoader):
+    """SafeLoader that understands compose's merge tags (``!reset``, ``!override``)."""
+
+
+def _construct_reset(loader: yaml.SafeLoader, node: yaml.Node) -> _Reset:
+    return _Reset()
+
+
+def _construct_override(loader: yaml.SafeLoader, node: yaml.Node) -> _Override:
+    if isinstance(node, yaml.MappingNode):
+        return _Override(loader.construct_mapping(node, deep=True))
+    if isinstance(node, yaml.SequenceNode):
+        return _Override(loader.construct_sequence(node, deep=True))
+    return _Override(loader.construct_scalar(node))  # type: ignore[arg-type]
+
+
+_ComposeLoader.add_constructor("!reset", _construct_reset)
+_ComposeLoader.add_constructor("!override", _construct_override)
+
+
+def _load_compose(text: str) -> Any:
+    loader = _ComposeLoader(text)
+    try:
+        return loader.get_single_data()
+    finally:
+        loader.dispose()
+
+
+def _command_text(command: Any) -> str:
+    if command is None:
+        return ""
+    return " ".join(map(str, command)) if isinstance(command, list) else str(command)
+
+
+def _merge_docs(docs: list[Any]) -> dict[str, dict[str, Any]]:
+    """Per service, the three fields the budget reads, merged across parsed
+    compose documents (later documents win; ``environment`` merges key by key,
+    as compose does; ``!reset`` clears a field and ``!override`` replaces it,
+    even with an empty value)."""
     merged: dict[str, dict[str, Any]] = {}
-    for name in files:
-        doc = yaml.safe_load((INFRA / name).read_text(encoding="utf-8")) or {}
-        for service, spec in (doc.get("services") or {}).items():
+    for doc in docs:
+        for service, spec in ((doc or {}).get("services") or {}).items():
             entry = merged.setdefault(service, {"environment": {}, "command": "", "replicas": 1})
             spec = spec or {}
             env = spec.get("environment") or {}
+            if isinstance(env, _Reset):
+                entry["environment"], env = {}, {}
+            elif isinstance(env, _Override):
+                entry["environment"], env = {}, env.value or {}
             if isinstance(env, list):
                 env = dict(item.split("=", 1) for item in env)
             entry["environment"].update({k: str(v) for k, v in env.items()})
-            if spec.get("command"):
-                command = spec["command"]
-                entry["command"] = " ".join(command) if isinstance(command, list) else command
+            command = spec.get("command")
+            if isinstance(command, _Reset):
+                entry["command"] = ""
+            elif isinstance(command, _Override):
+                entry["command"] = _command_text(command.value)
+            elif "command" in spec:
+                # Compose replaces the command whenever the key is present, even
+                # with [], "" or null (verified with `docker compose config`).
+                entry["command"] = _command_text(command)
             replicas = (spec.get("deploy") or {}).get("replicas")
             if replicas is not None:
                 entry["replicas"] = int(replicas)
     return merged
+
+
+def _merged_services(files: list[str]) -> dict[str, dict[str, Any]]:
+    docs = [_load_compose((INFRA / name).read_text(encoding="utf-8")) for name in files]
+    return _merge_docs(docs)
 
 
 def _flag(command: str, pattern: str, default: int) -> int:
@@ -136,3 +198,99 @@ def test_current_budget_numbers() -> None:
         "mlflow": 30,
     }
     assert budget == 120 - 3 - HEADROOM
+
+
+def test_loader_understands_compose_merge_tags() -> None:
+    """The prod overlay clears ports with ``!reset`` (a plain ``[]`` would be
+    appended); the budget must still parse it, and apply both tags."""
+    doc = _load_compose(
+        "services:\n"
+        "  a:\n"
+        "    ports: !reset []\n"
+        "    environment: !override {DB_POOL_SIZE: '1'}\n"
+        "    command: !reset null\n",
+    )
+    service = doc["services"]["a"]
+    assert isinstance(service["ports"], _Reset)
+    assert isinstance(service["command"], _Reset)
+    assert isinstance(service["environment"], _Override)
+    assert service["environment"].value == {"DB_POOL_SIZE": "1"}
+
+
+@pytest.mark.parametrize("empty", ["[]", '""'])
+def test_merge_applies_reset_and_empty_override(empty: str) -> None:
+    base = _load_compose(
+        textwrap.dedent(
+            """
+            services:
+              a:
+                command: [postgres, -c, max_connections=120]
+                environment: {DB_POOL_SIZE: '5', DB_MAX_OVERFLOW: '10'}
+              b:
+                command: arq app.workers.arq_app.MlWorker
+            """
+        )
+    )
+    overlay = _load_compose(
+        textwrap.dedent(
+            f"""
+            services:
+              a:
+                command: !override {empty}
+                environment: !override {{DB_POOL_SIZE: '1'}}
+              b:
+                command: !reset null
+            """
+        )
+    )
+    merged = _merge_docs([base, overlay])
+    assert merged["a"]["command"] == ""  # an empty !override still replaces
+    assert merged["a"]["environment"] == {"DB_POOL_SIZE": "1"}
+    assert merged["b"]["command"] == ""
+    # Plain values still merge as compose does.
+    extra = _load_compose(
+        textwrap.dedent(
+            """
+            services:
+              a:
+                environment: {X: '1'}
+            """
+        )
+    )
+    plain = _merge_docs([base, extra])
+    assert plain["a"]["command"] == "postgres -c max_connections=120"
+    assert plain["a"]["environment"] == {"DB_POOL_SIZE": "5", "DB_MAX_OVERFLOW": "10", "X": "1"}
+
+
+@pytest.mark.parametrize("empty", ["[]", '""', "null"])
+def test_merge_replaces_command_whenever_the_key_is_present(empty: str) -> None:
+    base = _load_compose(
+        textwrap.dedent(
+            """
+            services:
+              a:
+                command: [postgres, -c, max_connections=120]
+            """
+        )
+    )
+    overlay = _load_compose(
+        textwrap.dedent(
+            f"""
+            services:
+              a:
+                command: {empty}
+            """
+        )
+    )
+    assert _merge_docs([base, overlay])["a"]["command"] == ""
+    # Without the key the inherited command stays.
+    other = _load_compose(
+        textwrap.dedent(
+            """
+            services:
+              a:
+                environment: {X: '1'}
+            """
+        )
+    )
+    assert _merge_docs([base, other])["a"]["command"] == "postgres -c max_connections=120"
