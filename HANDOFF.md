@@ -941,14 +941,29 @@ confirmation.
   quotes later. PR 2b is therefore a dedicated operation, `replace-source --from football_data_couk
   --to sportmonks`, that runs **after the Sportmonks backfill and before the Odds API backfill**:
   - **Dry run (default).** Lists every football-data fixture with its Sportmonks counterpart
-    (by `fixture_external_refs` / the ±36 h rule), and every fixture without one. If any fixture
-    has no counterpart, the real run STOPs and lists them; nothing is guessed.
+    (by `fixture_external_refs` / the ±36 h rule), and every fixture without one.
+  - **Global preflight.** The real run first repeats the full match check across **all** selected
+    leagues/seasons, before its first write. Any fixture without a counterpart (or with two) STOPs
+    the run with the list, and nothing is written; nothing is guessed.
+  - **Before the real run:** a manual `pg_dump` (pre-deploy checklist, §9i). This is the only path
+    for a full rollback.
   - **Real run.** One transaction per league/season. For each matched fixture it:
     - overwrites kickoff, `kickoff_time_known`, scores, status and stats with the Sportmonks
       values;
     - sets `fixtures.source = 'sportmonks'`;
     - deletes the fixture's football-data odds and its `fd:` external refs;
     - audits every change.
+  - **Failure mid-run and resume.**
+    - A failed league/season rolls back only itself. The seasons already committed stay replaced,
+      so a mixed state is possible between runs. It is visible as per-source counts in
+      `data-report`.
+    - The operation is **idempotent and resumable**: a fixture already replaced
+      (`source = 'sportmonks'`, no `fd:` ref) is skipped, so re-running the same command after the
+      cause is fixed completes the remaining seasons. Each run prints which seasons were done,
+      skipped and failed, and exits non-zero on any failure.
+    - The Odds API backfill **refuses to start** while any `football_data_couk` fixture remains.
+      A mixed state therefore cannot leak into odds.
+    - A full rollback means restoring the pre-run dump.
   - **Afterward.**
     - `data-report` must show zero `football_data_couk` fixtures.
     - The operation itself queries `odds` for **each replaced fixture id** and fails unless none
