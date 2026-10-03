@@ -425,12 +425,17 @@ async def test_postponed_match_moves_and_its_old_closing_quote_stops_being_closi
             )
         ],
     )
+    seeded = {
+        (r.bookmaker, r.ts, r.is_closing) for r in (await session.execute(select(Odds))).scalars()
+    }
+    assert seeded == {("pinnacle", KICKOFF, True), ("other", KICKOFF - timedelta(hours=1), True)}
     moved = KICKOFF + timedelta(days=10)
     await _ingest(session, "src_a", [_dto("src_a", "a-1", kickoff=moved, score=None)])
 
     fixture = (await session.execute(select(Fixture))).scalar_one()
     assert fixture.kickoff_at == moved
-    assert all(not r.is_closing for r in (await session.execute(select(Odds))).scalars())
+    rows = (await session.execute(select(Odds))).scalars().all()
+    assert len(rows) == 6 and not any(r.is_closing for r in rows)
     assert await closing_quotes(session, [fixture]) == {}
 
 
