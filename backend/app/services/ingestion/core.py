@@ -496,15 +496,10 @@ async def _reconcile(
             delete(Odds).where(Odds.fixture_id == fixture.id, Odds.ts >= dto.kickoff_at)
         )
         odds_removed = removed.rowcount or 0  # type: ignore[attr-defined]
-        # Closing quotes taken for the old date (all before the new kickoff now)
-        # are not closing for the new one.
+        # No quote taken for the old date is closing for the new one.
         await session.execute(
             update(Odds)
-            .where(
-                Odds.fixture_id == fixture.id,
-                Odds.is_closing.is_(True),
-                Odds.ts == fixture.kickoff_at,
-            )
+            .where(Odds.fixture_id == fixture.id, Odds.is_closing.is_(True))
             .values(is_closing=False)
         )
 

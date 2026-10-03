@@ -418,7 +418,10 @@ async def test_postponed_match_moves_and_its_old_closing_quote_stops_being_closi
                 "src_a",
                 "a-1",
                 score=None,
-                odds=_quotes("pinnacle", ("2.0", "3.4", "4.0"), KICKOFF, closing=True),
+                odds=_quotes("pinnacle", ("2.0", "3.4", "4.0"), KICKOFF, closing=True)
+                + _quotes(
+                    "other", ("2.1", "3.3", "3.9"), KICKOFF - timedelta(hours=1), closing=True
+                ),
             )
         ],
     )
