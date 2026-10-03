@@ -247,12 +247,15 @@ deliveries are safe.
 
 > **Status: planned.** `make backup` / `make restore-drill` are stubs and WAL-G is not set up. Until
 > then backups are manual (Postgres dumps + the `mlflow_artifacts` volume, encrypted, copied off the
-> server): see the VPS runbook (`docs/DEPLOY_VPS.md`). The target design below is unchanged except
-> that artifacts and backups no longer go to S3.
+> server): see the VPS runbook (`docs/DEPLOY_VPS.md`). In the target design below, model artifacts
+> live on the `mlflow_artifacts` volume (no S3 on the server). The off-server backup destination is
+> **not chosen yet** (owner decision): an S3-compatible bucket at an external provider, or another
+> host.
 
 Three tracks, all **encrypted before leaving the host**:
 
-1. **Database** — WAL-G continuous archiving to S3: nightly base backup + WAL shipping → PITR.
+1. **Database** — WAL-G continuous archiving to an **off-server** destination (S3-compatible bucket
+   at an external provider or another host; to be chosen): nightly base backup + WAL shipping → PITR.
    Retention 7 daily / 4 weekly / 6 monthly.
 2. **Models** — MLflow artifacts on the `mlflow_artifacts` volume (backed up with the database).
    Every version keeps the model binary, feature schema,

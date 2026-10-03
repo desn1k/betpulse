@@ -759,7 +759,9 @@ implemented.
   - **Tests.** `scripts/tests/deploy-scripts-test.sh` (stubbed `docker`/`sleep`, run in CI) covers
     6 scenarios: deploy ok, unreachable → rollback to the previous tag, old image; rollback ok,
     unreachable, old image.
-- **Backups:** (originally WAL-G to S3-compatible storage; with MinIO gone, the first-launch plan is
+- **Backups:** (target: WAL-G to an **off-server** destination, an S3-compatible bucket at an external
+  provider or another host, **not chosen yet** (owner); the on-server MinIO bucket is gone. The
+  first-launch plan is
   manual: Postgres dumps of `football` and `mlflow` plus a tar of the `mlflow_artifacts` volume,
   encrypted and copied off the server, see `docs/DEPLOY_VPS.md`) — then `make backup`, weekly
   `make restore-drill`, backup freshness checks, and Telegram ops alerting when backups are stale
