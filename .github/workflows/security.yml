@@ -80,7 +80,27 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npm audit --audit-level=high
+      # Blocking gate: production dependencies only. The image is a Next.js
+      # standalone build that ships no devDependencies (HANDOFF "npm audit gate").
+      - name: npm audit (production dependencies, blocking)
+        run: npm audit --omit=dev --audit-level=high
+      # Full audit incl. devDependencies stays visible but does not block while
+      # GHSA-vfj7-8cjw-p6xm (braces, dev-only via eslint-config-next) has no
+      # fixed version. Re-enable as blocking once it does.
+      - name: npm audit (all dependencies, non-blocking)
+        continue-on-error: true
+        run: |
+          set +e
+          npm audit --audit-level=high > npm-audit-all.txt 2>&1
+          status=$?
+          cat npm-audit-all.txt
+          {
+            echo "### npm audit — all dependencies (non-blocking, exit $status)"
+            echo '```'
+            cat npm-audit-all.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
 
   trivy:
     name: Filesystem scan (trivy)
