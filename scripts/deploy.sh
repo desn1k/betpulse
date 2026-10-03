@@ -106,7 +106,7 @@ rollback_on_failure() {
 trap rollback_on_failure ERR
 
 compose pull "${app_services[@]}"
-compose up -d postgres redis minio
+compose up -d postgres redis
 wait_for_service postgres
 wait_for_service redis
 

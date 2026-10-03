@@ -1,0 +1,60 @@
+name: Upstream images
+
+# Catch a third-party image that disappeared or moved before a deploy needs it
+# (MinIO's public images vanished in 2025-10). Pulls every non-betpulse image of
+# the rendered production Compose config, every Dockerfile base image, and
+# rebuilds the MLflow image (its base + pinned pip packages).
+on:
+  schedule:
+    - cron: "17 5 * * 1" # Mondays 05:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pull:
+    name: Pull third-party images
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci-postgres-password
+      PUBLIC_DOMAIN: betpulse.example.test
+      GHCR_OWNER: desn1k
+      IMAGE_TAG: v0.0.0-ci
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull Compose images (production config)
+        run: |
+          cp .env.example .env
+          compose=(docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.prod.yml)
+          # Our own images (GHCR app images, the locally built MLflow image) are
+          # not upstream: release.yml publishes the former, the last step builds the latter.
+          mapfile -t images < <("${compose[@]}" config --images | grep -v -E '(^|/)betpulse-' | sort -u)
+          echo "Third-party images: ${images[*]}"
+          ((${#images[@]} > 0)) || { echo "no images rendered" >&2; exit 1; }
+          failed=0
+          for image in "${images[@]}"; do
+            if ! docker pull --quiet "$image"; then
+              echo "::error::cannot pull $image"
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+      - name: Pull Dockerfile base images
+        run: |
+          mapfile -t bases < <(grep -h -E '^FROM ' backend/Dockerfile frontend/Dockerfile infra/mlflow/Dockerfile \
+            | awk '{print $2}' | sort -u)
+          echo "Base images: ${bases[*]}"
+          failed=0
+          for image in "${bases[@]}"; do
+            if ! docker pull --quiet "$image"; then
+              echo "::error::cannot pull base image $image"
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+      - name: Rebuild the MLflow image (base + pinned pip packages)
+        run: docker build --pull --tag betpulse-mlflow:upstream-check infra/mlflow

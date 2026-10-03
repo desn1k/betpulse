@@ -32,3 +32,16 @@ updates:
     directory: /frontend
     schedule:
       interval: weekly
+
+  # Third-party images pinned by tag@digest in the compose files and the MLflow
+  # image: Dependabot bumps the digest (and tag) so pinning does not freeze
+  # security updates. The weekly upstream-images workflow catches removals.
+  - package-ecosystem: docker-compose
+    directory: /infra
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /infra/mlflow
+    schedule:
+      interval: weekly
