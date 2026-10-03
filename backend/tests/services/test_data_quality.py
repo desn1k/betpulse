@@ -9,11 +9,12 @@ from decimal import Decimal
 
 import pytest
 from app.cli import _data_report
+from app.core.db import _write_engine
 from app.models.fixture import Fixture, FixtureStatus
 from app.models.market import Odds
 from app.models.reference import League, Team
 from app.services.data_quality import ERROR, WARNING, DataReport, build_report
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, event, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 NOW = datetime(2026, 10, 3, 12, 0, tzinfo=UTC)
@@ -320,3 +321,50 @@ async def test_cli_json_output_and_exit_codes(
     text = capsys.readouterr().out
     assert "finished_without_score" in text
     assert "errors: 1" in text
+
+
+@pytest.mark.asyncio
+async def test_invalid_price_snapshot_is_an_error_but_not_coverage(session: AsyncSession) -> None:
+    _, _, fixtures = await _seed_clean_season(session)
+    await session.execute(
+        update(Odds)
+        .where(Odds.fixture_id == fixtures[0].id, Odds.market == "1x2", Odds.outcome == "home")
+        .values(price=Decimal("0.500"))
+    )
+    await session.execute(
+        update(Odds)
+        .where(Odds.fixture_id == fixtures[1].id, Odds.market == "ou_2.5", Odds.outcome == "over")
+        .values(price=Decimal("1.000"))
+    )
+    await session.flush()
+
+    report = await build_report(session, now=NOW)
+
+    assert "odds_price_out_of_range" in _codes(report, ERROR)
+    (row,) = report.rows
+    assert row.closing_1x2_by_bookmaker == {"pinnacle": len(fixtures) - 1}
+    assert row.closing_ou == len(fixtures) - 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scoped", [False, True])
+async def test_queries_never_bind_one_parameter_per_fixture(
+    session: AsyncSession, scoped: bool
+) -> None:
+    """A full-history run has more fixtures than asyncpg's 32,767 bind
+    parameters, so no statement may expand fixture ids into parameters."""
+    _, _, fixtures = await _seed_clean_season(session)
+    params_per_statement: list[int] = []
+
+    def count(conn, cursor, statement, parameters, context, executemany):  # type: ignore[no-untyped-def]
+        params_per_statement.append(len(parameters) if parameters else 0)
+
+    engine = _write_engine().sync_engine
+    event.listen(engine, "before_cursor_execute", count)
+    try:
+        await build_report(session, seasons=["2025-2026"] if scoped else None, now=NOW)
+    finally:
+        event.remove(engine, "before_cursor_execute", count)
+
+    assert params_per_statement
+    assert max(params_per_statement) < 10 < len(fixtures)

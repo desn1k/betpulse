@@ -151,6 +151,11 @@ async def build_report(
         )
     ).all()
     by_id: dict[uuid.UUID, tuple[Fixture, str]] = {fx.id: (fx, code) for fx, code in fixtures}
+    # The scope as a subquery, never as a list of ids: a full-history run has
+    # tens of thousands of fixtures, more than asyncpg's 32,767 bind parameters.
+    scoped_ids = (
+        select(Fixture.id).join(League, League.id == Fixture.league_id).where(*scope)
+    ).scalar_subquery()
     issues: list[Issue] = []
 
     def add(
@@ -216,7 +221,7 @@ async def build_report(
     # season "2026" while scoping to "2026-2027"), so its fields come from the
     # query, not from the scoped fixture set.
     other = aliased(Fixture)
-    dup_scope = [or_(Fixture.id.in_(list(by_id)), other.id.in_(list(by_id)))] if scope else []
+    dup_scope = [or_(Fixture.id.in_(scoped_ids), other.id.in_(scoped_ids))] if scope else []
     duplicate_pairs = (
         await session.execute(
             select(
@@ -257,15 +262,15 @@ async def build_report(
         )
 
     # --- odds ---------------------------------------------------------------
-    odds_rows = (
-        (await session.execute(select(Odds).where(Odds.fixture_id.in_(list(by_id)))))
-        .scalars()
-        .all()
-        if by_id
-        else []
-    )
+    odds_query = select(Odds).where(Odds.fixture_id.in_(scoped_ids)) if scope else select(Odds)
+    odds_rows = (await session.execute(odds_query)).scalars().all() if by_id else []
     snapshots: dict[tuple[uuid.UUID, str, str, datetime], dict[str, float]] = defaultdict(dict)
+    # Snapshots with an unusable price stay reported as errors but never count
+    # as coverage.
+    invalid: set[tuple[uuid.UUID, str, str, datetime]] = set()
     for o in odds_rows:
+        if o.fixture_id not in by_id:  # pragma: no cover - written after the fixture scan
+            continue
         fx, code = by_id[o.fixture_id]
         price = float(o.price)
         if not MIN_PRICE < price <= MAX_PRICE:
@@ -277,6 +282,7 @@ async def build_report(
                 fx.season,
                 f"{o.bookmaker} {o.market} {o.outcome} = {price}",
             )
+            invalid.add((o.fixture_id, o.bookmaker, o.market, o.ts))
         if o.is_closing and o.ts > fx.kickoff_at:
             add(
                 ERROR,
@@ -303,7 +309,7 @@ async def build_report(
                 f"{bookmaker} {market} at {ts.isoformat()}: {sorted(prices)}",
             )
             continue
-        if ts > fx.kickoff_at:
+        if ts > fx.kickoff_at or (fixture_id, bookmaker, market, ts) in invalid:
             continue
         if market == "1x2":
             closing_1x2[fixture_id].add(bookmaker)
