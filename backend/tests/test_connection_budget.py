@@ -101,7 +101,9 @@ def _merge_docs(docs: list[Any]) -> dict[str, dict[str, Any]]:
                 entry["command"] = ""
             elif isinstance(command, _Override):
                 entry["command"] = _command_text(command.value)
-            elif command:
+            elif "command" in spec:
+                # Compose replaces the command whenever the key is present, even
+                # with [], "" or null (verified with `docker compose config`).
                 entry["command"] = _command_text(command)
             replicas = (spec.get("deploy") or {}).get("replicas")
             if replicas is not None:
@@ -258,3 +260,37 @@ def test_merge_applies_reset_and_empty_override(empty: str) -> None:
     plain = _merge_docs([base, extra])
     assert plain["a"]["command"] == "postgres -c max_connections=120"
     assert plain["a"]["environment"] == {"DB_POOL_SIZE": "5", "DB_MAX_OVERFLOW": "10", "X": "1"}
+
+
+@pytest.mark.parametrize("empty", ["[]", '""', "null"])
+def test_merge_replaces_command_whenever_the_key_is_present(empty: str) -> None:
+    base = _load_compose(
+        textwrap.dedent(
+            """
+            services:
+              a:
+                command: [postgres, -c, max_connections=120]
+            """
+        )
+    )
+    overlay = _load_compose(
+        textwrap.dedent(
+            f"""
+            services:
+              a:
+                command: {empty}
+            """
+        )
+    )
+    assert _merge_docs([base, overlay])["a"]["command"] == ""
+    # Without the key the inherited command stays.
+    other = _load_compose(
+        textwrap.dedent(
+            """
+            services:
+              a:
+                environment: {X: '1'}
+            """
+        )
+    )
+    assert _merge_docs([base, other])["a"]["command"] == "postgres -c max_connections=120"
