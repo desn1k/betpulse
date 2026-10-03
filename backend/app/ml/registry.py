@@ -216,9 +216,12 @@ async def apply_champion_selection(
        name (``accuracy_pct`` is display-only);
     3. it replaces a current, eligible champion only if its Brier is at least
        ``min_brier_improvement`` lower — smaller gaps are noise;
-    4. with no champion, or a champion that is not eligible in this evaluation,
-       the best eligible method becomes champion;
-    5. with no eligible method nothing changes.
+    4. the incumbent is identified by **method**: an older champion version is
+       represented by its method's evaluated (newest) version, which takes over
+       the champion status when the method keeps the title;
+    5. with no champion, or a champion whose method is not eligible in this
+       evaluation, the best eligible method becomes champion;
+    6. with no eligible method nothing changes.
     """
     all_rows = list((await session.execute(select(ModelRegistry))).scalars().all())
     rows = _rows_for(all_rows, metrics_by_method)
@@ -248,10 +251,10 @@ async def apply_champion_selection(
     best = min(eligible, key=lambda k: (eligible[k].brier, eligible[k].log_loss, k))
     # Any champion row counts — including another version of the same method.
     champion_rows = [r for r in all_rows if r.status == ModelStatus.champion]
-    incumbent = next(
-        (method for method, row in rows.items() if row in champion_rows and method in eligible),
-        None,
-    )
+    # The incumbent is the champion's *method*: after a retrain the champion
+    # row is usually an older version while the evaluation scored the newest
+    # one, and the margin must still protect it.
+    incumbent = next((r.method for r in champion_rows if r.method in eligible), None)
     winner = best
     if incumbent is not None and incumbent != best:
         margin = eligible[incumbent].brier - eligible[best].brier

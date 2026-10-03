@@ -403,3 +403,58 @@ async def test_failed_metrics_are_not_stored_as_numbers(session: AsyncSession) -
     assert row is not None
     assert row.brier is None
     assert row.status == ModelStatus.challenger
+
+
+@pytest.mark.asyncio
+async def test_margin_protects_a_champion_whose_newer_version_was_evaluated(
+    session: AsyncSession,
+) -> None:
+    """After a retrain the champion row is elo v1 while the evaluation scored
+    elo v2; a challenger better by less than the margin must not take over."""
+    now = datetime.now(UTC)
+    session.add_all(
+        [
+            ModelRegistry(
+                method="elo",
+                version="v1",
+                status=ModelStatus.champion,
+                is_enabled=True,
+                last_trained_at=now - timedelta(days=1),
+            ),
+            ModelRegistry(
+                method="elo",
+                version="v2",
+                status=ModelStatus.challenger,
+                is_enabled=True,
+                last_trained_at=now,
+            ),
+            ModelRegistry(
+                method="dixon_coles",
+                version="v2",
+                status=ModelStatus.challenger,
+                is_enabled=True,
+                last_trained_at=now,
+            ),
+        ]
+    )
+    await session.flush()
+    elo_v2 = _m(0.2000)
+    elo_v2.version = "v2"
+    dc = _m(0.1990)
+    dc.version = "v2"
+
+    best = await apply_champion_selection(
+        session, {"elo": elo_v2, "dixon_coles": dc}, min_samples=100
+    )
+
+    assert best == "elo"
+    status = {
+        (r.method, r.version): r.status
+        for r in (await session.execute(select(ModelRegistry))).scalars()
+    }
+    # The method keeps the title; its evaluated version now carries it.
+    assert status == {
+        ("elo", "v1"): ModelStatus.challenger,
+        ("elo", "v2"): ModelStatus.champion,
+        ("dixon_coles", "v2"): ModelStatus.challenger,
+    }
