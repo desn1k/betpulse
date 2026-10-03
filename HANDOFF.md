@@ -238,6 +238,18 @@ covered by Vitest + React Testing Library.
   is replaced only if the best is at least `CHAMPION_MIN_BRIER_IMPROVEMENT` (0.002) lower; with no
   champion — or one not eligible in this evaluation — the best eligible becomes champion; with no
   eligible method nothing changes. Each rule has a test.
+- **Data-quality report (read-only, safe on prod):** `make data-report REPORT_ARGS="[--leagues
+  EPL,LALIGA] [--seasons 2025-2026] [--json] [--strict]"` (`app/services/data_quality.py`). Per
+  league/season: fixtures vs expected `n×(n−1)`, teams, % with score, % with a known kickoff time
+  (until HI-2 adds `kickoff_time_known`: a 00:00 UTC kickoff counts as date-only), closing 1X2
+  coverage **per bookmaker** and O/U 2.5 coverage. **Errors** (exit 1): the same pairing in a league
+  within ±36 h under any season label (cross-source duplicate, found even when the partner sits
+  outside `--seasons`), finished without score, impossible score (<0, >15, HT>FT), finished with a
+  future kickoff, a price ≤ 1.0 or > 1000, a *closing* quote dated after kickoff. **Warnings** (exit 1
+  only with `--strict`): incomplete odds snapshot, 1X2 overround outside [1.00, 1.25], non-canonical
+  season label, team count not 16/18/20, and — only for seasons with no fixture in 60 days —
+  missing fixtures / uneven team schedules, plus closing-1X2 coverage below 90 %. Run it before any
+  data migration to see conflicts upfront.
 - **Idempotency everywhere.** Ingestion upserts use `ON CONFLICT DO NOTHING` on identity keys
   (`uq_fixture_identity`, odds identity, prediction identity). Tasks keyed by
   `fixture_id + method + model_version` so retries/duplicate deliveries are safe.
