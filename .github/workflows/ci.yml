@@ -223,6 +223,8 @@ jobs:
           run_api alembic upgrade head
           current="$(run_api alembic current)"
           echo "current: $current"
+          # An image without migrations would print nothing for both.
+          [[ -n "${heads%% *}" ]] || { echo "alembic heads is empty: no migrations in the image" >&2; exit 1; }
           [[ "${current%% *}" == "${heads%% *}" ]] || { echo "alembic current != heads" >&2; exit 1; }
           run_api python -m app.cli data-report --help >/dev/null
           run_api python -m app.bootstrap --help >/dev/null
