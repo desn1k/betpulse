@@ -841,7 +841,10 @@ the open questions are in `docs/DATA_SOURCES.md` §3–§5.
   - **Sportmonks (Growth plan):** fixtures, results, HT/FT, stats, live.
   - **The Odds API:** odds — historical snapshots for the backfill, plus forward capture that
     builds our own odds history.
-- **Fallback candidates** (not implemented): API-Football (fixtures/results/live) and TheStatsAPI.
+- **Fallback candidates:** API-Football and TheStatsAPI.
+  - **API-Football is already integrated for live:** the in-play poll runs in production today.
+    Only an API-Football fixtures/results *fallback adapter* is unimplemented.
+  - **TheStatsAPI is not implemented** at all.
   The `SourceAdapter` interface must keep room for them.
 - **History depth:** seasons 2019-20..2025-26 for EPL, LaLiga, Serie A, Bundesliga, Ligue 1. The
   Russian Premier League comes in a separate, later PR. The Odds API lists
@@ -888,13 +891,16 @@ confirmation.
 | **TheStatsAPI** | Forbids caching/storing beyond what is reasonably necessary; the right to use data ends on termination | unusable for training/history unless confirmed in writing |
 
 - **API-Football live poll.** It already runs in production, outside `ensure_licensed`. It gets the
-  same kind of licence flag, set to enabled until the owner confirms. Moving live to Sportmonks is
-  a later item.
+  same kind of licence flag, set to enabled until the owner confirms.
+  - This is an explicit owner decision: the poll stays on while the written answer is pending.
+  - The question to API-Football must also cover **publishing live data and derived predictions**
+    on a betting-analytics product.
+  - Moving live to Sportmonks is a later item.
 - **Owner action — written answers from every provider** on:
   1. indefinite storage of historical data;
   2. ML training;
   3. showing derived metrics to users;
-  4. betting-analytics use;
+  4. betting-analytics use, including publishing live data and derived predictions;
   5. what happens to stored data after the subscription ends.
 
 **Provider facts that shape the design** (cited in `docs/DATA_SOURCES.md`)
@@ -928,6 +934,23 @@ confirmation.
   - Sportmonks takes the token in the `Authorization` header.
   - Provider audit entries record field names only (already the case).
 
+- **Replacing football-data rows in production (provider PR 2b).** A plain Sportmonks backfill is
+  not enough. It links its record to an existing football-data fixture, but under the HI-3 rules a
+  different source never overwrites a stored score (it only records a conflict). The `odds` table
+  also has no source column, so football-data quotes could not be told apart from The Odds API
+  quotes later. PR 2b is therefore a dedicated operation, `replace-source --from football_data_couk
+  --to sportmonks`, that runs **after the Sportmonks backfill and before the Odds API backfill**:
+  - **Dry run (default).** Lists every football-data fixture with its Sportmonks counterpart
+    (by `fixture_external_refs` / the ±36 h rule), and every fixture without one. If any fixture
+    has no counterpart, the real run STOPs and lists them; nothing is guessed.
+  - **Real run.** One transaction per league/season. For each matched fixture it:
+    - overwrites kickoff, scores, status and stats with the Sportmonks values;
+    - sets `fixtures.source = 'sportmonks'`;
+    - deletes the fixture's football-data odds and its `fd:` external refs;
+    - audits every change.
+  - **Afterwards.** `data-report` must show zero `football_data_couk` fixtures and no odds rows on
+    replaced fixtures until the Odds API backfill fills them.
+
 **Trial and PR order**
 1. **Free calls first**, on the free The Odds API key: `/sports`, `/events` and two small `/odds`
    calls (≈ 3 credits).
@@ -946,11 +969,11 @@ PR sequence:
 | — | Live base rates from current Dixon-Coles estimates (variant a) |
 | 1 | HTTP foundation: key lookup, scrubbing, retries, quotas, contract tests — **only after real responses are saved** |
 | 2 | Sportmonks adapter + resumable backfill |
+| 2b | `replace-source` for football-data rows in production, if any — see above |
 | 3 | Aliases + data-report mapping quality |
 | 4 | The Odds API closing backfill: dry-run cost, budget guard, snapshot ledger, `market_avg` |
 | 5 | Forward odds capture |
 | 6 | Dev-only Pinnacle check against football-data (nothing stored) |
-| 7 | Replace football-data rows in production, if any |
 | later | RPL; live on Sportmonks |
 
 **Trial-month checklist (owner)**

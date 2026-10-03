@@ -38,8 +38,12 @@ remaining quota**.
 > `licensed_for_production = False` and the ingestion core refuses it when `ENVIRONMENT=production`
 > (CLI exits 2, the admin re-scan answers 409). Use it only for local / dev data. The production
 > historical sources are **Sportmonks** (fixtures, results, stats) and **The Odds API** (odds),
-> §3–§4. Each plugs in as a new `SourceAdapter` without schema changes. Any football-data rows found
-> in production are replaced by Sportmonks data after the backfill.
+> §3–§4. Each plugs in as a new `SourceAdapter` without schema changes.
+> Any football-data rows found in production are replaced by a dedicated `replace-source`
+> operation, not by the backfill alone (HANDOFF §9l, provider PR 2b). It runs after the Sportmonks
+> backfill and before the Odds API backfill. It overwrites the fixture fields with Sportmonks
+> values, deletes the football-data odds and refs, and STOPs on any fixture without a Sportmonks
+> counterpart.
 
 **What it is.** Free CSV archives of European league results, going back 30+ seasons. Each row has
 full-time and **half-time** scores, shots, corners, cards — and **closing odds from 10+ bookmakers**
@@ -392,7 +396,7 @@ The historical odds endpoint returns the closest snapshot **at or before** `date
 
 | Source | Role | Note |
 |---|---|---|
-| API-Football | fixtures, results, live | Fallback. Its ToS say betting-related use may need extra licences from rights holders and say nothing on storage/ML. The live poll already runs in production; it gets an explicit licence flag, kept enabled until the owner confirms |
+| API-Football | live (**in production today**, §2); fixtures/results as a future fallback | The live poll is implemented and running; only a fixtures/results fallback adapter is unimplemented. Its ToS say betting-related use may need extra licences from rights holders and say nothing on storage/ML. The poll gets an explicit licence flag, kept **enabled** by owner decision until the written answer arrives; the answer must cover publishing live data and derived predictions |
 | TheStatsAPI | fixtures, stats | Fallback only on paper. Its ToS forbid storing data beyond what is reasonably necessary and end the right to use data on termination, so it is unusable for training/history without written confirmation |
 | StatsBomb open data | `xg` | Free shot coordinates for a few competitions (xG model training) |
 | Sportradar | `live`, `odds` | Officially licensed feeds if ever needed |
