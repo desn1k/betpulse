@@ -3,7 +3,7 @@
 from app.models.audit_log import AuditLog
 from app.models.backtester import BacktestFeature, Strategy
 from app.models.email_verification_token import EmailVerificationToken
-from app.models.fixture import Fixture, FixtureStats, FixtureStatus, Shot
+from app.models.fixture import Fixture, FixtureExternalRef, FixtureStats, FixtureStatus, Shot
 from app.models.ingestion_run import IngestionRun, IngestionStatus
 from app.models.live import (
     LiveUpdate,
@@ -33,6 +33,7 @@ from app.models.reference import (
     ProviderLeagueAlias,
     ProviderRole,
     ProviderTeamAlias,
+    ProviderUnmappedTeam,
     Team,
 )
 from app.models.refresh_token import RefreshToken
@@ -44,6 +45,7 @@ __all__ = [
     "BacktestFeature",
     "EmailVerificationToken",
     "Fixture",
+    "FixtureExternalRef",
     "FixtureStats",
     "FixtureStatus",
     "IngestionRun",
@@ -71,6 +73,7 @@ __all__ = [
     "ProviderLeagueAlias",
     "ProviderRole",
     "ProviderTeamAlias",
+    "ProviderUnmappedTeam",
     "PushChannel",
     "PushFollow",
     "PushSubscription",

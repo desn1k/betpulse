@@ -241,7 +241,7 @@ covered by Vitest + React Testing Library.
 - **Data-quality report (read-only, safe on prod):** `make data-report REPORT_ARGS="[--leagues
   EPL,LALIGA] [--seasons 2025-2026] [--json] [--strict]"` (`app/services/data_quality.py`). Per
   league/season: fixtures vs expected `n×(n−1)`, teams, % with score, % with a known kickoff time
-  (until HI-2 adds `kickoff_time_known`: a 00:00 UTC kickoff counts as date-only), closing 1X2
+  (`fixtures.kickoff_time_known`), closing 1X2
   coverage **per bookmaker** and O/U 2.5 coverage. **Errors** (exit 1): the same pairing in a league
   within ±36 h under any season label (cross-source duplicate, found even when the partner sits
   outside `--seasons`), finished without score, impossible score (<0, >15, HT>FT), finished with a
@@ -250,6 +250,39 @@ covered by Vitest + React Testing Library.
   season label, team count not 16/18/20, and — only for seasons with no fixture in 60 days —
   missing fixtures / uneven team schedules, plus closing-1X2 coverage below 90 %. Run it before any
   data migration to see conflicts upfront.
+- **Fixture identity is provider-agnostic (HI-2).** Historical sources plug in as a `SourceAdapter`
+  (`app/services/ingestion/core.py`: `name`, `licensed_for_production`, `may_seed_canonical`,
+  `fetch(league, season) -> list[FixtureDTO]`), so the paid provider needs an adapter, not a schema
+  change. Identity per record: (1) `fixture_external_refs (provider, external_id)` — football-data
+  has no ids, so it uses `fd:{div}:{season}:{YYYYMMDD}:{home}:{away}`; (2) **cross-source dedup** —
+  same league and canonical teams with a kickoff within **±36 h** under any season label is the same
+  match: the new ref is linked to it (37 h, or a second leg a week later, is a different fixture);
+  (3) otherwise insert (`uq_fixture_identity` remains the last guard). Live polling uses the same
+  path (API-Football's fixture id as its ref). **Seasons** are canonical per league
+  (`app/core/seasons.py`, `leagues.season_start_month`: split-year leagues `YYYY-YYYY`, calendar-year
+  `YYYY`; API-Football's `"2026"` → `"2026-2027"`). **Kickoffs** are tz-aware UTC (the DTO rejects
+  naive datetimes); a date-only source stores 12:00 UTC with `kickoff_time_known = false` — the API
+  sends the flag and the UI shows the date only; same-day date-only fixtures share an instant, i.e.
+  one ML chronology batch. Time-zone conversion uses `zoneinfo` + the pinned `tzdata` package, never
+  the DB server's tz files. **Licence gate fails closed:** in `ENVIRONMENT=production` an adapter
+  runs only with an explicit `licensed_for_production = True`; football-data is `False` (CLI exits
+  2, admin re-scan answers 409). The live poller (API-Football) is not a historical adapter and is
+  not gated by this flag. **Teams** are unique per `(country, normalized_name)` (NULLS NOT
+  DISTINCT); a provider's stable team id (`provider_team_aliases.external_id`) is tried before the
+  name; a strict provider's unknown name lands in `provider_unmapped_teams` —
+  `python -m app.cli unmapped-teams [--provider P]` lists the worklist and
+  `python -m app.cli map-team --provider P --alias NAME (--team-id UUID | --team NAME [--country C])
+  [--external-id ID]` binds it (audited as `ingestion.team.mapped`).
+- **Migrations 0014/0015 (HI-2)** — 0014 schema (refs, `kickoff_time_known`, `season_start_month`,
+  alias `external_id`, unmapped worklist, team key), 0015 data (canonical season labels in
+  `fixtures`/`backtest_features`/`ingestion_runs`; football-data kickoffs from "UK wall-clock stored
+  as UTC" to real UTC, 00:00 → 12:00 UTC + `kickoff_time_known=false`, their quotes moved to the new
+  kickoff; football-data refs back-filled). The whole `alembic upgrade` is **one transaction**
+  (`migrations/env.py`); every key change is pre-checked and a conflict **STOPs** with the list —
+  nothing is merged and the DB stays at its previous revision. Downgrade restores the old kickoff
+  convention (season labels stay canonical) and itself stops if two countries now share a team name.
+  Tested end-to-end against throwaway databases (`tests/migrations/`). **Before deploying them run
+  the pre-deploy checklist in §9i.**
 - **Idempotency everywhere.** Ingestion upserts use `ON CONFLICT DO NOTHING` on identity keys
   (`uq_fixture_identity`, odds identity, prediction identity). Tasks keyed by
   `fixture_id + method + model_version` so retries/duplicate deliveries are safe.
@@ -639,6 +672,17 @@ implemented.
   (owner target: alert if backup is older than 15 minutes).
 - **Docs:** update README/deploy docs with required env vars, tag-based release flow, deploy, rollback,
   backup and restore-drill commands.
+
+### Pre-deploy manual checklist
+
+Run before deploying a release that contains data migrations — **currently 0014/0015 (HI-2)**:
+
+- [ ] On production, `make data-report REPORT_ARGS="--json"` (read-only): every `duplicate_fixture`
+  error and every `non_canonical_season` warning is a row the migration may STOP on. Resolve them
+  first (or accept the STOP and fix then) — the migrations never merge.
+- [ ] Take a **manual `pg_dump`** of the database and keep it off the host (automated backups are not
+  in place yet), e.g. `docker compose exec postgres pg_dump -U football -Fc football >
+  betpulse-pre-0015.dump`.
 
 ### Post-deploy manual checklist
 

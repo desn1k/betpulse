@@ -19,6 +19,7 @@ from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.seasons import SeasonFormatError
 from app.models.fixture import Fixture, FixtureStatus
 from app.providers.base import BaseProvider, ProviderQuotaExhausted
 from app.providers.dtos import LiveFixtureDTO
@@ -27,6 +28,7 @@ from app.providers.id_mapping import (
     resolve_league,
     resolve_team,
 )
+from app.services.ingestion.core import canonical_season_for, find_fixture, link_external_ref
 
 logger = logging.getLogger("live.ingestion")
 
@@ -86,17 +88,31 @@ async def poll_live(
     result = LivePollResult()
     for dto in dtos:
         result.seen += 1
+        league_code = dto.league.raw_code or ""
         try:
-            league = await resolve_league(session, dto.provider, dto.league.raw_code or "")
-            home = await resolve_team(session, dto.provider, dto.home.raw_name)
-            away = await resolve_team(session, dto.provider, dto.away.raw_name)
-        except UnmappedEntityError as exc:
+            league = await resolve_league(session, dto.provider, league_code)
+            home = await resolve_team(
+                session,
+                dto.provider,
+                dto.home.raw_name,
+                external_id=dto.home.external_id,
+                league_hint=league_code,
+            )
+            away = await resolve_team(
+                session,
+                dto.provider,
+                dto.away.raw_name,
+                external_id=dto.away.external_id,
+                league_hint=league_code,
+            )
+            season = canonical_season_for(league, dto.season)
+        except (UnmappedEntityError, SeasonFormatError) as exc:
             result.skipped_unmapped += 1
             _warn_unmapped(dto, str(exc))
             continue
 
         fixture_id = await _upsert_live_fixture(
-            session, dto, league_id=league.id, home_id=home.id, away_id=away.id
+            session, dto, season=season, league_id=league.id, home_id=home.id, away_id=away.id
         )
         result.ingested += 1
         result.states.append(
@@ -116,21 +132,46 @@ async def _upsert_live_fixture(
     session: AsyncSession,
     dto: LiveFixtureDTO,
     *,
+    season: str,
     league_id: uuid.UUID,
     home_id: uuid.UUID,
     away_id: uuid.UUID,
 ) -> uuid.UUID:
     """Create the fixture on first sight, or advance its live minute/status.
 
-    Identity is ``uq_fixture_identity`` (league, season, pairing, kickoff), so a
-    live match already present from the schedule is updated in place rather than
-    duplicated.
+    Identity goes through the provider-agnostic core: the provider's own
+    fixture id (``fixture_external_refs``) first, then the cross-source dedup
+    (same league and teams within ±36 h, any season label) — so a match that is
+    already present from another source is updated in place, not duplicated.
     """
+    existing, _ = await find_fixture(
+        session,
+        provider=dto.provider,
+        external_id=dto.provider_fixture_id,
+        league_id=league_id,
+        home_id=home_id,
+        away_id=away_id,
+        kickoff=dto.kickoff_at,
+    )
+    if existing is not None:
+        existing.status = FixtureStatus.live
+        existing.minute = dto.minute
+        existing.last_polled_at = func.now()
+        await session.flush()
+        await link_external_ref(
+            session,
+            fixture_id=existing.id,
+            provider=dto.provider,
+            external_id=dto.provider_fixture_id,
+        )
+        return existing.id
+
     stmt = (
         pg_insert(Fixture)
         .values(
+            id=uuid.uuid4(),
             league_id=league_id,
-            season=dto.season,
+            season=season,
             home_team_id=home_id,
             away_team_id=away_id,
             kickoff_at=dto.kickoff_at,
@@ -150,4 +191,7 @@ async def _upsert_live_fixture(
         .returning(Fixture.id)
     )
     fixture_id: uuid.UUID = (await session.execute(stmt)).scalar_one()
+    await link_external_ref(
+        session, fixture_id=fixture_id, provider=dto.provider, external_id=dto.provider_fixture_id
+    )
     return fixture_id

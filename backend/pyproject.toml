@@ -35,6 +35,9 @@ dependencies = [
     "boto3==1.43.47",
     "arq==0.28.0",
     "openai==2.45.0",
+    # IANA time zones for zoneinfo (UK-local CSV times -> UTC) independent of
+    # the OS / database server time-zone files.
+    "tzdata==2026.4",
 ]
 
 [project.optional-dependencies]
@@ -87,7 +90,7 @@ files = ["app", "tests"]
 module = [
     "pandas", "pandas.*", "joblib",
     "lightgbm", "lightgbm.*", "statsmodels", "statsmodels.*",
-    "sklearn", "sklearn.*", "scipy", "scipy.*",
+    "sklearn", "sklearn.*", "scipy", "scipy.*", "asyncpg", "asyncpg.*",
 ]
 ignore_missing_imports = true
 

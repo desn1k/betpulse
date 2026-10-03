@@ -133,3 +133,30 @@ async def test_ingestion_endpoints_require_admin(
             json={"leagues": ["EPL"], "seasons": ["2023-2024"]},
         )
     ).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_rescan_is_refused_in_production(
+    client: AsyncClient, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """football-data is not licensed for production: 409, nothing enqueued."""
+    from app.core.config import get_settings
+
+    fake = _FakePool()
+    app.dependency_overrides[get_arq_pool] = lambda: fake
+    try:
+        headers = await _admin_headers(session)
+        monkeypatch.setattr(get_settings(), "environment", "production")
+        resp = await client.post(
+            "/admin/ingestion/rescan",
+            headers=headers,
+            json={"leagues": ["EPL"], "seasons": ["2023-2024"]},
+        )
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == {
+            "error": "source_not_licensed",
+            "source": "football_data_couk",
+        }
+    finally:
+        app.dependency_overrides.pop(get_arq_pool, None)
+    assert fake.jobs == []

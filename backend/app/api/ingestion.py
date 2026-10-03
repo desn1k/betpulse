@@ -18,6 +18,7 @@ from app.core.arq import get_arq_pool
 from app.core.deps import get_client_ip, get_db, require_admin
 from app.models.ingestion_run import IngestionRun, IngestionStatus
 from app.models.user import User
+from app.providers.football_data_couk import FootballDataCoUkProvider
 from app.schemas.ingestion import (
     IngestionRunOut,
     IngestionRunsOut,
@@ -25,6 +26,7 @@ from app.schemas.ingestion import (
     RescanRequest,
 )
 from app.services.audit import record_event
+from app.services.ingestion.core import SourceNotLicensed, ensure_licensed
 from app.services.ingestion.football_data import LEAGUE_META
 from app.workers.queues import enqueue
 
@@ -72,6 +74,13 @@ async def rescan(
     session: Annotated[AsyncSession, Depends(get_db)],
     arq: Annotated[ArqRedis, Depends(get_arq_pool)],
 ) -> RescanAccepted:
+    try:
+        ensure_licensed(FootballDataCoUkProvider)
+    except SourceNotLicensed as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "source_not_licensed", "source": FootballDataCoUkProvider.name},
+        ) from exc
     unknown = [lg for lg in payload.leagues if lg not in LEAGUE_META]
     if unknown:
         raise HTTPException(

@@ -36,6 +36,8 @@ export interface MatchSummary {
   home_team: string;
   away_team: string;
   kickoff_at: string;
+  // False: only the date is known (kickoff_at is 12:00 UTC) — never show a time.
+  kickoff_time_known?: boolean;
   status: FixtureStatus;
   minute: number | null;
   home_score: number | null;

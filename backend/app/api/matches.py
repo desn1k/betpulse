@@ -171,6 +171,7 @@ def _summary(
         home_team=home,
         away_team=away,
         kickoff_at=fx.kickoff_at,
+        kickoff_time_known=fx.kickoff_time_known,
         status=fx.status,
         minute=fx.minute,
         home_score=fx.ft_home,

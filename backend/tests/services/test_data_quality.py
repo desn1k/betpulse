@@ -224,12 +224,8 @@ async def test_season_level_warnings(session: AsyncSession) -> None:
     # One fixture lost, 30 without odds, a date-only kickoff.
     await session.execute(delete(Fixture).where(Fixture.id == fixtures[0].id))
     await session.execute(delete(Odds).where(Odds.fixture_id.in_([fx.id for fx in fixtures[1:31]])))
-    # Date-only kickoff: its quotes move with it (still at kickoff, not after).
-    midnight = fixtures[40].kickoff_at.replace(hour=0, minute=0)
-    await session.execute(
-        update(Odds).where(Odds.fixture_id == fixtures[40].id).values(ts=midnight)
-    )
-    fixtures[40].kickoff_at = midnight
+    # A date-only source: the time is unknown.
+    fixtures[40].kickoff_time_known = False
     await session.flush()
 
     report = await build_report(session, now=NOW)

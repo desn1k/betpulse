@@ -30,7 +30,9 @@ def test_scores_and_halftime_are_correct() -> None:
     assert (bur.ht_home, bur.ht_away) == (0, 1)
     assert bur.away.raw_name == "Man City"
     assert bur.kickoff_at.year == 2023 and bur.kickoff_at.month == 8 and bur.kickoff_at.day == 11
-    assert bur.kickoff_at.hour == 20
+    # CSV time 20:00 is UK local (BST in August) = 19:00 UTC.
+    assert bur.kickoff_at.hour == 19
+    assert bur.kickoff_time_known is True
     assert bur.kickoff_at.tzinfo is not None
 
 
