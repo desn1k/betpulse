@@ -42,14 +42,6 @@ services:
           cpus: "0.5"
           memory: 512M
 
-  minio:
-    ports: !reset []
-    deploy:
-      resources:
-        limits:
-          cpus: "1.0"
-          memory: 1G
-
   api:
     image: ghcr.io/${GHCR_OWNER:-desn1k}/betpulse-api:${IMAGE_TAG:-latest}
     build: null
@@ -80,7 +72,7 @@ services:
           memory: 1G
 
   # Model training. To move it to a dedicated host, run only this service there
-  # with the same image and env, pointed at the same Redis, Postgres and S3.
+  # with the same image and env, pointed at the same Redis, Postgres and MLflow.
   worker-ml:
     <<: *worker-prod
     deploy:
@@ -111,7 +103,7 @@ services:
           memory: 512M
 
   caddy:
-    image: caddy:2.9-alpine
+    image: caddy:2.9-alpine@sha256:b4e3952384eb9524a887633ce65c752dd7c71314d2c2acf98cd5c715aaa534f0
     depends_on:
       - api
       - web

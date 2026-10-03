@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fail unless the rendered production Compose configuration publishes only
-# Caddy's 80/tcp and 443/tcp. Every other service (Postgres, Redis, MinIO,
-# MLflow, the API, the web app) must stay on the internal network. It also
+# Caddy's 80/tcp and 443/tcp. Every other service (Postgres, Redis, MLflow,
+# the API, the web app) must stay on the internal network. It also
 # checks that the web container reaches the API at http://api:8000 whatever
 # API_BASE_URL says in .env (its example value is for local dev).
 #

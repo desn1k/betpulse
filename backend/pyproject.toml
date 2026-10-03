@@ -32,7 +32,6 @@ dependencies = [
     "lightgbm==4.6.0",
     "statsmodels==0.14.6",
     "mlflow==3.16.1",
-    "boto3==1.43.47",
     "arq==0.28.0",
     "openai==2.45.0",
     # IANA time zones for zoneinfo (UK-local CSV times -> UTC) independent of

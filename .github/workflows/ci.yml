@@ -50,7 +50,7 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://football:football@localhost:5432/football
       REDIS_URL: redis://localhost:6379/0
       AUTH_COOKIE_SECURE: "false"
-      # MLflow uses a temp file store in CI (dev/prod use Postgres + MinIO); the
+      # MLflow uses a temp file store in CI (dev/prod: Postgres + an artifacts volume); the
       # opt-out is required by MLflow 3's file-store guard.
       MLFLOW_TRACKING_URI: "file:///tmp/mlruns_ci"
       MLFLOW_ALLOW_FILE_STORE: "true"
@@ -256,7 +256,6 @@ jobs:
       - name: Validate Compose configuration (development and production)
         env:
           POSTGRES_PASSWORD: ci-postgres-password
-          S3_SECRET_ACCESS_KEY: ci-s3-secret
           PUBLIC_DOMAIN: betpulse.example.test
           GHCR_OWNER: desn1k
           IMAGE_TAG: v0.0.0-ci
