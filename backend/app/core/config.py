@@ -7,15 +7,33 @@ security-critical key is missing or weak.
 
 from __future__ import annotations
 
+from datetime import date
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import model_validator
+from pydantic import BaseModel, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.client_ip import IPNetwork, parse_trusted_proxies, validate_production_proxies
 
 Environment = Literal["development", "staging", "production"]
+
+
+class ReferenceBookmakerRange(BaseModel):
+    """Which bookmaker's closing odds are the reference for matches kicking off
+    in ``[from_date, until_date)`` (UTC dates; ``None`` = open-ended)."""
+
+    bookmaker: str
+    from_date: date | None = None
+    until_date: date | None = None
+
+
+# Pinnacle's feed became unreliable on 2025-07-23 (football-data.co.uk notes);
+# from then on the market-average closing price is the reference.
+DEFAULT_REFERENCE_BOOKMAKERS = [
+    ReferenceBookmakerRange(bookmaker="pinnacle", until_date=date(2025, 7, 23)),
+    ReferenceBookmakerRange(bookmaker="market_avg", from_date=date(2025, 7, 23)),
+]
 
 # Local runs (uvicorn and Next.js on one host) and the test client.
 _DEV_TRUSTED_PROXIES = "127.0.0.1/32,::1/128"
@@ -115,6 +133,16 @@ class Settings(BaseSettings):
     # --- ML / MLflow / model governance -------------------------------------
     mlflow_tracking_uri: str = "http://localhost:5000"
     accuracy_window_days: int = 90
+    # Reference bookmaker per kickoff date range (JSON list in the env, e.g.
+    # [{"bookmaker":"pinnacle","until_date":"2025-07-23"},
+    #  {"bookmaker":"market_avg","from_date":"2025-07-23"}]). Ranges must be
+    # contiguous, ordered, and cover every date (first open at the start, last
+    # open at the end) — see app.ml.odds_selection.reference_bookmaker_for.
+    reference_bookmakers: list[ReferenceBookmakerRange] = DEFAULT_REFERENCE_BOOKMAKERS
+    # A historical-ingestion run still "running" after this long belongs to a
+    # dead worker (2x the batch queue's 30-minute job timeout) and is marked
+    # failed; a younger one may still be alive and is left alone.
+    ingestion_stale_run_minutes: int = 60
     consensus_weight_mode: Literal["auto", "manual"] = "auto"
     champion_min_samples: int = 300
     # A challenger replaces the champion only if its Brier (on the same fixtures)
@@ -184,6 +212,29 @@ class Settings(BaseSettings):
     def read_database_url(self) -> str:
         """Read-replica URL, falling back to the primary when unset."""
         return self.database_read_url or self.database_url
+
+    @field_validator("reference_bookmakers")
+    @classmethod
+    def _validate_reference_bookmakers(
+        cls, ranges: list[ReferenceBookmakerRange]
+    ) -> list[ReferenceBookmakerRange]:
+        if not ranges:
+            raise ValueError("REFERENCE_BOOKMAKERS needs at least one range")
+        if ranges[0].from_date is not None or ranges[-1].until_date is not None:
+            raise ValueError(
+                "REFERENCE_BOOKMAKERS must cover all dates: the first range has no "
+                "from_date and the last no until_date"
+            )
+        for earlier, later in zip(ranges, ranges[1:], strict=False):
+            if earlier.until_date is None or earlier.until_date != later.from_date:
+                raise ValueError(
+                    "REFERENCE_BOOKMAKERS ranges must be ordered and contiguous "
+                    "(each until_date equals the next from_date): no gaps, no overlaps"
+                )
+        for r in ranges:
+            if r.from_date and r.until_date and r.from_date >= r.until_date:
+                raise ValueError(f"empty REFERENCE_BOOKMAKERS range for {r.bookmaker}")
+        return ranges
 
     @model_validator(mode="after")
     def _validate_security_settings(self) -> Settings:

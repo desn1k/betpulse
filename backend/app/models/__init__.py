@@ -4,7 +4,7 @@ from app.models.audit_log import AuditLog
 from app.models.backtester import BacktestFeature, Strategy
 from app.models.email_verification_token import EmailVerificationToken
 from app.models.fixture import Fixture, FixtureExternalRef, FixtureStats, FixtureStatus, Shot
-from app.models.ingestion_run import IngestionRun, IngestionStatus
+from app.models.ingestion_run import IngestionConflict, IngestionRun, IngestionStatus
 from app.models.live import (
     LiveUpdate,
     PushChannel,
@@ -48,6 +48,7 @@ __all__ = [
     "FixtureExternalRef",
     "FixtureStats",
     "FixtureStatus",
+    "IngestionConflict",
     "IngestionRun",
     "IngestionStatus",
     "League",

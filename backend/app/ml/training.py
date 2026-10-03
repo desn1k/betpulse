@@ -259,8 +259,8 @@ def _run_dixon_coles(fixtures: list[Fixture]) -> dict[uuid.UUID, dict[str, float
 async def _odds_map(
     session: AsyncSession, fixtures: list[Fixture]
 ) -> dict[uuid.UUID, dict[str, float]]:
-    """Closing Pinnacle 1X2 quote per fixture (latest complete snapshot with
-    ``ts <= kickoff``; see :mod:`app.ml.odds_selection`)."""
+    """Closing 1X2 quote of each fixture's reference bookmaker (latest complete
+    ``is_closing`` snapshot with ``ts <= kickoff``; see :mod:`app.ml.odds_selection`)."""
     quotes = await closing_quotes(session, fixtures, markets=("1x2",))
     return {fid: {k: float(v) for k, v in q.items()} for fid, q in quotes.items()}
 

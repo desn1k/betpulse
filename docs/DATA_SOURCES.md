@@ -70,13 +70,26 @@ handled by fallbacks:
 | half-time goals | `HTHG`, `HTAG` |
 | shots / on target | `HS`,`AS` / `HST`,`AST` |
 | corners | `HC`, `AC` |
-| **Pinnacle closing 1X2** | `PSCH`,`PSCD`,`PSCA` → fallback `PSH`,`PSD`,`PSA` |
-| **Pinnacle closing O/U 2.5** | `PC>2.5`,`PC<2.5` → fallback `P>2.5`,`P<2.5` |
+| **Pinnacle closing 1X2** | `PSCH`,`PSCD`,`PSCA` (closing, `ts = kickoff`) |
+| Pinnacle pre-closing 1X2 | `PSH`,`PSD`,`PSA` (**not** closing, `ts = kickoff − 1 day`) |
+| **Market-average closing 1X2** | `AvgCH`,`AvgCD`,`AvgCA` → `bookmaker='market_avg'` |
+| **Pinnacle closing O/U 2.5** | `PC>2.5`,`PC<2.5` (closing) |
+| Pinnacle pre-closing O/U 2.5 | `P>2.5`,`P<2.5` (**not** closing, `ts = kickoff − 1 day`) |
+| **Market-average closing O/U 2.5** | `AvgC>2.5`,`AvgC<2.5` → `bookmaker='market_avg'` |
 
-Closing odds are stored in the `odds` hypertable as `bookmaker='pinnacle'`, `ts = kickoff`,
-`is_closing = true`: the 1X2 market as `market='1x2'`, `outcome in {home,draw,away}`, and the goals
-total as `market='ou_2.5'`, `outcome in {over,under}`. The over/under market feeds the strategy
-backtester's totals bets (spec §6).
+Each column set is stored independently in the `odds` hypertable: closing quotes with
+`ts = kickoff`, `is_closing = true`; **pre-closing quotes are never stored as closing** —
+`is_closing = false` at `ts = kickoff − 1 day`. That timestamp is an **approximation**:
+football-data does not publish when a pre-closing quote was taken (its notes say Friday/Tuesday
+afternoon before weekend/midweek games); the day only orders it before the closing quote. A
+fixture that has only pre-closing quotes has **no** closing quote, so it is left out of "ROI vs
+closing", the market model and the backtester. The 1X2 market is `market='1x2'`,
+`outcome in {home,draw,away}`, the goals total `market='ou_2.5'`, `outcome in {over,under}` (it
+feeds the backtester's totals bets, spec §6).
+
+**Reference bookmaker.** Which bookmaker's closing quote is "the" closing price depends on the
+kickoff date (`REFERENCE_BOOKMAKERS`): Pinnacle until 2025-07-23 — after that date Pinnacle's feed is
+unreliable (football-data's own warning) — and the market average (`market_avg`) from then on.
 
 **ID mapping (seed behaviour).** football-data.co.uk is a **seed source** (`may_seed_canonical`): the
 first time a team/league name is seen it creates the canonical `teams`/`leagues` row (teams keyed by

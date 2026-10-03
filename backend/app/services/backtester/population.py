@@ -29,9 +29,11 @@ _X12_MARKET = "1x2"
 async def _closing_odds(
     session: AsyncSession, fixtures: list[Fixture]
 ) -> dict[uuid.UUID, dict[str, Decimal]]:
-    """Closing Pinnacle 1X2 + O/U 2.5 quote per fixture: the latest complete
-    snapshot with ``ts <= kickoff`` (:mod:`app.ml.odds_selection`). Bets are
-    simulated at kickoff, so this is also the decision-time quote."""
+    """Closing 1X2 + O/U 2.5 quote of each fixture's reference bookmaker: the
+    latest complete ``is_closing`` snapshot with ``ts <= kickoff``
+    (:mod:`app.ml.odds_selection`). Bets are simulated at kickoff, so this is
+    also the decision-time quote; a fixture with only pre-closing quotes has
+    no bettable odds."""
     return await closing_quotes(session, fixtures, markets=(_X12_MARKET, _OU_MARKET))
 
 

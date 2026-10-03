@@ -22,6 +22,8 @@ from app.core.config import get_settings
 
 BACKEND = Path(__file__).resolve().parents[2]
 FD = "football_data_couk"
+# The revisions under test; later migrations must not change these tests.
+IDENTITY_HEAD = "0015_identity_data"
 
 
 def _dsn(database: str) -> str:
@@ -198,7 +200,7 @@ def test_upgrade_canonicalises_seasons_fixes_kickoffs_and_links_refs(
         for outcome in ("home", "draw", "away"):
             _odds(db, fid, ts, outcome)
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, IDENTITY_HEAD)
 
     assert _version(db) == "0015_identity_data"
     rows = {
@@ -284,7 +286,7 @@ def test_conflicts_stop_the_upgrade_and_change_nothing(
     )
 
     with pytest.raises(RuntimeError, match="STOP"):
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, IDENTITY_HEAD)
 
     assert _version(db) == "0013_model_weighting"  # 0014 rolled back too
     after = (
@@ -303,7 +305,7 @@ def test_conflicts_stop_the_upgrade_and_change_nothing(
 
 def test_team_key_downgrade_stops_on_cross_country_names(migdb: tuple[str, Config]) -> None:
     db, cfg = migdb
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, IDENTITY_HEAD)
     for country in ("Spain", "Argentina"):
         _execute(
             db,
@@ -319,10 +321,10 @@ def test_team_key_downgrade_stops_on_cross_country_names(migdb: tuple[str, Confi
 
 def test_round_trip_on_an_empty_database(migdb: tuple[str, Config]) -> None:
     db, cfg = migdb
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, IDENTITY_HEAD)
     command.downgrade(cfg, "0013_model_weighting")
     assert _version(db) == "0013_model_weighting"
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, IDENTITY_HEAD)
     assert _version(db) == "0015_identity_data"
 
 
@@ -344,7 +346,7 @@ def test_downgrade_stops_instead_of_dropping_a_conflicting_quote(
         source=FD,
     )
     _odds(db, fid, datetime(2023, 8, 11, 20, 0, tzinfo=UTC), price="2.0")
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, IDENTITY_HEAD)
     # The closing quote now sits at 19:00 UTC; a later quote lands at 20:00 UTC.
     _odds(db, fid, datetime(2023, 8, 11, 20, 0, tzinfo=UTC), price="2.5")
     before = sorted(tuple(r) for r in _query(db, "SELECT fixture_id, ts, price FROM odds"))
