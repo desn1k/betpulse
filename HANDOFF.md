@@ -944,12 +944,16 @@ confirmation.
     (by `fixture_external_refs` / the ±36 h rule), and every fixture without one. If any fixture
     has no counterpart, the real run STOPs and lists them; nothing is guessed.
   - **Real run.** One transaction per league/season. For each matched fixture it:
-    - overwrites kickoff, scores, status and stats with the Sportmonks values;
+    - overwrites kickoff, `kickoff_time_known`, scores, status and stats with the Sportmonks
+      values;
     - sets `fixtures.source = 'sportmonks'`;
     - deletes the fixture's football-data odds and its `fd:` external refs;
     - audits every change.
-  - **Afterwards.** `data-report` must show zero `football_data_couk` fixtures and no odds rows on
-    replaced fixtures until the Odds API backfill fills them.
+  - **Afterward.**
+    - `data-report` must show zero `football_data_couk` fixtures.
+    - The operation itself queries `odds` for **each replaced fixture id** and fails unless none
+      has a row left (coverage per league/season is not enough).
+    - The Odds API backfill repeats that per-fixture check before it starts.
 
 **Trial and PR order**
 1. **Free calls first**, on the free The Odds API key: `/sports`, `/events` and two small `/odds`
