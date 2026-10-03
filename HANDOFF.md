@@ -764,26 +764,52 @@ implemented.
 - **Docs:** update README/deploy docs with required env vars, tag-based release flow, deploy, rollback,
   backup and restore-drill commands.
 
+- **Production has never been launched (owner, 2026-10-03).** There is no production server, no
+  production data, and no API-Football polling outside dev.
+  - The **first launch is from scratch**: an empty database, and migrations `0001..latest` applied
+    by `deploy.sh`.
+  - The items below marked *future upgrade only* (pre-migration dumps, `data-report` review, the
+    one-time `docker compose down`, `replace-source`, port checks on an already running server) do
+    not apply to the first launch.
+- **API image carries its migrations (fixed 2026-10-03).**
+  - **The bug.** `backend/Dockerfile` copied only `pyproject.toml` and `app/`. `deploy.sh` runs
+    `compose run --rm api alembic upgrade head`, and in the built image that failed with
+    `FAILED: No 'script_location' key found in configuration.` Every deploy would have stopped at
+    the migration step.
+  - **The fix.** The image now copies `alembic.ini` and `migrations/`.
+  - **CI guard.** The "Docker images build" job runs, in the built image, against a
+    `timescale/timescaledb:2.17.2-pg16` service: `alembic heads`, `alembic upgrade head` on the
+    empty database, and `alembic current` (it must equal heads). It also runs
+    `python -m app.cli data-report --help` and `python -m app.bootstrap --help`.
+  - **Other runtime files checked.**
+    - Backend: only the user-supplied `--offline-dir` CSVs are read from disk; MLflow artifacts are
+      in S3; `ml_artifacts/` is unused by code.
+    - Frontend: no runtime `fs` reads; locale messages and legal texts are bundled; `public/sw.js`
+      and `.next/static` are copied into the standalone image.
+  - Root-only `__pycache__`/`*.pyc` patterns in `backend/.dockerignore` became `**/`.
+
 ### Pre-deploy manual checklist
 
-Run before **every** deploy:
+Run before **every** deploy, including the first one:
 
-- [ ] `bash scripts/check-compose-ports.sh .env` on the server prints `OK`, so only caddy 80/443 are
-  published. On a server that is already running, also check what is actually listening:
-  `docker ps --format '{{.Names}}\t{{.Ports}}'` and `sudo ss -tlnp`. If 5432, 6379, 9000/9001,
-  5000, 8000 or 3000 listen on a public address, close everything except 22/80/443 **in the
-  provider firewall** right away (ufw does not filter Docker-published ports), then deploy this
-  fix.
+- [ ] `bash scripts/check-compose-ports.sh .env` on the server prints `OK`: only caddy 80/443 are
+  published, and web reaches the API at `http://api:8000`.
+- [ ] After the deploy, `docker ps --format '{{.Names}}\t{{.Ports}}'` and `sudo ss -tlnp` show
+  nothing but 22/80/443 listening on public addresses.
+  - If 5432, 6379, 9000/9001, 5000, 8000 or 3000 are public, close everything except 22/80/443
+    **in the provider firewall** (ufw does not filter Docker-published ports).
 
-Run before deploying a release that contains data migrations — **currently 0014/0015 (HI-2) and 0017**:
+*Future upgrade only* (a server with data; none exists yet). Run before deploying a release that
+contains data migrations, e.g. 0014/0015 (HI-2) and 0017:
 
-- [ ] On production, `make data-report REPORT_ARGS="--json"` (read-only): every `duplicate_fixture`
+- [ ] On the server, `docker compose … exec api python -m app.cli data-report --json` (read-only;
+  the host has no Python for `make data-report`): every `duplicate_fixture`
   error and every `non_canonical_season` warning is a row the migration may STOP on. Resolve them
   first (or accept the STOP and fix then) — the migrations never merge.
 - [ ] Take a **manual `pg_dump`** of the database and keep it off the host (automated backups are not
   in place yet), e.g. `docker compose exec postgres pg_dump -U football -Fc football >
   betpulse-pre-0015.dump`.
-- [ ] Migration **0017** (single champion): on production, `SELECT method, version FROM
+- [ ] Migration **0017** (single champion): on the server, `SELECT method, version FROM
   model_registry WHERE status = 'champion'` must return at most one row; otherwise the upgrade STOPs
   with the list. Demote the extras in Admin → Models first.
 
@@ -895,8 +921,9 @@ the open questions are in `docs/DATA_SOURCES.md` §3–§5.
   - **The Odds API:** odds — historical snapshots for the backfill, plus forward capture that
     builds our own odds history.
 - **Fallback candidates:** API-Football and TheStatsAPI.
-  - **API-Football is already integrated for live:** the in-play poll runs in production today.
-    Only an API-Football fixtures/results *fallback adapter* is unimplemented.
+  - **API-Football is already integrated for live:** the in-play poll is implemented and runs in
+    dev. Production has never been launched. Only an API-Football fixtures/results *fallback
+    adapter* is unimplemented.
   - **TheStatsAPI is not implemented** at all.
   The `SourceAdapter` interface must keep room for them.
 - **History depth:** seasons 2019-20..2025-26 for EPL, LaLiga, Serie A, Bundesliga, Ligue 1. The
@@ -943,8 +970,9 @@ confirmation.
 | **API-Football** | Betting-related use may need additional licences from rights holders; silent on storage/ML | live poll gated by an explicit flag, kept **enabled** for now (see below) |
 | **TheStatsAPI** | Forbids caching/storing beyond what is reasonably necessary; the right to use data ends on termination | unusable for training/history unless confirmed in writing |
 
-- **API-Football live poll.** It already runs in production, outside `ensure_licensed`. It gets the
-  same kind of licence flag, set to enabled until the owner confirms.
+- **API-Football live poll.** It is implemented and runs outside `ensure_licensed`: so far in dev
+  only, since production has never been launched. It gets the same kind of licence flag, set to
+  enabled until the owner confirms.
   - This is an explicit owner decision: the poll stays on while the written answer is pending.
   - The question to API-Football must also cover **publishing live data and derived predictions**
     on a betting-analytics product.
@@ -987,7 +1015,9 @@ confirmation.
   - Sportmonks takes the token in the `Authorization` header.
   - Provider audit entries record field names only (already the case).
 
-- **Replacing football-data rows in production (provider PR 2b).** A plain Sportmonks backfill is
+- **Replacing football-data rows in production (provider PR 2b) — future upgrade only.**
+  Production has never run, so on the first launch there are no football-data rows to replace,
+  and PR 2b is needed only if they ever reach a production database. A plain Sportmonks backfill is
   not enough. It links its record to an existing football-data fixture, but under the HI-3 rules a
   different source never overwrites a stored score (it only records a conflict). The `odds` table
   also has no source column, so football-data quotes could not be told apart from The Odds API

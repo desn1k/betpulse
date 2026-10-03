@@ -12,6 +12,10 @@ COPY pyproject.toml ./
 RUN pip install --upgrade pip && pip install .
 
 COPY app ./app
+# Migrations ship with the image: deploy.sh runs `alembic upgrade head` in a
+# one-off api container (CI runs it against Timescale in the built image).
+COPY alembic.ini ./
+COPY migrations ./migrations
 
 # Run as a non-root user.
 RUN useradd --create-home --uid 10001 appuser
