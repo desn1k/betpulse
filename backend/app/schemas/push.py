@@ -45,6 +45,11 @@ class LatestSwingOut(BaseModel):
     home_score: int
     away_score: int
     probs: dict[str, dict[str, float]]
+    # The live numbers come from the in-play baseline (score + minute only).
+    method: str
+    model_version: str
+    team_strength: bool
+    note: str
 
 
 class TelegramLinkOut(BaseModel):

@@ -153,6 +153,10 @@ class Settings(BaseSettings):
     # Max expected champion-reeval runtime; the Redis lock TTL is 2x this so a
     # crashed worker never holds the lock forever (see reevaluate_champions_task).
     champion_reeval_max_runtime_seconds: int = 600
+    # How long an admin registry action waits for the registry lock (held by a
+    # running re-evaluation or another admin action) before failing with 409
+    # registry_busy instead of hanging the request (app.ml.registry_lock).
+    registry_lock_timeout_ms: int = 5000
 
     # --- Live provider (API-Football) --------------------------------------
     # Dev/CI fallback only; production keys are entered in Admin → Providers and

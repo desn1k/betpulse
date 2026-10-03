@@ -41,6 +41,14 @@ describe("NotifyToggle", () => {
     expect(queryByRole("button")).not.toBeInTheDocument();
   });
 
+  it("says the live numbers rest on the score and minute only", async () => {
+    signIn();
+    const { findByText } = renderWithProviders(<NotifyToggle id={MATCH_ID} />, { locale: "ru" });
+    expect(
+      await findByText("Базовая in-play модель: учитывает только счёт и минуту, без силы команд"),
+    ).toBeInTheDocument();
+  });
+
   it("lets a signed-in user follow a match", async () => {
     signIn();
     vi.mocked(fetchFollows).mockResolvedValueOnce([]).mockResolvedValue([MATCH_ID]);

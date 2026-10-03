@@ -210,7 +210,8 @@
   "notify": {
     "notifyMe": "Notify me",
     "following": "Notifying",
-    "locked": "Pro"
+    "locked": "Pro",
+    "liveBaseline": "Baseline in-play model: uses only the score and the minute, not team strength"
   },
   "settings": {
     "title": "Settings",

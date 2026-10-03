@@ -414,6 +414,6 @@ async def test_served_probabilities_never_mix_versions(session: AsyncSession) ->
     )
     await session.flush()
 
-    served = (await _latest_1x2(session, [fx.id]))[fx.id]["elo"]
+    served = (await _latest_1x2(session, [fx.id]))[0][fx.id]["elo"]
     # Everything from v2 only: no v1 draw/away glued onto the v2 home price.
     assert served == {"home": 0.9}

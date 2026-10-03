@@ -6,6 +6,10 @@ recent form, rest days, home/away, rolling approximate xG/xGA). The label is the
 1X2 outcome (0 home, 1 draw, 2 away). Fixtures are walked in
 :mod:`app.ml.chronology` batches: matches kicking off at the same instant all
 read the state from before the batch and only then update it.
+
+A team with no xG history yet takes its league's prior: the running mean of
+approximate xG per team-match over that league's matches **before** the batch
+(``DEFAULT_LEAGUE_XG`` until the league has any).
 """
 
 from __future__ import annotations
@@ -46,6 +50,10 @@ FEATURE_COLUMNS: list[str] = [
     "rolling_xg_home",
     "rolling_xg_away",
 ]
+
+
+# Prior xG per team-match for a league that has no shot data yet.
+DEFAULT_LEAGUE_XG = 1.35
 
 
 def feature_schema() -> dict[str, str]:
@@ -92,13 +100,14 @@ async def build_feature_table(session: AsyncSession) -> pd.DataFrame:
     state: dict[uuid.UUID, _TeamState] = defaultdict(
         lambda: _TeamState(recent_points=deque(maxlen=5), recent_xg=deque(maxlen=5))
     )
-    league_xg = 1.35
+    # league_id -> [sum of approximate xG per team-match, count], before the batch.
+    league_xg: dict[uuid.UUID, list[float]] = defaultdict(lambda: [0.0, 0.0])
 
     records: list[dict[str, Any]] = []
     for batch in chronological_batches(rows):
         for fx in batch:
-            records.append(_feature_row(fx, state, league_xg))
-        _advance_batch(elo, glicko, batch, state, stats_by_fixture)
+            records.append(_feature_row(fx, state, _league_prior(league_xg, fx.league_id)))
+        _advance_batch(elo, glicko, batch, state, stats_by_fixture, league_xg)
 
     return pd.DataFrame.from_records(records)
 
@@ -128,6 +137,11 @@ def _feature_row(
     }
 
 
+def _league_prior(league_xg: dict[uuid.UUID, list[float]], league_id: uuid.UUID) -> float:
+    total, count = league_xg.get(league_id, (0.0, 0.0))
+    return total / count if count else DEFAULT_LEAGUE_XG
+
+
 def _rest_days(last_date: object, kickoff: object) -> float:
     if last_date is None:
         return 7.0
@@ -146,6 +160,7 @@ def _advance_batch(
     batch: Sequence[Fixture],
     state: dict[uuid.UUID, _TeamState],
     stats: dict[uuid.UUID, FixtureStats],
+    league_xg: dict[uuid.UUID, list[float]],
 ) -> None:
     """Fold one batch of same-kickoff results into the team state. Rating
     changes are computed from the pre-batch ratings of both sides (Glicko: one
@@ -177,14 +192,17 @@ def _advance_batch(
             from app.ml.xg import XgModel
 
             xgm = XgModel(has_coordinates=False)
+            acc = league_xg[fx.league_id]
             if st.home_shots is not None:
-                hs.recent_xg.append(
-                    xgm.approximate_match_xg(st.home_shots or 0, st.home_shots_on_target or 0)
-                )
+                xg = xgm.approximate_match_xg(st.home_shots or 0, st.home_shots_on_target or 0)
+                hs.recent_xg.append(xg)
+                acc[0] += xg
+                acc[1] += 1
             if st.away_shots is not None:
-                as_.recent_xg.append(
-                    xgm.approximate_match_xg(st.away_shots or 0, st.away_shots_on_target or 0)
-                )
+                xg = xgm.approximate_match_xg(st.away_shots or 0, st.away_shots_on_target or 0)
+                as_.recent_xg.append(xg)
+                acc[0] += xg
+                acc[1] += 1
 
         hs.last_date = fx.kickoff_at
         as_.last_date = fx.kickoff_at

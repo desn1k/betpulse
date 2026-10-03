@@ -1,4 +1,13 @@
-"""In-play recompute: Dixon-Coles conditioned on the current score + minute.
+"""In-play recompute: a baseline conditioned on the current score + minute.
+
+**What the live model is, honestly.** The in-play probabilities come from the
+Dixon-Coles in-play formula fed with fixed, league-neutral base rates
+(:func:`get_base_rates`): every pairing at the same score and minute gets the
+same numbers. It knows the score and the clock, **not** the teams' strength.
+It is labelled accordingly everywhere it is stored or served — method
+``live_baseline``, model version ``live-baseline-v1``, ``team_strength: false``
+— and must never be presented as a fitted model or as an edge. Team-aware base
+rates (from the running Dixon-Coles fit) are a separate follow-up.
 
 Triggered after each successful live poll (not on a fixed timer). A recompute is
 performed **only when the match state changed** (minute or score) since the last
@@ -6,10 +15,7 @@ in-play row — re-polling identical state is a no-op. After writing the new
 probabilities it measures the swing versus the previous in-play row and flags a
 push when it exceeds the configured threshold.
 
-LightGBM-live follows the same governance rule as Phase 4 training: it runs only
-when a champion LightGBM model is registered (populated on the VPS after real
-training). Until then the in-play engine is Dixon-Coles alone and the skip is
-logged, never silently dropped.
+There is no LightGBM-live model; the baseline is the only in-play engine.
 """
 
 from __future__ import annotations
@@ -23,14 +29,28 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ml.base import Method, Outcome
+from app.ml.base import Outcome
 from app.ml.dixon_coles import in_play_one_x_two
 from app.models.live import LiveUpdate
 from app.models.prediction import PredictionLive
 
 logger = logging.getLogger("live.recompute")
 
-LIVE_MODEL_VERSION = "live-dixon-coles"
+# Labels of the in-play baseline (see the module docstring).
+LIVE_METHOD = "live_baseline"
+LIVE_MODEL_VERSION = "live-baseline-v1"
+LIVE_TEAM_STRENGTH = False
+# The user-facing label of the live numbers (UI, push and Telegram texts).
+LIVE_BASELINE_NOTE = "Базовая in-play модель: учитывает только счёт и минуту, без силы команд"
+
+
+def live_labels() -> dict[str, object]:
+    """The labels attached to every live payload served or published."""
+    return {
+        "method": LIVE_METHOD,
+        "model_version": LIVE_MODEL_VERSION,
+        "team_strength": LIVE_TEAM_STRENGTH,
+    }
 
 
 @dataclass(slots=True)
@@ -56,11 +76,12 @@ class RecomputeResult:
 
 
 async def get_base_rates(session: AsyncSession, fixture_id: uuid.UUID) -> BaseRates:
-    """Return the pre-match rates driving the in-play Dixon-Coles model.
+    """Return the pre-match rates driving the in-play baseline.
 
-    Phase 5 uses a documented, league-neutral home-advantaged baseline. When a
-    champion Dixon-Coles model is registered its fitted attack/defence strengths
-    are loaded here without touching call sites — the seam is intentional.
+    Fixed, league-neutral, home-advantaged rates: the same for every pairing,
+    so the baseline carries no team strength (``LIVE_TEAM_STRENGTH``). Loading
+    per-team rates from the running Dixon-Coles fit is a separate follow-up;
+    until then nothing may describe the live numbers as team-aware.
     """
     return BaseRates(lam_home=1.45, lam_away=1.15, rho=-0.05)
 
@@ -135,7 +156,7 @@ async def recompute_fixture(
         "home_score": home_score,
         "away_score": away_score,
         "probs": probs,
-        "model_version": LIVE_MODEL_VERSION,
+        **live_labels(),
         "recorded_at": now.isoformat(),
     }
     event = LiveUpdate(
@@ -172,7 +193,7 @@ async def _write_predictions_live(
         session.add(
             PredictionLive(
                 fixture_id=fixture_id,
-                method=Method.dixon_coles.value,
+                method=LIVE_METHOD,
                 market="1x2",
                 outcome=outcome,
                 minute=minute,

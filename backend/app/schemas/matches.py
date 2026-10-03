@@ -40,6 +40,10 @@ class MethodPrediction(BaseModel):
     probs: Probs1x2
     # Consensus blend weight (%), exposed only to the expert tier (all_weights).
     weight: float | None = None
+    # Which trained model produced these probabilities: the predictions'
+    # model_version and that version's MLflow run (null if not registered).
+    model_version: str | None = None
+    mlflow_run_id: str | None = None
 
 
 class CardFlags(BaseModel):
@@ -68,6 +72,9 @@ class MatchSummary(BaseModel):
     home_score: int | None
     away_score: int | None
     consensus: Probs1x2 | None
+    # The consensus model version + MLflow run behind ``consensus``.
+    consensus_model_version: str | None = None
+    consensus_mlflow_run_id: str | None = None
     champion_method: str | None
     champion_accuracy_pct: float | None
     # How every accuracy_pct in this payload was obtained: a retrospective

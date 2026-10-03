@@ -15,6 +15,7 @@ from app.core.db import _write_sessionmaker
 from app.core.redis import get_redis
 from app.ml.evaluation import compute_rolling_metrics
 from app.ml.registry import apply_champion_selection
+from app.ml.registry_lock import try_lock_registry
 from app.ml.training import TrainingSummary, run_training
 from app.providers.football_data_couk import FootballDataCoUkProvider
 from app.services.ingestion.runner import network_csv_source, run_recorded_ingestion
@@ -22,7 +23,12 @@ from app.services.live.events import publish_live_update
 from app.services.live.ingestion import poll_live
 from app.services.live.provider import build_live_provider
 from app.services.live.push import dispatch_push
-from app.services.live.recompute import get_base_rates, recompute_fixture
+from app.services.live.recompute import (
+    LIVE_BASELINE_NOTE,
+    get_base_rates,
+    live_labels,
+    recompute_fixture,
+)
 from app.services.llm.ranking import rank_today_fixtures
 from app.services.model_admin import get_weighting
 from app.workers.queues import enqueue
@@ -41,7 +47,14 @@ async def reevaluate_champions(
     weight_mode: str,
     now: datetime | None = None,
 ) -> str | None:
-    """Recompute rolling OOS metrics and re-select the champion. Idempotent."""
+    """Recompute rolling OOS metrics and re-select the champion. Idempotent.
+
+    Runs under the registry lock (held until the caller's transaction ends). If
+    another re-evaluation or an admin action holds it, this run is skipped and
+    returns None; the next scheduled run picks the change up."""
+    if not await try_lock_registry(session):
+        logger.info("champion reeval skipped: registry lock held by another transaction")
+        return None
     metrics = await compute_rolling_metrics(
         session, window_days=window_days, now=now, min_samples=min_samples
     )
@@ -64,10 +77,12 @@ async def train_all_task(ctx: dict[str, Any]) -> TrainingSummary:
     return summary
 
 
-def _swing_text(fixture_id: uuid.UUID, probs: dict[str, float]) -> str:
+def _swing_text(fixture_id: uuid.UUID, minute: int, probs: dict[str, float]) -> str:
+    """Telegram text of a swing push. It reports the baseline's numbers and says
+    what they rest on; it makes no claim about team strength or an edge."""
     return (
-        f"Live probabilities moved for fixture {fixture_id}: "
-        f"home {probs['home']:.0%} / draw {probs['draw']:.0%} / away {probs['away']:.0%}"
+        f"Матч {fixture_id}, {minute}': П1 {probs['home']:.0%} / X {probs['draw']:.0%} / "
+        f"П2 {probs['away']:.0%}. {LIVE_BASELINE_NOTE}."
     )
 
 
@@ -148,12 +163,13 @@ async def recompute_fixture_task(
                 "home_score": result.home_score,
                 "away_score": result.away_score,
                 "probs": result.probs,
+                **live_labels(),
             },
         )
     if result.should_push:
         arq = ctx.get("redis")
         if arq is not None:
-            await enqueue(arq, "push_task", str(fid), _swing_text(fid, result.probs))
+            await enqueue(arq, "push_task", str(fid), _swing_text(fid, result.minute, result.probs))
     return result.swing
 
 

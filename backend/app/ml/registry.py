@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -18,12 +19,18 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ml.registry_lock import lock_registry
 from app.models.model_registry import ModelRegistry, ModelRegistrySnapshot, ModelStatus
 from app.services.audit import record_event
 
 CHAMPION_PROMOTED = "model.champion.promoted"
 CHAMPION_DEMOTED = "model.champion.demoted"
 REGISTRY_ROLLBACK = "model.registry.rollback"
+
+
+class SnapshotHasManyChampions(Exception):
+    """The snapshot names more than one champion (taken before the database
+    enforced a single one); it cannot be applied as is."""
 
 
 @dataclass(slots=True)
@@ -106,14 +113,44 @@ async def snapshot_registry(
     return snapshot
 
 
+async def demote_champions(
+    session: AsyncSession, rows: Sequence[ModelRegistry], *, keep: ModelRegistry | None = None
+) -> list[ModelRegistry]:
+    """Demote every champion row but ``keep`` and flush, so the old champion is
+    gone from the database **before** a new one is promoted (the single-champion
+    index would reject the reverse order; the ORM orders UPDATEs by key, not by
+    assignment, so the flush is what guarantees it). Returns the demoted rows."""
+    demoted = [r for r in rows if r.status == ModelStatus.champion and r is not keep]
+    for row in demoted:
+        row.status = ModelStatus.challenger
+    if demoted:
+        await session.flush()
+    return demoted
+
+
 async def rollback_to_snapshot(session: AsyncSession, snapshot_id: uuid.UUID) -> None:
-    """Restore the full registry state captured in a snapshot, atomically."""
+    """Restore the full registry state captured in a snapshot, atomically.
+
+    Takes the registry lock (waits at most ``registry_lock_timeout_ms``). Every
+    current champion row the snapshot does not name as champion is demoted first,
+    including a version trained after the snapshot."""
     snapshot = await session.get(ModelRegistrySnapshot, snapshot_id)
     if snapshot is None:
         raise ValueError("snapshot not found")
+    await lock_registry(session)
 
     current = (await session.execute(select(ModelRegistry))).scalars().all()
     by_key = {(r.method, r.version): r for r in current}
+    champions = [
+        by_key[(i["method"], i["version"])]
+        for i in snapshot.payload
+        if i["status"] == ModelStatus.champion.value and (i["method"], i["version"]) in by_key
+    ]
+    if len(champions) > 1:
+        raise SnapshotHasManyChampions
+    # After this, the only possible champion is the snapshot's own (none if the
+    # snapshot had none: a row created later must not keep the title either).
+    await demote_champions(session, current, keep=champions[0] if champions else None)
     for item in snapshot.payload:
         row = by_key.get((item["method"], item["version"]))
         if row is None:
@@ -263,10 +300,8 @@ async def apply_champion_selection(
 
     if champion_rows != [rows[winner]]:
         await snapshot_registry(session, reason="champion_reeval", actor=actor)
-        for row in champion_rows:
-            if row is not rows[winner]:
-                row.status = ModelStatus.challenger
-                await record_event(session, action=CHAMPION_DEMOTED, target=row.method)
+        for row in await demote_champions(session, champion_rows, keep=rows[winner]):
+            await record_event(session, action=CHAMPION_DEMOTED, target=row.method)
         rows[winner].status = ModelStatus.champion
         await record_event(
             session,

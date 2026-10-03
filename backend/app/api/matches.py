@@ -121,17 +121,21 @@ async def _champion(session: AsyncSession) -> tuple[str | None, float | None]:
     return method, (None if accuracy is None else float(accuracy))
 
 
+Versions = dict[tuple[uuid.UUID, str], str]
+
+
 async def _latest_1x2(
     session: AsyncSession, fixture_ids: list[uuid.UUID]
-) -> dict[uuid.UUID, dict[str, dict[str, float]]]:
-    """Latest 1X2 probabilities per (fixture, method, outcome).
+) -> tuple[dict[uuid.UUID, dict[str, dict[str, float]]], Versions]:
+    """Latest 1X2 probabilities per (fixture, method, outcome), and the model
+    version they came from per (fixture, method).
 
     Predictions are versioned. Per (fixture, method) the newest row's version is
     taken and **all** outcomes come from that one version — never a mix of
     versions across outcomes.
     """
     if not fixture_ids:
-        return {}
+        return {}, {}
     rows = (
         (
             await session.execute(
@@ -152,7 +156,27 @@ async def _latest_1x2(
         version = chosen.setdefault((p.fixture_id, p.method), p.model_version)
         if p.model_version == version:
             out[p.fixture_id][p.method].setdefault(p.outcome, float(p.probability))
-    return out
+    return out, chosen
+
+
+async def _run_ids(session: AsyncSession) -> dict[tuple[str, str], str | None]:
+    """MLflow run per registered (method, version)."""
+    rows = await session.execute(
+        select(ModelRegistry.method, ModelRegistry.version, ModelRegistry.mlflow_run_id)
+    )
+    return {(m, v): run for m, v, run in rows.all()}
+
+
+def _trace(
+    versions: Versions,
+    run_ids: dict[tuple[str, str], str | None],
+    fixture_id: uuid.UUID,
+    method: str,
+) -> tuple[str | None, str | None]:
+    version = versions.get((fixture_id, method))
+    if version is None:
+        return None, None
+    return version, run_ids.get((method, version))
 
 
 def _summary(
@@ -164,6 +188,7 @@ def _summary(
     champion_method: str | None,
     champion_accuracy_pct: float | None,
     now: datetime,
+    consensus_trace: tuple[str | None, str | None] = (None, None),
 ) -> MatchSummary:
     return MatchSummary(
         id=fx.id,
@@ -177,6 +202,9 @@ def _summary(
         home_score=fx.ft_home,
         away_score=fx.ft_away,
         consensus=consensus,
+        # No consensus served → no model to name.
+        consensus_model_version=consensus_trace[0] if consensus is not None else None,
+        consensus_mlflow_run_id=consensus_trace[1] if consensus is not None else None,
         champion_method=champion_method,
         champion_accuracy_pct=champion_accuracy_pct,
         last_polled_at=fx.last_polled_at,
@@ -249,7 +277,8 @@ async def list_matches(
     ).all()
 
     fixture_ids = [row[0].id for row in page]
-    latest = await _latest_1x2(session, fixture_ids)
+    latest, versions = await _latest_1x2(session, fixture_ids)
+    run_ids = await _run_ids(session)
     champion_method, champion_accuracy = await _champion(session)
 
     items: list[MatchSummary] = []
@@ -257,7 +286,15 @@ async def list_matches(
         consensus = _probs_from_outcomes(latest.get(fx.id, {}).get(Method.consensus.value, {}))
         items.append(
             _summary(
-                fx, lg, home_name, away_name, consensus, champion_method, champion_accuracy, now
+                fx,
+                lg,
+                home_name,
+                away_name,
+                consensus,
+                champion_method,
+                champion_accuracy,
+                now,
+                _trace(versions, run_ids, fx.id, Method.consensus.value),
             )
         )
 
@@ -307,7 +344,9 @@ async def get_match(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Match not found")
     fx, lg, home_name, away_name = row
 
-    latest = (await _latest_1x2(session, [fixture_id])).get(fixture_id, {})
+    latest_by_fixture, versions = await _latest_1x2(session, [fixture_id])
+    latest = latest_by_fixture.get(fixture_id, {})
+    run_ids = await _run_ids(session)
     visible = await _visible_methods(session)
     champion_method, champion_accuracy = await _champion(session)
 
@@ -339,6 +378,7 @@ async def get_match(
         if probs is None:
             continue
         accuracy, weight = registry.get(method, (None, 0.0))
+        model_version, mlflow_run_id = _trace(versions, run_ids, fixture_id, method)
         methods.append(
             MethodPrediction(
                 method=method,
@@ -346,6 +386,8 @@ async def get_match(
                 accuracy_pct=accuracy,
                 probs=probs,
                 weight=weight if show_weights else None,
+                model_version=model_version,
+                mlflow_run_id=mlflow_run_id,
             )
         )
         home_probs.append(probs.home)
@@ -357,7 +399,15 @@ async def get_match(
     )
 
     summary = _summary(
-        fx, lg, home_name, away_name, consensus, champion_method, champion_accuracy, now
+        fx,
+        lg,
+        home_name,
+        away_name,
+        consensus,
+        champion_method,
+        champion_accuracy,
+        now,
+        _trace(versions, run_ids, fixture_id, Method.consensus.value),
     )
     return MatchDetail(
         **summary.model_dump(),
