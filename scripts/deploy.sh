@@ -6,6 +6,10 @@ env_file="$root_dir/.env"
 state_dir="$root_dir/.release"
 last_successful_tag_file="$state_dir/last-successful-image-tag"
 health_attempts="${DEPLOY_HEALTHCHECK_ATTEMPTS:-30}"
+# Per-request timeout of the BFF readiness probe (busybox wget -T), so a stalled
+# request cannot hold the retry loop: the whole check is bounded by
+# attempts x (timeout + 2 s).
+probe_timeout="${DEPLOY_READY_TIMEOUT_SECONDS:-5}"
 # Application services built from release images. Keep in sync with
 # infra/docker-compose*.yml (one ARQ worker per queue, app/workers/queues.py).
 app_services=(api worker-realtime worker-batch worker-ml web)
@@ -56,7 +60,7 @@ wait_for_service() {
 # than the check).
 bff_ready() {
   local out
-  if out="$(compose exec -T web wget -q -O /dev/null http://localhost:3000/api/ready 2>&1)"; then
+  if out="$(compose exec -T web wget -q -T "$probe_timeout" -O /dev/null http://localhost:3000/api/ready 2>&1)"; then
     return 0
   fi
   if [[ "$out" == *" 404"* ]]; then

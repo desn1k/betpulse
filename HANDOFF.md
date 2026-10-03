@@ -744,10 +744,12 @@ implemented.
       `http://api:8000`. CI renders it with `API_BASE_URL=http://localhost:8000` set.
   - **A new BFF route, `GET /api/ready`.** It relays the backend's `/health/ready`: 200, or 502
     `backend_unavailable` when unreachable. It touches no database, Redis or tiers, so it answers
-    200 on an empty database.
+    200 on an empty database. A backend 404 is mapped to 502 `backend_ready_not_found`, so that
+    only a missing route (an older web image) answers 404.
   - **`deploy.sh`.** After the healthchecks it probes `/api/ready` **inside the web container**
     (`compose exec -T web wget …`, so no DNS or TLS is involved), with `DEPLOY_HEALTHCHECK_ATTEMPTS`
-    retries 2 s apart.
+    retries 2 s apart. Each request has a timeout (`wget -T`, `DEPLOY_READY_TIMEOUT_SECONDS`, default
+    5), so the whole check is bounded.
     - A failure triggers the existing automatic rollback, with a message naming
       `API_BASE_URL` / the api service.
     - An image without the route (404) fails at once.

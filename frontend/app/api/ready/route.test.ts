@@ -26,6 +26,18 @@ describe("GET /api/ready", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("http://api:8000/health/ready");
   });
 
+  it("maps a backend 404 to 502 so it never reads as a missing route", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () => Response.json({ detail: "Not Found" }, { status: 404 })),
+    );
+
+    const res = await GET(request());
+
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "backend_ready_not_found" });
+  });
+
   it("answers 502 when the backend cannot be reached", async () => {
     vi.stubGlobal(
       "fetch",

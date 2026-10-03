@@ -73,7 +73,7 @@ root="$(setup_root ok)"
 code="$(run "$root" ok deploy.sh v2.0.0)"
 [[ "$code" == "0" ]] || fail "deploy ok: exit $code, expected 0"
 [[ "$(<"$root/.release/last-successful-image-tag")" == "v2.0.0" ]] || fail "deploy ok: tag not recorded"
-grep -q "exec -T web wget -q -O /dev/null http://localhost:3000/api/ready" "$root/docker.log" ||
+grep -q "exec -T web wget -q -T 5 -O /dev/null http://localhost:3000/api/ready" "$root/docker.log" ||
   fail "deploy ok: readiness probe not run inside the web container"
 
 # 2. deploy, backend unreachable: fails, rolls back to the previous tag.
