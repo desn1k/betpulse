@@ -154,9 +154,12 @@ fixtures — and promotes the champion, snapshotting the full registry first for
 These are retrospective scores on past matches, labelled as such in the API and UI, not a verified
 forward test.
 
-> LightGBM and the consensus stack need a real dataset; on tiny inputs (e.g. CI's fixture) the
-> pipeline **skips** them with a logged note and trains Elo / Glicko-2 / Dixon-Coles / market. Run
-> the full `make train` on the VPS after `make bootstrap-history`.
+> LightGBM and the consensus stack train on temporal windows (LightGBM 60/20/20; consensus with
+> out-of-fold base probabilities, a separate later calibration window and a final test window) and
+> store predictions **only for their test window**. On tiny inputs (e.g. CI's fixture) the pipeline
+> **skips** them with an explicit reason and trains Elo / Glicko-2 / Dixon-Coles / market. Run the
+> full `make train` on the VPS after `make bootstrap-history`; multi-season history is needed before
+> they can reach the 300 common matches a champion requires.
 
 ---
 

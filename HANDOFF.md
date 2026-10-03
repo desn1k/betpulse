@@ -210,6 +210,34 @@ covered by Vitest + React Testing Library.
   коэффициентам (ретроспективно)", "… · ретро", plus "прошлые результаты не гарантируют будущих"
   wherever a quality/ROI number appears. `accuracy_pct` is a Brier skill score against the base
   rates of the same window, not accuracy.
+- **LightGBM + consensus training (ML-B)** — `app/ml/ml_training.py`, windows cut on kickoff
+  instants (`app/ml/splits.py`, never inside a same-kickoff batch, asserted disjoint and ordered):
+  - *LightGBM*: train 60 % / validation 20 % (only picks the boosting rounds by early stopping) /
+    test 20 %.
+  - *Consensus*: bases Elo, Glicko-2, Dixon-Coles (prequential) + LightGBM **out-of-fold** (rolling
+    origin over four blocks of the first 60 %: each block predicted by a LightGBM trained on the
+    earlier blocks only). Meta-model on those OOF rows, isotonic calibration on 60-80 % (never seen by
+    the meta-model; probabilities floored at 1 %), metrics on 80-100 %, which no stage was fitted on.
+    The LightGBM feeding each window is trained only on rows before it. `xg` has no predictor and is
+    not an input.
+  - Only test-window fixtures get predictions, so every stored LightGBM/consensus probability is
+    out-of-sample. MLflow logs the test metrics (`test_brier`, `test_log_loss`, `test_hit_rate`,
+    `test_skill_pct` vs *training* base rates) and the window boundaries; the registry
+    `sample_count` is the test size. Too little data → an explicit reason in
+    `TrainingSummary.skipped` (`insufficient samples (n < 200)`, `test window too small (k < 40
+    matches)`, …) — 40 / 60 / 20 are technical floors, not quality bars.
+  - **Data volume.** With today's ~400 matches both methods train, but their test window is ~80
+    matches, far below `CHAMPION_MIN_SAMPLES` (300 common matches), so they **cannot become
+    champion — intended**. On a synthetic 396-match season LightGBM scored a +4.6 % Brier index on its
+    test window and consensus −3.9 % (worse than base rates): stacking + calibration needs more data.
+    Importing multi-season history is the real prerequisite for useful ML models.
+- **Champion rule** (`apply_champion_selection`, ML-B). Inputs come from one evaluation that scored
+  every method on the same fixtures. Eligible = enabled, all metrics finite (a failed evaluation never
+  competes and is stored as NULL, not NaN), common `sample_count >= CHAMPION_MIN_SAMPLES` (300).
+  Best = lowest **Brier**, then log loss (`accuracy_pct` is display-only). A current eligible champion
+  is replaced only if the best is at least `CHAMPION_MIN_BRIER_IMPROVEMENT` (0.002) lower; with no
+  champion — or one not eligible in this evaluation — the best eligible becomes champion; with no
+  eligible method nothing changes. Each rule has a test.
 - **Idempotency everywhere.** Ingestion upserts use `ON CONFLICT DO NOTHING` on identity keys
   (`uq_fixture_identity`, odds identity, prediction identity). Tasks keyed by
   `fixture_id + method + model_version` so retries/duplicate deliveries are safe.
@@ -714,7 +742,11 @@ as its own Compose service:
   - a real forward test (predictions frozen before kickoff, scored after) before any metric is
     presented as verified;
   - drift monitoring; dataset snapshots per training run; feature-store restructuring;
-  - an xG predictor (the `xg` method has no training path; it is not a consensus input).
+  - an xG predictor (the `xg` method has no training path; it is not a consensus input);
+  - a **paired bootstrap** on per-match Brier differences (champion vs challenger on the same
+    fixtures) as a significance condition for champion changes — the 0.002 absolute margin is below
+    the noise level at ~300 matches;
+  - multi-season history import, the prerequisite for LightGBM/consensus to reach champion size.
 
 - **Auth hardening follow-ups** (found during the auth-transactions PR; separate small PRs):
   - *Lockout as a victim-DoS vector.* The per-account backoff (`LOGIN_MAX_FAILURES`, then
