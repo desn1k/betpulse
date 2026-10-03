@@ -4,37 +4,37 @@ version = "0.1.0"
 description = "Football Analytics & ML Prediction Platform — FastAPI backend"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi==0.139.0",
-    "uvicorn[standard]==0.51.0",
-    "pydantic==2.13.4",
-    "pydantic-settings==2.14.2",
+    "fastapi==0.142.1",
+    "uvicorn[standard]==0.54.0",
+    "pydantic==2.13.5",
+    "pydantic-settings==2.15.0",
     "email-validator==2.3.0",
-    "sqlalchemy[asyncio]==2.0.51",
+    "sqlalchemy[asyncio]==2.1.1",
     "asyncpg==0.31.0",
-    "alembic==1.18.5",
+    "alembic==1.20.0",
     "argon2-cffi==25.1.0",
     "pyjwt==2.15.1",
     "pyotp==2.10.0",
     # redis and cryptography are capped by arq (redis <6) and mlflow 3.16
     # (cryptography <51); both remain non-vulnerable per pip-audit. Fernet/JWT
     # compatibility across bumps: tests/test_dependency_known_answers.py.
-    "redis==5.3.1",
+    "redis==8.1.0",
     "cryptography==50.0.2",
     # Pinned above the version uvicorn would otherwise resolve, to clear
     # PYSEC-2026-2132 (fixed in 8.3.3).
-    "click==8.4.2",
+    "click==8.5.0",
     # HTTP client for providers; pandas for CSV/feature work (mlflow caps <3).
     "httpx==0.28.1",
-    "pandas==2.3.3",
+    "pandas==3.0.6",
     # ML stack (Phase 4).
-    "scipy==1.18.0",
-    "scikit-learn==1.9.0",
-    "lightgbm==4.6.0",
-    "statsmodels==0.14.6",
+    "scipy==1.18.1",
+    "scikit-learn==1.9.1",
+    "lightgbm==4.7.0",
+    "statsmodels==0.15.0",
     "mlflow==3.16.1",
-    "boto3==1.43.47",
+    "boto3==1.43.105",
     "arq==0.28.0",
-    "openai==2.45.0",
+    "openai==3.22.1",
     # IANA time zones for zoneinfo (UK-local CSV times -> UTC) independent of
     # the OS / database server time-zone files.
     "tzdata==2026.4",
@@ -50,8 +50,8 @@ dev = [
     # Read by tests/test_connection_budget.py (also an mlflow dependency).
     "pyyaml==6.0.3",
     "types-PyYAML==6.0.12.20260906",
-    "ruff==0.15.21",
-    "mypy==2.3.0",
+    "ruff==0.16.9",
+    "mypy==2.3.1",
 ]
 
 [build-system]
