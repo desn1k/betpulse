@@ -18,7 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.arq import get_arq_pool
 from app.core.deps import get_client_ip, get_db, require_admin
-from app.ml.registry import rollback_to_snapshot
+from app.ml.registry import SnapshotHasManyChampions, rollback_to_snapshot
+from app.ml.registry_lock import RegistryBusy, lock_registry
 from app.models.model_registry import ModelRegistry
 from app.models.user import User
 from app.schemas.models import (
@@ -36,6 +37,30 @@ from app.services.audit import record_event
 from app.workers.queues import enqueue
 
 router = APIRouter(prefix="/admin/models", tags=["admin-models"])
+
+REGISTRY_BUSY_DETAIL = {
+    "error": "registry_busy",
+    "message": "The model registry is being updated (re-evaluation or another admin "
+    "action). Nothing was changed; try again in a minute.",
+}
+
+
+async def get_registry_session(
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> AsyncSession:
+    """The request session, holding the registry lock until it commits. Waits at
+    most ``registry_lock_timeout_ms``, then answers 409 instead of hanging."""
+    try:
+        await lock_registry(session)
+    except RegistryBusy as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=REGISTRY_BUSY_DETAIL
+        ) from exc
+    return session
+
+
+RegistrySession = Annotated[AsyncSession, Depends(get_registry_session)]
 
 
 @router.get("", response_model=ModelsOut)
@@ -60,7 +85,7 @@ async def update_model(
     payload: ModelUpdate,
     request: Request,
     admin: Annotated[User, Depends(require_admin)],
-    session: Annotated[AsyncSession, Depends(get_db)],
+    session: RegistrySession,
 ) -> ModelOut:
     row = await session.get(ModelRegistry, model_id)
     if row is None:
@@ -86,7 +111,7 @@ async def set_weighting_mode(
     payload: WeightingModeIn,
     request: Request,
     admin: Annotated[User, Depends(require_admin)],
-    session: Annotated[AsyncSession, Depends(get_db)],
+    session: RegistrySession,
 ) -> ModelsOut:
     await model_admin.set_weighting_mode(session, payload.mode)
     await record_event(
@@ -106,7 +131,7 @@ async def set_weights(
     payload: WeightsIn,
     request: Request,
     admin: Annotated[User, Depends(require_admin)],
-    session: Annotated[AsyncSession, Depends(get_db)],
+    session: RegistrySession,
 ) -> ModelsOut:
     try:
         await model_admin.set_manual_weights(session, payload.weights)
@@ -136,7 +161,7 @@ async def set_weights(
 async def promote_model(
     model_id: uuid.UUID,
     admin: Annotated[User, Depends(require_admin)],
-    session: Annotated[AsyncSession, Depends(get_db)],
+    session: RegistrySession,
 ) -> PromoteOut:
     result = await model_admin.promote(session, model_id, actor=f"admin:{admin.id}")
     if result is None:
@@ -149,7 +174,7 @@ async def promote_model(
 async def demote_model(
     model_id: uuid.UUID,
     admin: Annotated[User, Depends(require_admin)],
-    session: Annotated[AsyncSession, Depends(get_db)],
+    session: RegistrySession,
 ) -> None:
     ok = await model_admin.demote(session, model_id, actor=f"admin:{admin.id}")
     if not ok:
@@ -184,13 +209,18 @@ async def snapshot_diff(
 async def rollback(
     snapshot_id: uuid.UUID,
     admin: Annotated[User, Depends(require_admin)],
-    session: Annotated[AsyncSession, Depends(get_db)],
+    session: RegistrySession,
 ) -> None:
     try:
         await rollback_to_snapshot(session, snapshot_id)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Snapshot not found"
+        ) from exc
+    except SnapshotHasManyChampions as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "snapshot_has_many_champions"},
         ) from exc
     await session.commit()
 

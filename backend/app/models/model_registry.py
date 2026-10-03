@@ -17,11 +17,13 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Enum,
+    Index,
     Integer,
     Numeric,
     String,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -36,9 +38,22 @@ class ModelStatus(enum.StrEnum):
     retired = "retired"
 
 
+SINGLE_CHAMPION_INDEX = "uq_model_registry_single_champion"
+
+
 class ModelRegistry(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "model_registry"
-    __table_args__ = (UniqueConstraint("method", "version", name="uq_registry_method_version"),)
+    __table_args__ = (
+        UniqueConstraint("method", "version", name="uq_registry_method_version"),
+        # One global champion, enforced by the database: a second
+        # status = 'champion' row fails, whatever code path tries it.
+        Index(
+            SINGLE_CHAMPION_INDEX,
+            "status",
+            unique=True,
+            postgresql_where=text("status = 'champion'"),
+        ),
+    )
 
     method: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
     version: Mapped[str] = mapped_column(String(64), nullable=False)

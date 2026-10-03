@@ -6,13 +6,19 @@ import { useTranslations } from "next-intl";
 
 import { ApiError } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth/store";
-import { enableWebPush, fetchFollows, followMatch, unfollowMatch } from "@/lib/push";
+import {
+  enableWebPush,
+  fetchFollows,
+  followMatch,
+  unfollowMatch,
+} from "@/lib/push";
 import { cn } from "@/lib/utils";
 
 /**
  * "Notify me" toggle for a match. Following a fixture opts the user into its
  * probability-swing pushes (Pro/Expert). Guests and free users are shown a tier
  * lock; the backend is authoritative — a 403 flips the button to the lock.
+ * The caption says what the live numbers rest on (score and minute only).
  */
 export function NotifyToggle({ id }: { id: string }) {
   const t = useTranslations();
@@ -28,14 +34,23 @@ export function NotifyToggle({ id }: { id: string }) {
     staleTime: 30_000,
   });
 
+  const caption = (
+    <span className="text-[11px] leading-snug text-muted">
+      {t("notify.liveBaseline")}
+    </span>
+  );
+
   if (!user || locked) {
     return (
-      <span
-        className="inline-flex items-center gap-1.5 rounded-pill bg-surface-muted px-3 py-1 text-xs font-semibold text-muted-strong"
-        role="note"
-      >
-        <span aria-hidden="true">🔒</span>
-        {t("notify.locked")}
+      <span className="inline-flex flex-col items-start gap-1">
+        <span
+          className="inline-flex items-center gap-1.5 rounded-pill bg-surface-muted px-3 py-1 text-xs font-semibold text-muted-strong"
+          role="note"
+        >
+          <span aria-hidden="true">🔒</span>
+          {t("notify.locked")}
+        </span>
+        {caption}
       </span>
     );
   }
@@ -63,21 +78,24 @@ export function NotifyToggle({ id }: { id: string }) {
   }
 
   return (
-    <button
-      type="button"
-      onClick={toggle}
-      disabled={busy}
-      aria-pressed={following}
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-pill px-3 py-1 text-xs font-semibold transition",
-        following
-          ? "bg-brand-soft text-brand-strong"
-          : "bg-surface-muted text-muted-strong hover:text-foreground",
-        busy && "opacity-60",
-      )}
-    >
-      <span aria-hidden="true">{following ? "🔔" : "🔕"}</span>
-      {following ? t("notify.following") : t("notify.notifyMe")}
-    </button>
+    <span className="inline-flex flex-col items-start gap-1">
+      <button
+        type="button"
+        onClick={toggle}
+        disabled={busy}
+        aria-pressed={following}
+        className={cn(
+          "inline-flex items-center gap-1.5 rounded-pill px-3 py-1 text-xs font-semibold transition",
+          following
+            ? "bg-brand-soft text-brand-strong"
+            : "bg-surface-muted text-muted-strong hover:text-foreground",
+          busy && "opacity-60",
+        )}
+      >
+        <span aria-hidden="true">{following ? "🔔" : "🔕"}</span>
+        {following ? t("notify.following") : t("notify.notifyMe")}
+      </button>
+      {caption}
+    </span>
   );
 }

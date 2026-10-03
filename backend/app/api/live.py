@@ -41,6 +41,7 @@ from app.services.live.events import (
     replay_since,
     subscribe_live_updates,
 )
+from app.services.live.recompute import LIVE_BASELINE_NOTE, live_labels
 from app.services.push.follows import (
     follow_fixture,
     followed_fixture_ids,
@@ -197,7 +198,12 @@ async def latest_swing(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No live update")
     update, home_name, away_name = row
-    probs = update.payload.get("probs", {}) if isinstance(update.payload, dict) else {}
+    payload = update.payload if isinstance(update.payload, dict) else {}
+    probs = payload.get("probs", {})
+    # Recompute stores the 1X2 probabilities flat; the response nests them by market.
+    if probs and all(isinstance(v, int | float) for v in probs.values()):
+        probs = {"1x2": probs}
+    labels = live_labels()
     return LatestSwingOut(
         fixture_id=fixture_id,
         home_team=home_name,
@@ -206,4 +212,10 @@ async def latest_swing(
         home_score=update.home_score,
         away_score=update.away_score,
         probs=probs,
+        method=str(labels["method"]),
+        # Rows written before the relabel carry the old version name; the
+        # computation was the same baseline, so the labels below still hold.
+        model_version=str(payload.get("model_version") or labels["model_version"]),
+        team_strength=bool(labels["team_strength"]),
+        note=LIVE_BASELINE_NOTE,
     )

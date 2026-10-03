@@ -20,6 +20,9 @@ export interface MethodPrediction {
   accuracy_pct: number | null;
   probs: Probs1x2;
   weight?: number | null;
+  // The trained model behind these probabilities (null if not registered).
+  model_version?: string | null;
+  mlflow_run_id?: string | null;
 }
 
 export type MethodsVisibility = "blurred_consensus" | "consensus" | "all" | "all_weights";
@@ -43,6 +46,8 @@ export interface MatchSummary {
   home_score: number | null;
   away_score: number | null;
   consensus: Probs1x2 | null;
+  consensus_model_version?: string | null;
+  consensus_mlflow_run_id?: string | null;
   champion_method: string | null;
   champion_accuracy_pct: number | null;
   last_polled_at: string | null;

@@ -5,6 +5,10 @@ weighting mode (``model_weighting`` singleton), manual weight editing, manual
 promote/demote (snapshotting first, so it is reversible), and a rollback diff
 preview. Auto mode derives weights from accuracy via the same softmax the nightly
 re-eval uses; switching back to auto recomputes them immediately.
+
+Every write here takes the registry lock first (:mod:`app.ml.registry_lock`):
+it waits at most ``registry_lock_timeout_ms`` and raises ``RegistryBusy``
+instead of hanging, so it never interleaves with a re-evaluation.
 """
 
 from __future__ import annotations
@@ -22,8 +26,10 @@ from app.ml.registry import (
     CHAMPION_DEMOTED,
     CHAMPION_PROMOTED,
     _softmax_weights,
+    demote_champions,
     snapshot_registry,
 )
+from app.ml.registry_lock import lock_registry
 from app.models.model_registry import ModelRegistry, ModelRegistrySnapshot, ModelStatus
 from app.models.model_weighting import (
     MODEL_WEIGHTING_SINGLETON,
@@ -92,6 +98,7 @@ async def recompute_auto_weights(session: AsyncSession) -> dict[str, float]:
 async def set_weighting_mode(session: AsyncSession, mode: WeightingMode) -> ModelWeighting:
     """Switch the weighting mode. Switching to ``auto`` recomputes and persists the
     softmax weights immediately (do not wait for the nightly re-eval)."""
+    await lock_registry(session)
     row = await get_weighting(session)
     row.mode = mode
     if mode == WeightingMode.auto:
@@ -102,6 +109,7 @@ async def set_weighting_mode(session: AsyncSession, mode: WeightingMode) -> Mode
 
 async def set_manual_weights(session: AsyncSession, weights: dict[str, float]) -> dict[str, float]:
     """Set per-method display weights (manual mode only). Weights must sum to 100."""
+    await lock_registry(session)
     if (await get_weighting(session)).mode != WeightingMode.manual:
         raise NotManualMode
     if abs(sum(weights.values()) - 100.0) > WEIGHT_SUM_TOLERANCE:
@@ -126,7 +134,11 @@ class PromoteResult:
 async def promote(session: AsyncSession, row_id: uuid.UUID, *, actor: str) -> PromoteResult | None:
     """Make ``row_id`` the champion (demoting the current one), snapshotting first.
     Allowed even below ``min_samples`` — the response carries a warning and the
-    audit records ``override: true`` so it is traceable. None if the row is unknown."""
+    audit records ``override: true`` so it is traceable. None if the row is unknown.
+
+    Under the registry lock the old champion is demoted and flushed **before**
+    the new one is promoted, all in the caller's transaction."""
+    await lock_registry(session)
     row = await session.get(ModelRegistry, row_id)
     if row is None:
         return None
@@ -145,10 +157,8 @@ async def promote(session: AsyncSession, row_id: uuid.UUID, *, actor: str) -> Pr
         .all()
     )
 
-    for champ in current:
-        if champ.id != row.id:
-            champ.status = ModelStatus.challenger
-            await record_event(session, action=CHAMPION_DEMOTED, target=champ.method)
+    for champ in await demote_champions(session, current, keep=row):
+        await record_event(session, action=CHAMPION_DEMOTED, target=champ.method)
     row.status = ModelStatus.champion
     await record_event(
         session,
@@ -163,6 +173,7 @@ async def promote(session: AsyncSession, row_id: uuid.UUID, *, actor: str) -> Pr
 async def demote(session: AsyncSession, row_id: uuid.UUID, *, actor: str) -> bool:
     """Demote a champion row back to challenger (snapshotting first). Returns False
     if the row is unknown; a no-op (True) if it was not champion."""
+    await lock_registry(session)
     row = await session.get(ModelRegistry, row_id)
     if row is None:
         return False

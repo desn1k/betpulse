@@ -238,6 +238,31 @@ covered by Vitest + React Testing Library.
   is replaced only if the best is at least `CHAMPION_MIN_BRIER_IMPROVEMENT` (0.002) lower; with no
   champion — or one not eligible in this evaluation — the best eligible becomes champion; with no
   eligible method nothing changes. Each rule has a test.
+- **Model governance (registry integrity, live label, traceability).** *One global champion is
+  enforced by the database:* partial unique index `uq_model_registry_single_champion` on
+  `model_registry (status) WHERE status = 'champion'` (migration `0017`; the upgrade STOPs with the
+  list if more than one champion already exists — demote the extras, then re-run). Every path that
+  changes the champion (`apply_champion_selection`, admin promote, snapshot rollback) demotes and
+  **flushes** the old champion before promoting the new one (`registry.demote_champions`) — never
+  rely on an incidental flush. A rollback demotes champions not named by the snapshot (e.g. a version
+  trained later); a legacy snapshot with two champions is refused (409
+  `snapshot_has_many_champions`). *Registry lock* (`app/ml/registry_lock.py`): a Postgres advisory
+  xact lock (two-int key space, apart from the refresh-token family keys). The nightly
+  `reevaluate_champions` **tries** it and skips the run if busy (the Redis lock in the ARQ task
+  stays); every admin registry write (PATCH, weighting mode, weights, promote, demote, rollback)
+  **waits** at most `REGISTRY_LOCK_TIMEOUT_MS` (5000) and then answers **409 `registry_busy`** —
+  never a hung request. *Live label:* the in-play numbers come from a **baseline** (Dixon-Coles
+  in-play formula with fixed league-neutral rates — same numbers for every pairing at a given score
+  and minute). It is stored and served as method `live_baseline`, model version `live-baseline-v1`,
+  `team_strength: false`, and the UI shows «Базовая in-play модель: учитывает только счёт и минуту,
+  без силы команд» under the notify toggle. Push texts were **reviewed, not disabled**: Telegram and
+  Web Push name the basis (the same note) and claim nothing about team strength or an edge.
+  Team-aware live base rates are a separate PR. *Traceability:* every served method bar carries the
+  predictions' `model_version` and that version's `mlflow_run_id` (from the registry); the consensus
+  likewise (`consensus_model_version` / `consensus_mlflow_run_id` on the list and the card).
+  *Features:* `rolling_xg_*` for a team with no shot history takes its **league's running mean** of
+  approximate xG per team-match over matches **before** the batch (`DEFAULT_LEAGUE_XG` = 1.35 until
+  the league has data), not a fixed 1.35.
 - **Data-quality report (read-only, safe on prod):** `make data-report REPORT_ARGS="[--leagues
   EPL,LALIGA] [--seasons 2025-2026] [--json] [--strict]"` (`app/services/data_quality.py`). Per
   league/season: fixtures vs expected `n×(n−1)`, teams, % with score, % with a known kickoff time
@@ -697,7 +722,7 @@ implemented.
 
 ### Pre-deploy manual checklist
 
-Run before deploying a release that contains data migrations — **currently 0014/0015 (HI-2)**:
+Run before deploying a release that contains data migrations — **currently 0014/0015 (HI-2) and 0017**:
 
 - [ ] On production, `make data-report REPORT_ARGS="--json"` (read-only): every `duplicate_fixture`
   error and every `non_canonical_season` warning is a row the migration may STOP on. Resolve them
@@ -705,6 +730,9 @@ Run before deploying a release that contains data migrations — **currently 001
 - [ ] Take a **manual `pg_dump`** of the database and keep it off the host (automated backups are not
   in place yet), e.g. `docker compose exec postgres pg_dump -U football -Fc football >
   betpulse-pre-0015.dump`.
+- [ ] Migration **0017** (single champion): on production, `SELECT method, version FROM
+  model_registry WHERE status = 'champion'` must return at most one row; otherwise the upgrade STOPs
+  with the list. Demote the extras in Admin → Models first.
 
 ### Post-deploy manual checklist
 
@@ -824,7 +852,12 @@ as its own Compose service:
   - a **paired bootstrap** on per-match Brier differences (champion vs challenger on the same
     fixtures) as a significance condition for champion changes — the 0.002 absolute margin is below
     the noise level at ~300 matches;
-  - multi-season history import, the prerequisite for LightGBM/consensus to reach champion size.
+  - multi-season history import, the prerequisite for LightGBM/consensus to reach champion size;
+  - **online inference** for upcoming fixtures: today `Prediction` rows are written only by training
+    (finished fixtures), so pre-match cards for upcoming matches need a scoring job that loads the
+    registered model (by `mlflow_run_id`) and predicts before kickoff — estimate ~5–7 days;
+  - **team-aware live base rates** from the running Dixon-Coles fit (replacing the fixed
+    `get_base_rates`), after which the live label can change from `live_baseline`.
 
 - **Auth hardening follow-ups** (found during the auth-transactions PR; separate small PRs):
   - *Lockout as a victim-DoS vector.* The per-account backoff (`LOGIN_MAX_FAILURES`, then

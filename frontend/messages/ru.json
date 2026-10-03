@@ -210,7 +210,8 @@
   "notify": {
     "notifyMe": "Уведомить",
     "following": "Уведомляем",
-    "locked": "Pro"
+    "locked": "Pro",
+    "liveBaseline": "Базовая in-play модель: учитывает только счёт и минуту, без силы команд"
   },
   "settings": {
     "title": "Настройки",
