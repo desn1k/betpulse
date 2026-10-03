@@ -730,6 +730,34 @@ implemented.
     fixes since. Do not rely on a version number — run the script on the server after installing
     or upgrading Docker.
   - **Follow-up (separate PR):** Redis `requirepass`.
+- **web → API wiring (fixed 2026-10-03).** The bug, the fix and the tests:
+  - **The bug.** The base compose gave the web container
+    `API_BASE_URL: ${API_BASE_URL:-http://api:8000}`, read from `.env`, whose example value is
+    `http://localhost:8000`. The rendered prod config confirmed it: with `.env` copied from the
+    example, the BFF called `localhost` inside its own container, so the site had no data.
+  - **Why deploys passed anyway.** `/api/health` only proves the web process is up, so `deploy.sh`
+    reported success.
+  - **The fix.**
+    - The prod overlay hardcodes the web container's `API_BASE_URL: http://api:8000`. The
+      `.env.example` value is marked dev-only.
+    - `scripts/check-compose-ports.sh` now also fails unless web's `API_BASE_URL` is
+      `http://api:8000`. CI renders it with `API_BASE_URL=http://localhost:8000` set.
+  - **A new BFF route, `GET /api/ready`.** It relays the backend's `/health/ready`: 200, or 502
+    `backend_unavailable` when unreachable. It touches no database, Redis or tiers, so it answers
+    200 on an empty database. A backend 404 is mapped to 502 `backend_ready_not_found`, so that
+    only a missing route (an older web image) answers 404.
+  - **`deploy.sh`.** After the healthchecks it probes `/api/ready` **inside the web container**
+    (`compose exec -T web wget …`, so no DNS or TLS is involved), with `DEPLOY_HEALTHCHECK_ATTEMPTS`
+    retries 2 s apart. Each request has a timeout (`wget -T`, `DEPLOY_READY_TIMEOUT_SECONDS`, default
+    5), so the whole check is bounded.
+    - A failure triggers the existing automatic rollback, with a message naming
+      `API_BASE_URL` / the api service.
+    - An image without the route (404) fails at once.
+  - **`rollback.sh`.** It runs the same probe after the rollback. A restored image that predates
+    the route only gets a warning.
+  - **Tests.** `scripts/tests/deploy-scripts-test.sh` (stubbed `docker`/`sleep`, run in CI) covers
+    6 scenarios: deploy ok, unreachable → rollback to the previous tag, old image; rollback ok,
+    unreachable, old image.
 - **Backups:** add WAL-G continuous Postgres archiving to S3-compatible storage, `make backup`, weekly
   `make restore-drill`, backup freshness checks, and Telegram ops alerting when backups are stale
   (owner target: alert if backup is older than 15 minutes).

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Fail unless the rendered production Compose configuration publishes only
 # Caddy's 80/tcp and 443/tcp. Every other service (Postgres, Redis, MinIO,
-# MLflow, the API, the web app) must stay on the internal network.
+# MLflow, the API, the web app) must stay on the internal network. It also
+# checks that the web container reaches the API at http://api:8000 whatever
+# API_BASE_URL says in .env (its example value is for local dev).
 #
 # Why a rendered check: in an override file `ports: []` is *appended* to the
 # base file's list, so it does not remove anything; only `ports: !reset []`
@@ -57,10 +59,17 @@ for name, service in sorted(config.get("services", {}).items()):
 for name, port, proto in sorted(allowed - published):
     problems.append(f"{name}: expected {port}/{proto} to be published")
 
+web_env = config.get("services", {}).get("web", {}).get("environment") or {}
+if isinstance(web_env, list):
+    web_env = dict(item.split("=", 1) for item in web_env)
+api_url = web_env.get("API_BASE_URL")
+if api_url != "http://api:8000":
+    problems.append(f"web: API_BASE_URL is {api_url!r}, expected 'http://api:8000'")
+
 if problems:
-    print("Production Compose config publishes unexpected ports:", file=sys.stderr)
+    print("Production Compose config is unsafe or miswired:", file=sys.stderr)
     for line in problems:
         print(f"  {line}", file=sys.stderr)
     sys.exit(1)
-print("OK: only caddy 80/tcp and 443/tcp are published.")
+print("OK: only caddy 80/tcp and 443/tcp are published; web reaches the API at http://api:8000.")
 PY

@@ -213,7 +213,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck
 
       - name: Validate deployment scripts
-        run: shellcheck scripts/deploy.sh scripts/rollback.sh scripts/caddy-smoke.sh scripts/check-compose-ports.sh
+        run: shellcheck scripts/deploy.sh scripts/rollback.sh scripts/caddy-smoke.sh scripts/check-compose-ports.sh scripts/tests/deploy-scripts-test.sh
+
+      - name: Deploy/rollback readiness behaviour (stubbed docker)
+        run: bash scripts/tests/deploy-scripts-test.sh
 
       - name: Validate Compose configuration (development and production)
         env:
@@ -222,6 +225,8 @@ jobs:
           PUBLIC_DOMAIN: betpulse.example.test
           GHCR_OWNER: desn1k
           IMAGE_TAG: v0.0.0-ci
+          # The dev value: production must still wire web to http://api:8000.
+          API_BASE_URL: http://localhost:8000
         run: |
           cp .env.example .env
           docker compose --env-file .env -f infra/docker-compose.yml config --quiet
