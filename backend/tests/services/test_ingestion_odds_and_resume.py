@@ -432,21 +432,29 @@ async def test_postponed_match_moves_and_its_old_closing_quote_stops_being_closi
 
 
 @pytest.mark.asyncio
-async def test_kickoff_moved_earlier_demotes_closing_quotes_after_the_new_kickoff(
+async def test_kickoff_moved_earlier_removes_quotes_at_or_after_the_new_kickoff(
     session: AsyncSession,
 ) -> None:
-    early = KICKOFF - timedelta(hours=2)
-    odds = _quotes("pinnacle", ("2.0", "3.4", "4.0"), KICKOFF, closing=True) + _quotes(
-        "other", ("2.1", "3.3", "3.9"), early, closing=True
+    moved = KICKOFF - timedelta(hours=3)
+    odds = (
+        _quotes("pinnacle", ("2.0", "3.4", "4.0"), KICKOFF, closing=True)
+        + _quotes("other", ("2.1", "3.3", "3.9"), KICKOFF - timedelta(hours=2), closing=True)
+        + _quotes("pre_in_play", ("1.9", "3.5", "4.2"), moved, closing=False)
+        + _quotes("pre_ok", ("1.9", "3.5", "4.2"), KICKOFF - timedelta(days=1), closing=False)
     )
     await _ingest(session, "src_a", [_dto("src_a", "a-1", score=None, odds=odds)])
-    moved = KICKOFF - timedelta(hours=3)
     await _ingest(session, "src_a", [_dto("src_a", "a-1", kickoff=moved, score=None)])
 
     fixture = (await session.execute(select(Fixture))).scalar_one()
     assert fixture.kickoff_at == moved
     rows = (await session.execute(select(Odds))).scalars().all()
-    assert len(rows) == 6 and not any(r.is_closing for r in rows)
+    assert {(r.bookmaker, r.is_closing) for r in rows} == {("pre_ok", False)}
+    audit = (
+        await session.execute(
+            select(AuditLog).where(AuditLog.action == "ingestion.fixture.corrected")
+        )
+    ).scalar_one()
+    assert audit.meta["odds_removed"] == 9
     report = await build_report(session, now=KICKOFF + timedelta(days=200))
     assert not [i for i in report.errors if i.code == "closing_after_kickoff"]
 

@@ -32,7 +32,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Protocol
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -485,18 +485,25 @@ async def _reconcile(
     ):
         changes["status"] = (fixture.status.value, incoming_status.value)
 
+    odds_removed = 0
     if own_source and by_ref and dto.kickoff_at != fixture.kickoff_at:
         changes["kickoff_at"] = (fixture.kickoff_at.isoformat(), dto.kickoff_at.isoformat())
         if dto.kickoff_time_known != fixture.kickoff_time_known:
             changes["kickoff_time_known"] = (fixture.kickoff_time_known, dto.kickoff_time_known)
-        # Closing quotes taken for the old date are not closing for the new one,
-        # nor is any closing quote after an earlier new kickoff.
+        # A quote at or after an earlier new kickoff is an in-play price for the
+        # real match: removed, as the time rule never stores one.
+        removed = await session.execute(
+            delete(Odds).where(Odds.fixture_id == fixture.id, Odds.ts >= dto.kickoff_at)
+        )
+        odds_removed = removed.rowcount or 0  # type: ignore[attr-defined]
+        # Closing quotes taken for the old date (all before the new kickoff now)
+        # are not closing for the new one.
         await session.execute(
             update(Odds)
             .where(
                 Odds.fixture_id == fixture.id,
                 Odds.is_closing.is_(True),
-                or_(Odds.ts == fixture.kickoff_at, Odds.ts > dto.kickoff_at),
+                Odds.ts == fixture.kickoff_at,
             )
             .values(is_closing=False)
         )
@@ -520,6 +527,7 @@ async def _reconcile(
             "provider": provider,
             "external_id": dto.external_id,
             "changes": {k: [str(old), str(new)] for k, (old, new) in changes.items()},
+            **({"odds_removed": odds_removed} if odds_removed else {}),
         },
     )
 

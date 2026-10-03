@@ -285,7 +285,7 @@ covered by Vitest + React Testing Library.
   no gaps/overlaps, open at both ends), default Pinnacle until 2025-07-23 and `market_avg` after.
   *Corrections:* when a record finds an existing fixture, empty fields are filled from any source;
   the fixture's **own** source may correct the score — and, found by its own id, move the kickoff
-  (postponement; closing quotes at the old kickoff or after the new one stop being closing) — audited as
+  (postponement; old-kickoff closing quotes stop being closing; when the kickoff moves earlier, quotes at or after the new kickoff are removed, counted in the audit as `odds_removed`) — audited as
   `ingestion.fixture.corrected`; a **different** source disagreeing with a stored score changes
   nothing and is recorded in `ingestion_conflicts`, shown by `data-report` as
   `score_conflict_across_sources`. *Runs:* `run_recorded_ingestion` (admin re-scan, ARQ task and the
