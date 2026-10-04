@@ -27,6 +27,7 @@ from app.api.system import router as system_router
 from app.api.users import admin_router as users_admin_router
 from app.core.config import get_settings
 from app.core.deps import get_client_ip
+from app.core.outbound import install_log_safety
 from app.core.redis import get_redis
 from app.core.security_headers import SECURITY_HEADERS
 from app.services.rate_limit import RateLimitExceeded, enforce_admin_mutation_ip_limit
@@ -45,6 +46,7 @@ def _with_security_headers(response: Response) -> Response:
 
 def create_app() -> FastAPI:
     """Build and configure the FastAPI application."""
+    install_log_safety()
     settings = get_settings()
 
     app = FastAPI(

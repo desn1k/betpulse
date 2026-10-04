@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 
+from app.core.outbound import check_status, outbound_client
 from app.providers.base import (
     BaseProvider,
     Capability,
@@ -48,7 +49,8 @@ class ApiFootballProvider(BaseProvider):
         self._timeout = timeout
 
     def _client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(
+        return outbound_client(
+            secrets=[self._api_key],
             base_url=self._base_url,
             headers={"x-apisports-key": self._api_key},
             timeout=self._timeout,
@@ -57,7 +59,7 @@ class ApiFootballProvider(BaseProvider):
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         async with self._client() as client:
             resp = await client.get(path, params=params or {})
-            resp.raise_for_status()
+            check_status(resp)
             data: dict[str, Any] = resp.json()
             return data
 

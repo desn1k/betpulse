@@ -30,6 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.core.outbound import outbound_client
 from app.models.live import PushChannel, PushFollow, PushSubscription
 from app.models.user import User
 from app.services.limits import release_push, reserve_push
@@ -115,8 +116,11 @@ def _audience(endpoint: str) -> str:
 
 async def send_telegram(settings: Settings, chat_id: str, text: str) -> None:
     url = f"{settings.telegram_api_base_url}/bot{settings.telegram_bot_token}/sendMessage"
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(url, json={"chat_id": chat_id, "text": text})
+    try:
+        async with outbound_client(secrets=[settings.telegram_bot_token], timeout=15.0) as client:
+            resp = await client.post(url, json={"chat_id": chat_id, "text": text})
+    except httpx.HTTPError as exc:
+        raise PushError(f"telegram transport error: {type(exc).__name__}") from exc
     if resp.status_code >= 400:
         raise PushError(f"telegram send failed: {resp.status_code}")
 
@@ -150,7 +154,7 @@ async def send_webpush(settings: Settings, endpoint: str) -> None:
     }
     try:
         async with (
-            httpx.AsyncClient(timeout=WEBPUSH_TIMEOUT_SECONDS, follow_redirects=False) as client,
+            outbound_client(timeout=WEBPUSH_TIMEOUT_SECONDS, follow_redirects=False) as client,
             client.stream(
                 "POST",
                 pinned_url(endpoint, ip),

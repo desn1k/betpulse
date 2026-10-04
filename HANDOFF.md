@@ -1261,10 +1261,41 @@ confirmation.
     losing the key makes every stored secret unrecoverable.
   - `SECRET_KEY` (JWT signing) also lives only in `.env`.
 - **Keys never appear in chat, logs or audit.**
-  - The Odds API takes the key only as an `apiKey` query parameter, so the shared HTTP client sets
-    the `httpx` logger to WARNING and scrubs keys from every URL in our log lines and exception
-    texts. A test enforces this.
-  - Sportmonks takes the token in the `Authorization` header.
+  - The Odds API takes the key only as an `apiKey` query parameter. Sportmonks takes the token in
+    the `Authorization` header or as `?api_token=`.
+  - **Outbound scrubber (shipped 2026-10-05, `app/core/outbound.py`).**
+    - **Clients.** Every outbound HTTP call goes through `outbound_client(secrets=[...])` and
+      `check_status()` (never `raise_for_status`). Their exceptions are copies of the same httpx
+      class, rebuilt on the redacted URL, with no exception chain, so the original request and
+      its headers cannot be reached. Today that covers Telegram (push and ops alerts),
+      API-Football, football-data and Web Push.
+    - **Guard.** `tests/test_outbound_guard.py` fails on any other client in `app/`: httpx async or
+      sync, `raise_for_status`, requests, aiohttp, urllib3, urllib.request, http.client.
+      - The one exception is the OpenAI SDK in `app/services/llm/analysis.py`. Its key is a
+        header, it is registered as a secret, and a test checks that an SDK error carries no key.
+      - **New provider clients (Sportmonks, The Odds API) must use `outbound_client` and pass
+        their key in `secrets`.**
+    - **Log safety net.** `install_log_safety()` runs at every entry point: `create_app`, the
+      ARQ worker module, `app.cli`, `app.bootstrap`. It wraps the LogRecord factory, so every
+      logger's message, arguments, traceback and stack are redacted.
+    - **What is redacted:**
+      - URL userinfo;
+      - query parameters `apikey`, `api_key`, `api_token`, `key`, `token`, `access_token`,
+        `refresh_token`, `auth`, `secret`, `client_secret`, `password`, `signature`, `sig`, also
+        in a bare path;
+      - Telegram bot tokens;
+      - the values of sensitive headers (`authorization`, `x-apisports-key`, `x-rapidapi-key`,
+        `x-api-key`, `api-key`, `x-auth-token`, cookies);
+      - every registered secret, raw and URL-encoded: settings secrets at start-up, and client
+        keys when they are used.
+    - **Quiet loggers.** `httpx`, `httpcore` and `openai` stay at WARNING whatever the app's log
+      level: their INFO/DEBUG lines carry full URLs or request options.
+    - **Fixtures guard.** The same test file scans `tests/fixtures/**` (saved provider responses,
+      now and later) for key-looking strings and for the value of any secret in the environment
+      or the local repo-root `.env`. Failures name the file and the kind of match, never the
+      value. Replace keys with `REDACTED` before committing a fixture.
+    - **If Sentry is wired up** (`SENTRY_DSN` is read nowhere today), add a `before_send` that
+      runs `redact_text` over the event, and do not send local variables.
   - Provider audit entries record field names only (already the case).
 
 - **Replacing football-data rows in production (provider PR 2b) — future upgrade only.**

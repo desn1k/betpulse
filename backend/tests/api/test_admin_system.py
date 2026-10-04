@@ -5,7 +5,9 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
+import respx
 from app.core.security import create_access_token
 from app.models.audit_log import AuditLog
 from app.models.user import User, UserRole
@@ -223,59 +225,28 @@ async def test_ops_alert_delivery_failure_returns_502_without_audit(
 
 
 @pytest.mark.asyncio
-async def test_ops_alert_http_error_becomes_delivery_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import httpx
+@respx.mock
+async def test_ops_alert_http_error_becomes_delivery_error() -> None:
     from app.core.config import Settings
     from app.services import ops_alerts
 
-    class ErrorResponse:
-        status_code = 500
-
-    class ErrorClient:
-        def __init__(self, *, timeout: float) -> None:
-            self.timeout = timeout
-
-        async def __aenter__(self) -> ErrorClient:
-            return self
-
-        async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
-            return None
-
-        async def post(self, url: str, *, json: dict[str, str]) -> ErrorResponse:
-            return ErrorResponse()
-
-    monkeypatch.setattr(httpx, "AsyncClient", ErrorClient)
+    respx.post("https://api.telegram.org/bottoken/sendMessage").mock(
+        return_value=httpx.Response(500)
+    )
     settings = Settings(telegram_bot_token="token", telegram_alert_chat_id="chat")
     with pytest.raises(ops_alerts.OpsAlertDeliveryFailed, match="500"):
         await ops_alerts.send_ops_alert(settings, "hello")
 
 
 @pytest.mark.asyncio
-async def test_ops_alert_transport_error_becomes_delivery_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import httpx
+@respx.mock
+async def test_ops_alert_transport_error_becomes_delivery_error() -> None:
     from app.core.config import Settings
     from app.services import ops_alerts
 
-    class FailingClient:
-        def __init__(self, *, timeout: float) -> None:
-            self.timeout = timeout
-
-        async def __aenter__(self) -> FailingClient:
-            return self
-
-        async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
-            return None
-
-        async def post(self, url: str, *, json: dict[str, str]) -> object:
-            import httpx
-
-            raise httpx.ConnectError("boom")
-
-    monkeypatch.setattr(httpx, "AsyncClient", FailingClient)
+    respx.post("https://api.telegram.org/bottoken/sendMessage").mock(
+        side_effect=httpx.ConnectError("boom")
+    )
     settings = Settings(telegram_bot_token="token", telegram_alert_chat_id="chat")
-    with pytest.raises(ops_alerts.OpsAlertDeliveryFailed):
+    with pytest.raises(ops_alerts.OpsAlertDeliveryFailed, match="ConnectError"):
         await ops_alerts.send_ops_alert(settings, "hello")

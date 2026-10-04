@@ -22,6 +22,7 @@ from arq.typing import WorkerCoroutine
 from arq.worker import Function, func
 
 from app.core.config import get_settings
+from app.core.outbound import install_log_safety
 from app.workers.queues import Queue, enqueue, queue_for
 from app.workers.tasks import (
     ingest_history_task,
@@ -37,6 +38,10 @@ from app.workers.tasks import (
 # healthcheck) fails once ARQ lets the key expire shortly after this.
 HEALTH_CHECK_INTERVAL_SECONDS = 30
 REDIS_SETTINGS = RedisSettings.from_dsn(get_settings().redis_url)
+
+# Every worker process imports this module: scrub its logs (ARQ logs a failed
+# job's exception text and traceback, which may carry a provider URL).
+install_log_safety()
 
 
 def _parse_cron_hour_minute(expr: str) -> tuple[int, int]:
