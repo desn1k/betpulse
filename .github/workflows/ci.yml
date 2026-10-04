@@ -279,7 +279,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck
 
       - name: Validate deployment scripts
-        run: shellcheck scripts/deploy.sh scripts/rollback.sh scripts/caddy-smoke.sh scripts/check-compose-ports.sh scripts/tests/deploy-scripts-test.sh
+        run: shellcheck scripts/deploy.sh scripts/rollback.sh scripts/caddy-smoke.sh scripts/check-compose-ports.sh scripts/caddy-domain-smoke.sh scripts/tests/deploy-scripts-test.sh
 
       - name: Deploy/rollback readiness behaviour (stubbed docker)
         run: bash scripts/tests/deploy-scripts-test.sh
@@ -313,3 +313,13 @@ jobs:
       - name: Caddy routing smoke test
         timeout-minutes: 5
         run: bash scripts/caddy-smoke.sh
+
+      # Through the rendered prod config, not `docker run -e`: the overlay must
+      # pass PUBLIC_DOMAIN to the caddy container (printenv, curl --resolve).
+      - name: Caddy receives PUBLIC_DOMAIN (production Compose config)
+        timeout-minutes: 5
+        env:
+          POSTGRES_PASSWORD: ci-postgres-password
+          GHCR_OWNER: desn1k
+          IMAGE_TAG: v0.0.0-ci
+        run: bash scripts/caddy-domain-smoke.sh .env

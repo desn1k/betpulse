@@ -839,6 +839,26 @@ implemented.
       `http://127.0.0.1:8081/healthz`.
     - `caddy-smoke.sh` now checks it.
     - Verified with `PUBLIC_DOMAIN=betpulse.example.test`.
+- **Caddy never received PUBLIC_DOMAIN (fixed 2026-10-04, found in the rc3 rehearsal).**
+  - **The bug.** The Caddyfile's site address is `{$PUBLIC_DOMAIN:localhost}`, but the prod
+    overlay gave the caddy service no `environment` and no `env_file`. In the rendered config its
+    environment was empty and `printenv PUBLIC_DOMAIN` in the container printed nothing, so Caddy
+    always served `localhost`. On a real server it would never have requested a certificate for
+    the domain or served requests to it.
+  - **Why it was hidden.** The rehearsals used `PUBLIC_DOMAIN=localhost`, and CI's Caddy checks
+    passed the value with `docker run -e`.
+  - **The fix.**
+    - The overlay passes `PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?…}` to caddy, so an empty value fails
+      `compose config` (and every deploy) at once.
+    - `scripts/check-compose-ports.sh` fails if caddy gets no `PUBLIC_DOMAIN`.
+    - `scripts/caddy-domain-smoke.sh` (CI) starts caddy alone from the real prod config, with no
+      `-e`:
+      - with `example.test`: `printenv`, the site hosts in Caddy's live config (admin API) and
+        `curl --resolve` (308 to `https://example.test/`);
+      - with `betpulse.localhost`: `curl --resolve` over HTTPS answers `/healthz`.
+      - Why two names: `example.test` makes Caddy go to ACME, which cannot succeed in CI, so it
+        has no certificate. Caddy issues `*.localhost` certificates from its internal CA, and with
+        the variable missing that handshake fails. Checked both ways locally.
 - **API image lacked libgomp1 (fixed 2026-10-04).**
   - **The bug.** LightGBM's wheel links the OpenMP runtime, which `python:3.12-slim` does not ship.
     In the rc2 rehearsal all three workers crash-looped at startup with
@@ -963,6 +983,44 @@ config) — CI only proves the image builds (`Docker images build`), not that it
 
 - [ ] From the real frontend image: `GET /api/health`, `GET /` and `GET /performance` all respond
   `200` (the standalone trace excludes `typescript`; a missing runtime module would surface here).
+
+### rc3 dress rehearsal (2026-10-04)
+
+`v0.0.1-rc3` (main `1b0a5dd`) was deployed from scratch with `scripts/deploy.sh` on Docker
+Desktop, with empty volumes, `ENVIRONMENT=production`, `PUBLIC_DOMAIN=localhost` and generated
+secrets.
+- **Passed:**
+  - all 9 services healthy; `check-compose-ports.sh` OK; Alembic at head on Timescale 2.30.2;
+  - `/api/health`, `/api/ready`, and `/` and `/performance` in ru and en through Caddy;
+  - `create-admin` and admin login;
+  - one job on each queue: batch and ml ran theirs, all three workers have a heartbeat;
+  - an MLflow run from `worker-ml`, its artifact on the volume and loaded back through the proxy,
+    and the UI through a socat forwarder.
+- **Rollback checks:**
+  - a missing tag failed at pull and changed nothing;
+  - a deliberate deploy of rc2 (no libgomp) failed and rolled back to rc3;
+  - the database was unchanged afterwards (Alembic head, admin login), and `rollback.sh` passed.
+- **Findings, each its own PR:**
+  - F1: caddy got no `PUBLIC_DOMAIN` (fixed above);
+  - F2: the MLflow image is built on the server and never rebuilt by `deploy.sh`;
+  - F3: without `API_FOOTBALL_KEY` the live poll calls the API every minute and fails with 403;
+  - F4: `deploy.sh`'s automatic rollback does not wait for health or `/api/ready`.
+
+### First VPS launch: items no rehearsal could verify
+
+Check these on the server during the first launch (runbook: `docs/DEPLOY_VPS.md`, in progress):
+
+- [ ] **ACME on the real domain.** The DNS A/AAAA records point at the server, and Caddy obtains
+  the certificate: check the caddy logs and `curl -I https://<domain>/healthz`.
+- [ ] **`.env` permissions.** `chmod 600 .env` and the file is owned by the deploy user; check
+  with `stat -c '%a %U' .env`. NTFS on the rehearsal machine ignores modes.
+- [ ] **Listening sockets.** `sudo ss -tlnp` shows nothing but 22/80/443 on public addresses. The
+  rehearsal could only check `docker ps`.
+- [ ] **GHCR login.** `docker login ghcr.io` on the server with a read-only token
+  (`read:packages`), then `docker compose pull`. The rehearsal pulled with the workstation's
+  login.
+- [ ] **MLflow over an SSH tunnel.** Start the socat forwarder on `127.0.0.1:5001`, run
+  `ssh -L 5001:127.0.0.1:5001`, then open the UI. Only the forwarder itself was checked locally.
 
 ## 9j. Legal & compliance (Russian Federation)
 
