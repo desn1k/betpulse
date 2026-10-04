@@ -96,12 +96,14 @@ wait_for_bff_ready() {
 # migration 0003 creates it at the image's version, so nothing is done.
 update_timescale_extension() {
   local installed
+  # shellcheck disable=SC2016  # $POSTGRES_* expand in the container's shell
   installed="$(compose exec -T postgres sh -c 'psql -X -At -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
     <<<"SELECT extversion FROM pg_extension WHERE extname = 'timescaledb';")"
   if [[ -z "$installed" ]]; then
     return 0
   fi
   echo "TimescaleDB extension $installed installed; running ALTER EXTENSION timescaledb UPDATE."
+  # shellcheck disable=SC2016  # $POSTGRES_* expand in the container's shell
   compose exec -T postgres sh -c 'psql -X -At -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
     <<<"ALTER EXTENSION timescaledb UPDATE;"
 }
