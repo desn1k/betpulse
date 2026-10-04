@@ -33,7 +33,7 @@ dependencies = [
     "statsmodels==0.14.6",
     "mlflow==3.16.1",
     "arq==0.28.0",
-    "openai==2.45.0",
+    "openai==3.22.1",
     # IANA time zones for zoneinfo (UK-local CSV times -> UTC) independent of
     # the OS / database server time-zone files.
     "tzdata==2026.4",
