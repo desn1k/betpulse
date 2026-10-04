@@ -344,9 +344,7 @@ async def _live_fixture(session: AsyncSession) -> uuid.UUID:
 
 
 @pytest.mark.asyncio
-async def test_live_numbers_are_stored_and_served_as_the_baseline(
-    client: AsyncClient, session: AsyncSession
-) -> None:
+async def test_live_numbers_are_stored_as_the_baseline(session: AsyncSession) -> None:
     fid = await _live_fixture(session)
     await recompute_fixture(
         session,
@@ -365,17 +363,6 @@ async def test_live_numbers_are_stored_and_served_as_the_baseline(
     assert update.payload["method"] == "live_baseline"
     assert update.payload["model_version"] == "live-baseline-v1"
     assert update.payload["team_strength"] is False
-
-    resp = await client.get(f"/live/push/latest/{fid}")
-    assert resp.status_code == 200  # the flat stored probs no longer break the response
-    body = resp.json()
-    assert body["probs"]["1x2"]["home"] == pytest.approx(update.payload["probs"]["home"])
-    assert (body["method"], body["model_version"], body["team_strength"]) == (
-        "live_baseline",
-        "live-baseline-v1",
-        False,
-    )
-    assert body["note"] == LIVE_BASELINE_NOTE
 
 
 def test_swing_push_text_names_its_basis_and_claims_no_strength() -> None:

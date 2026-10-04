@@ -533,10 +533,23 @@ lock; unmapped API-Football team/league during live → structured warning + ski
   (`limits:push:{user}:{day}`) is *peeked before* delivery (never overspend) and *incremented only on
   a successful* delivery — a failed push does not consume the budget. The per-(user, fixture) window
   rate-limit from Phase 5 is unchanged.
-- **Web Push = tickle + fetch (no payload crypto).** The push body is the fixture id; the service
-  worker (`frontend/public/sw.js`) fetches the public `GET /live/push/latest/{id}` snapshot and
-  renders the notification, then opens `/matches/{id}` on click. RFC 8291 payload encryption is
-  intentionally avoided.
+- **Web Push = tickle only (no payload crypto).** `send_webpush` posts an empty body. The service
+  worker (`frontend/public/sw.js`) shows a generic, localized notification (ru, else en) and opens
+  the home page on click, or `/matches/{id}` if a push ever carries a fixture id (UUIDs only, never
+  arbitrary text in the URL). On install it calls `skipWaiting()`, and on activate
+  `clients.claim()`, so a new version takes over open tabs at once. Bump `SW_VERSION` on every
+  change. `frontend/lib/serviceWorker.test.ts` runs the worker in a fake scope.
+  - **The snapshot endpoint was removed (2026-10-05, audit A3).**
+    - **Why.** `GET /live/push/latest/{id}` and its BFF route were public and served in-play
+      probabilities to guest and free users, who may not open the live stream
+      (`live_recompute`). Nothing legitimate used it: the push body is empty, so the worker never
+      knew a fixture id.
+    - **Bring it back only together with:**
+      1. RFC 8291 payload encryption carrying the fixture id;
+      2. a tier check (`live_recompute`);
+      3. authorization that works without the user's access token, which the service worker does
+         not have. For example, a short-lived signed token placed in the encrypted payload and
+         bound to (user, fixture); never a public GET.
 - **Dead endpoints are pruned.** A Web Push `404/410` raises `PushGone`; `dispatch_push` deletes that
   subscription row so it is not retried forever.
 - **Web Push SSRF guard (fixed 2026-10-04, audit finding A1).**
@@ -1436,8 +1449,9 @@ PR sequence:
     (finished fixtures), so pre-match cards for upcoming matches need a scoring job that loads the
     registered model (by `mlflow_run_id`) and predicts before kickoff — estimate ~5–7 days;
   - **Web Push payload**: `send_webpush` posts an empty body (no RFC 8291 payload encryption), so
-    the service worker never gets the fixture id and always shows its generic, localized text;
-    sending the id (encrypted) would let it render the match and the baseline numbers;
+    the service worker never gets the fixture id and always shows its generic, localized text.
+    Sending the id (encrypted) would let it render the match and the baseline numbers. The snapshot
+    it would need was removed in audit A3; see §9f for the conditions to bring it back;
   - **team-aware live base rates** from the running Dixon-Coles fit (replacing the fixed
     `get_base_rates`), after which the live label can change from `live_baseline`.
 

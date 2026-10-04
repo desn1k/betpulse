@@ -132,7 +132,7 @@ only on success, with the Phase-5 per-(user, fixture) window rate-limit still in
 endpoints (404/410) are pruned automatically.
 
 Two channels: **Web Push** (VAPID) delivers a data-less tickle that the service worker turns into a
-notification by fetching the public `GET /live/push/latest/{id}` snapshot; **Telegram** is connected
+generic, localized notification (no live numbers are fetched; see HANDOFF §9f); **Telegram** is connected
 via a one-time deep link (`t.me/<bot>?start=<token>`, hashed single-use token) whose `/start` reaches
 a webhook authenticated by a constant-time `X-Telegram-Bot-Api-Secret-Token` check — a bad/missing
 secret is logged and answered `200 OK` so Telegram never retries. The frontend adds a tier-locked
