@@ -94,18 +94,25 @@ wait_for_bff_ready() {
 # revision (that fails: "cannot be updated after the old version has already
 # been loaded"). On the first launch the extension does not exist yet and
 # migration 0003 creates it at the image's version, so nothing is done.
+# Every connectable database is checked, so the one DATABASE_URL (Alembic)
+# targets is covered whatever its name; today only that database has it.
+psql_in() {
+  # psql -X in a fresh session on database $1, SQL on stdin.
+  # shellcheck disable=SC2016  # $POSTGRES_USER / $BP_DB expand in the container's shell
+  compose exec -T -e BP_DB="$1" postgres \
+    sh -c 'psql -X -At -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$BP_DB"'
+}
+
 update_timescale_extension() {
-  local installed
-  # shellcheck disable=SC2016  # $POSTGRES_* expand in the container's shell
-  installed="$(compose exec -T postgres sh -c 'psql -X -At -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
-    <<<"SELECT extversion FROM pg_extension WHERE extname = 'timescaledb';")"
-  if [[ -z "$installed" ]]; then
-    return 0
-  fi
-  echo "TimescaleDB extension $installed installed; running ALTER EXTENSION timescaledb UPDATE."
-  # shellcheck disable=SC2016  # $POSTGRES_* expand in the container's shell
-  compose exec -T postgres sh -c 'psql -X -At -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
-    <<<"ALTER EXTENSION timescaledb UPDATE;"
+  local databases db installed
+  databases="$(psql_in postgres <<<"SELECT datname FROM pg_database WHERE datallowconn ORDER BY datname;")"
+  while IFS= read -r db; do
+    [[ -n "$db" ]] || continue
+    installed="$(psql_in "$db" <<<"SELECT extversion FROM pg_extension WHERE extname = 'timescaledb';")"
+    [[ -n "$installed" ]] || continue
+    echo "TimescaleDB $installed in database $db; running ALTER EXTENSION timescaledb UPDATE."
+    psql_in "$db" <<<"ALTER EXTENSION timescaledb UPDATE;"
+  done <<<"$databases"
 }
 
 previous_tag=""

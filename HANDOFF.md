@@ -809,8 +809,11 @@ implemented.
       command of its own session; inside a transaction it fails with "cannot be updated after the
       old version has already been loaded" (checked).
     - So `deploy.sh` now runs `update_timescale_extension` after postgres is healthy and **before**
-      the migrations. It uses two fresh `psql -X` sessions: one checks `extversion`, the other runs
-      `ALTER EXTENSION timescaledb UPDATE`.
+      the migrations. In **every connectable database** it checks `extversion` in one fresh
+      `psql -X` session and, where the extension is installed, runs
+      `ALTER EXTENSION timescaledb UPDATE` in another. The database that `DATABASE_URL` (Alembic)
+      targets is therefore covered whatever its name; today it is the only one with the extension.
+      `mlflow`, `postgres` and `template1` have none.
     - On the first launch the extension does not exist yet (migration 0003 creates it at the image
       version), so the step is skipped.
     - Checked on a real 2.17.2 volume: upgraded to 2.30.2; a second run is a no-op NOTICE. The
