@@ -539,6 +539,42 @@ lock; unmapped API-Football team/league during live → structured warning + ski
   intentionally avoided.
 - **Dead endpoints are pruned.** A Web Push `404/410` raises `PushGone`; `dispatch_push` deletes that
   subscription row so it is not retried forever.
+- **Web Push SSRF guard (fixed 2026-10-04, audit finding A1).**
+  - **The bug.** `POST /live/push/subscribe` stored any string as a Web Push endpoint, and
+    worker-realtime POSTed to it on every swing push. A Pro user could make the server call
+    `http://mlflow:5000`, `http://api:8000` or a cloud metadata address (blind: empty body,
+    response not returned).
+  - **The guard** (`app/services/live/push_endpoint.py`) runs when a subscription is stored
+    (422 `Unsupported push endpoint`) **and** before every send:
+    - URL shape: `https` only, default port, no userinfo, a host name (no IP literal), ASCII,
+      at most 512 characters;
+    - host allowlist: `WEBPUSH_ALLOWED_HOSTS` (default `fcm.googleapis.com`,
+      `updates.push.services.mozilla.com`, `web.push.apple.com`, `.notify.windows.com`). A
+      leading `.` means any subdomain, and lookalikes such as `fcm.googleapis.com.evil.example`
+      fail;
+    - DNS: **every** answer must be public. Refused classes: private, loopback, link-local
+      (`169.254.169.254`), CGNAT (`100.64/10`, which includes Alibaba's metadata address),
+      multicast, reserved, documentation and benchmark ranges; IPv6 ULA (`fd00:ec2::254`),
+      site-local, link-local and scoped addresses; IPv4 inside IPv6 (mapped, NAT64, 6to4, Teredo)
+      is judged by its IPv4 address.
+  - **Sending.**
+    - The request goes to the **checked IP** (pinned), with `Host` and TLS SNI set to the push
+      host, so the certificate is still verified for the name and a DNS rebinding between check
+      and connect is never followed.
+    - Redirects are not followed; a 3xx counts as a failure.
+    - Timeout is 10 s. The response body is never read or logged.
+    - An endpoint refused at send time (a pre-guard row, or DNS that now answers a private
+      address) is pruned like a 404/410.
+    - A DNS failure, a timeout, or a TLS or connection error is a plain `PushError`: retried
+      once, and logged with the exception class only, because httpx messages carry the URL.
+  - VAPID signing is unchanged; the JWT `aud` is still the push service's origin.
+  - Checked live from a workstation: FCM answered 410 and Apple 400 through the pinned address.
+    Mozilla was unreachable from that network even with plain curl.
+  - **Defence in depth, not done:** egress segmentation for `worker-realtime`, so it can reach
+    only DNS, the push services, Telegram and the live data provider, and not the internal
+    `mlflow`/`api` services or the metadata address. Options: a separate Compose network without
+    the internal services plus a host firewall (`DOCKER-USER` chain) for metadata, or an egress
+    proxy with a host allowlist. Revisit after the audit PRs.
 - **Telegram deep-link.** `telegram_link_tokens` (SHA-256 hash only, single-use `used_at`, 15-min
   expiry — the DB row is the sole source of truth, no Redis copy). `POST /push/telegram/link` mints
   `t.me/<bot>?start=<token>` (Pro/Expert); Telegram's `/start` hits `POST /push/telegram/webhook`,
@@ -1358,6 +1394,15 @@ PR sequence:
     sending the id (encrypted) would let it render the match and the baseline numbers;
   - **team-aware live base rates** from the running Dixon-Coles fit (replacing the fixed
     `get_base_rates`), after which the live label can change from `live_baseline`.
+
+- **Before registration is opened to the public** (audit 1b, O2): `POST /auth/register` has no
+  rate limit and answers `409 Email already registered`, which lets anyone check whether an
+  address has an account. Before any sign-up form or BFF route exposes it:
+  - add a per-IP and per-email rate limit;
+  - answer the same way whether or not the address exists (for example `202` plus an email to
+    the address);
+  - test both.
+  Today neither the BFF nor Caddy routes to it.
 
 - **Auth hardening follow-ups** (found during the auth-transactions PR; separate small PRs):
   - *Lockout as a victim-DoS vector.* The per-account backoff (`LOGIN_MAX_FAILURES`, then

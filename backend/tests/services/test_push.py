@@ -32,6 +32,36 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 TELEGRAM_URL = "https://api.telegram.org/botTEST/sendMessage"
 
+# A real-world Chrome endpoint shape, and the public address the fake DNS gives it.
+FCM_ENDPOINT = "https://fcm.googleapis.com/fcm/send/dXJ0aWNsZQ:APA91bHqT0"
+FCM_IP = "142.250.74.10"
+FCM_PINNED = f"https://{FCM_IP}/fcm/send/dXJ0aWNsZQ:APA91bHqT0"
+
+
+def _fake_dns(monkeypatch: pytest.MonkeyPatch, *answers: list[str]) -> list[str]:
+    """Replace DNS for the SSRF guard; each call returns the next answer (the
+    last one repeats). Returns the list of hosts looked up."""
+    looked_up: list[str] = []
+    queue = list(answers)
+
+    async def fake(host: str) -> list[str]:
+        looked_up.append(host)
+        return queue.pop(0) if len(queue) > 1 else queue[0]
+
+    monkeypatch.setattr("app.services.live.push_endpoint._getaddrinfo", fake)
+    return looked_up
+
+
+def _vapid_settings(**overrides: object) -> Settings:
+    priv = ec.generate_private_key(ec.SECP256R1())
+    scalar = priv.private_numbers().private_value.to_bytes(32, "big")
+    return _settings(
+        webpush_vapid_private_key=base64.urlsafe_b64encode(scalar).rstrip(b"=").decode(),
+        webpush_vapid_public_key="BPUBLICKEY",
+        webpush_contact_email="admin@example.com",
+        **overrides,
+    )
+
 
 def _settings(**overrides: object) -> Settings:
     base: dict[str, object] = {
@@ -178,15 +208,13 @@ async def test_free_tier_receives_nothing(session: AsyncSession) -> None:
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_prunes_dead_webpush_endpoint(session: AsyncSession) -> None:
-    endpoint = "https://push.example.com/sub/dead"
-    respx.post(endpoint).mock(return_value=httpx.Response(410))  # Gone
-    priv = ec.generate_private_key(ec.SECP256R1())
-    scalar = priv.private_numbers().private_value.to_bytes(32, "big")
-    settings = _settings(
-        webpush_vapid_private_key=base64.urlsafe_b64encode(scalar).rstrip(b"=").decode(),
-        webpush_vapid_public_key="BPUBLICKEY",
-    )
+async def test_prunes_dead_webpush_endpoint(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    endpoint = FCM_ENDPOINT
+    _fake_dns(monkeypatch, [FCM_IP])
+    respx.post(FCM_PINNED).mock(return_value=httpx.Response(410))  # Gone
+    settings = _vapid_settings()
     user_id = await _make_user(session)
     fixture_id = await _make_fixture(session)
     session.add(PushSubscription(user_id=user_id, channel=PushChannel.webpush, endpoint=endpoint))
@@ -235,29 +263,133 @@ async def test_failure_retries_once_then_discards(session: AsyncSession) -> None
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_webpush_sends_vapid_authenticated_request() -> None:
-    endpoint = "https://push.example.com/sub/abc"
-    route = respx.post(endpoint).mock(return_value=httpx.Response(201))
-    priv = ec.generate_private_key(ec.SECP256R1())
-    scalar = priv.private_numbers().private_value.to_bytes(32, "big")
-    settings = _settings(
-        webpush_vapid_private_key=base64.urlsafe_b64encode(scalar).rstrip(b"=").decode(),
-        webpush_vapid_public_key="BPUBLICKEY",
-        webpush_contact_email="admin@example.com",
+async def test_webpush_sends_vapid_authenticated_request_to_the_pinned_ip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The request goes to the address the guard checked, yet still speaks to
+    the push service by name (Host + TLS SNI) and carries the unchanged VAPID
+    authentication and empty body."""
+    looked_up = _fake_dns(monkeypatch, [FCM_IP])
+    route = respx.post(FCM_PINNED).mock(return_value=httpx.Response(201))
+    settings = _vapid_settings()
+
+    await send_webpush(settings, FCM_ENDPOINT)
+
+    assert looked_up == ["fcm.googleapis.com"]
+    assert route.call_count == 1
+    request = route.calls.last.request
+    assert request.url.host == FCM_IP
+    assert request.headers["Host"] == "fcm.googleapis.com"
+    assert request.extensions["sni_hostname"] == "fcm.googleapis.com"
+    assert request.headers["TTL"] == "300"
+    assert request.content == b""
+    auth = request.headers["Authorization"]
+    assert auth.startswith("vapid t=")
+    assert auth.endswith(", k=BPUBLICKEY")
+    token = auth.removeprefix("vapid t=").split(",")[0]
+    claims = json.loads(_b64url_decode(token.split(".")[1]))
+    # The audience is the push service's origin, never the pinned address.
+    assert claims["aud"] == "https://fcm.googleapis.com"
+    assert claims["sub"] == "mailto:admin@example.com"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_webpush_refuses_rebinding_to_a_private_address(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Allowed at subscribe time, but DNS now answers a private address: nothing
+    is sent and the subscription is pruned."""
+    _fake_dns(monkeypatch, ["10.0.0.5"])
+    route = respx.route().mock(return_value=httpx.Response(201))
+    user_id = await _make_user(session)
+    fixture_id = await _make_fixture(session)
+    session.add(
+        PushSubscription(user_id=user_id, channel=PushChannel.webpush, endpoint=FCM_ENDPOINT)
+    )
+    await _follow(session, user_id, fixture_id)
+    await session.flush()
+
+    result = await dispatch_push(
+        session, get_redis(), fixture_id=fixture_id, text="hi", settings=_vapid_settings()
+    )
+    await session.flush()
+
+    assert route.call_count == 0
+    assert result.pruned == 1
+    assert result.delivered == 0
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_webpush_prunes_a_stored_endpoint_outside_the_allowlist(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A row stored before the guard existed is refused at send time."""
+    looked_up = _fake_dns(monkeypatch, [FCM_IP])
+    route = respx.route().mock(return_value=httpx.Response(201))
+    user_id = await _make_user(session)
+    fixture_id = await _make_fixture(session)
+    session.add(
+        PushSubscription(
+            user_id=user_id, channel=PushChannel.webpush, endpoint="http://mlflow:5000/api"
+        )
+    )
+    await _follow(session, user_id, fixture_id)
+    await session.flush()
+
+    result = await dispatch_push(
+        session, get_redis(), fixture_id=fixture_id, text="hi", settings=_vapid_settings()
     )
 
-    await send_webpush(settings, endpoint)
+    assert looked_up == []  # refused before any DNS lookup
+    assert route.call_count == 0
+    assert result.pruned == 1
 
-    assert route.called
-    auth = route.calls.last.request.headers["Authorization"]
-    assert auth.startswith("vapid t=")
-    assert "k=BPUBLICKEY" in auth
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_webpush_does_not_follow_redirects(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_dns(monkeypatch, [FCM_IP])
+    respx.post(FCM_PINNED).mock(
+        return_value=httpx.Response(301, headers={"Location": "http://169.254.169.254/"})
+    )
+    metadata = respx.route(host="169.254.169.254").mock(return_value=httpx.Response(200))
+
+    with pytest.raises(PushError, match="301"):
+        await send_webpush(_vapid_settings(), FCM_ENDPOINT)
+    assert metadata.call_count == 0
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_webpush_transport_error_is_a_push_error_without_the_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _fake_dns(monkeypatch, [FCM_IP])
+    respx.post(FCM_PINNED).mock(side_effect=httpx.ConnectTimeout(f"timed out: {FCM_PINNED}"))
+
+    with pytest.raises(PushError) as excinfo:
+        await send_webpush(_vapid_settings(), FCM_ENDPOINT)
+    assert str(excinfo.value) == "web push transport error: ConnectTimeout"
+
+
+@pytest.mark.asyncio
+async def test_webpush_unresolvable_host_is_retryable(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def no_answer(host: str) -> list[str]:
+        raise OSError("Name or service not known")
+
+    monkeypatch.setattr("app.services.live.push_endpoint._getaddrinfo", no_answer)
+    with pytest.raises(PushError) as excinfo:
+        await send_webpush(_vapid_settings(), FCM_ENDPOINT)
+    # A plain PushError (retried), not PushGone (pruned).
+    assert type(excinfo.value) is PushError
 
 
 @pytest.mark.asyncio
 async def test_webpush_without_keys_raises() -> None:
     with pytest.raises(PushError):
-        await send_webpush(_settings(), "https://push.example.com/sub/abc")
+        await send_webpush(_settings(), FCM_ENDPOINT)
 
 
 def test_vapid_jwt_is_valid_es256() -> None:

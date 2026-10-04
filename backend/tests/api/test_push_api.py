@@ -15,10 +15,20 @@ from app.models.live import LiveUpdate, PushChannel, PushSubscription
 from app.models.reference import League, Team
 from app.models.user import User, UserTier
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 WEBHOOK_SECRET = "hook-secret"  # noqa: S105
+FCM_ENDPOINT = "https://fcm.googleapis.com/fcm/send/dXJ0aWNsZQ:APA91bHqT0"
+
+
+def _fake_dns(monkeypatch: pytest.MonkeyPatch, answer: list[str]) -> None:
+    """DNS for the Web Push SSRF guard (no network in tests)."""
+
+    async def fake(host: str) -> list[str]:
+        return answer
+
+    monkeypatch.setattr("app.services.live.push_endpoint._getaddrinfo", fake)
 
 
 async def _headers(session: AsyncSession, tier: UserTier) -> dict[str, str]:
@@ -67,22 +77,77 @@ async def test_free_cannot_subscribe(client: AsyncClient, session: AsyncSession)
     resp = await client.post(
         "/live/push/subscribe",
         headers=headers,
-        json={"channel": "webpush", "endpoint": "https://push.example/x", "keys": {}},
+        json={"channel": "webpush", "endpoint": FCM_ENDPOINT, "keys": {}},
     )
     assert resp.status_code == 403
     assert resp.json()["detail"]["error"] == "push_requires_upgrade"
 
 
 @pytest.mark.asyncio
-async def test_pro_can_subscribe(client: AsyncClient, session: AsyncSession) -> None:
+async def test_pro_can_subscribe(
+    client: AsyncClient, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fake_dns(monkeypatch, ["142.250.74.10"])
     headers = await _headers(session, UserTier.pro)
     resp = await client.post(
         "/live/push/subscribe",
         headers=headers,
-        json={"channel": "webpush", "endpoint": "https://push.example/x", "keys": {"auth": "a"}},
+        json={"channel": "webpush", "endpoint": FCM_ENDPOINT, "keys": {"auth": "a"}},
     )
     assert resp.status_code == 201
     assert resp.json()["channel"] == "webpush"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://mlflow:5000/api/2.0/mlflow/experiments/search",
+        "https://api:8000/admin/ping",
+        "https://169.254.169.254/latest/meta-data/",
+        "http://fcm.googleapis.com/fcm/send/x",
+        "https://fcm.googleapis.com.evil.example/fcm/send/x",
+        "https://fcm.googleapis.com@evil.example/x",
+    ],
+)
+async def test_subscribe_refuses_an_unsafe_webpush_endpoint(
+    client: AsyncClient, session: AsyncSession, monkeypatch: pytest.MonkeyPatch, endpoint: str
+) -> None:
+    _fake_dns(monkeypatch, ["142.250.74.10"])
+    headers = await _headers(session, UserTier.pro)
+    resp = await client.post(
+        "/live/push/subscribe",
+        headers=headers,
+        json={"channel": "webpush", "endpoint": endpoint, "keys": {}},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "Unsupported push endpoint"
+    stored = (
+        await session.execute(select(func.count()).select_from(PushSubscription))
+    ).scalar_one()
+    assert stored == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer", [["10.0.0.5"], ["169.254.169.254"], ["::1"], []])
+async def test_subscribe_refuses_an_allowed_host_resolving_to_a_non_public_address(
+    client: AsyncClient,
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    answer: list[str],
+) -> None:
+    _fake_dns(monkeypatch, answer)
+    headers = await _headers(session, UserTier.pro)
+    resp = await client.post(
+        "/live/push/subscribe",
+        headers=headers,
+        json={"channel": "webpush", "endpoint": FCM_ENDPOINT, "keys": {}},
+    )
+    assert resp.status_code == 422
+    stored = (
+        await session.execute(select(func.count()).select_from(PushSubscription))
+    ).scalar_one()
+    assert stored == 0
 
 
 @pytest.mark.asyncio
