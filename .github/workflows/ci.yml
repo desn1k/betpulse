@@ -27,7 +27,7 @@ jobs:
         working-directory: backend
     services:
       postgres:
-        image: timescale/timescaledb:2.17.2-pg16
+        image: timescale/timescaledb:2.30.2-pg16@sha256:6f139d56042989bd35f50ba5986e492cd32e35cc6778c50be2659add298dc09f
         env:
           POSTGRES_DB: football
           POSTGRES_USER: football
@@ -184,7 +184,7 @@ jobs:
     services:
       # Same image/version as production (infra/docker-compose.yml).
       postgres:
-        image: timescale/timescaledb:2.17.2-pg16
+        image: timescale/timescaledb:2.30.2-pg16@sha256:6f139d56042989bd35f50ba5986e492cd32e35cc6778c50be2659add298dc09f
         env:
           POSTGRES_USER: football
           POSTGRES_PASSWORD: football
@@ -307,7 +307,7 @@ jobs:
           docker run --rm
           -v "$PWD/infra/Caddyfile:/etc/caddy/Caddyfile:ro"
           -e PUBLIC_DOMAIN
-          caddy:2.9-alpine
+          caddy:2.10-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
           caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
       - name: Caddy routing smoke test

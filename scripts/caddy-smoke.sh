@@ -7,7 +7,7 @@
 set -Eeuo pipefail
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-caddy_image="${CADDY_IMAGE:-caddy:2.9-alpine}"
+caddy_image="${CADDY_IMAGE:-caddy:2.10-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d}"
 ready_attempts="${CADDY_SMOKE_READY_ATTEMPTS:-40}"
 
 prefix="caddy-smoke-$$-$RANDOM"

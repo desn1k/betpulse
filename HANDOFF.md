@@ -783,7 +783,7 @@ implemented.
     the migration step.
   - **The fix.** The image now copies `alembic.ini` and `migrations/`.
   - **CI guard.** The "Docker images build" job runs, in the built image, against a
-    `timescale/timescaledb:2.17.2-pg16` service: `alembic heads`, `alembic upgrade head` on the
+    `timescale/timescaledb:2.30.2-pg16` service: `alembic heads`, `alembic upgrade head` on the
     empty database, and `alembic current` (it must equal heads). It also runs
     `python -m app.cli data-report --help` and `python -m app.bootstrap --help`.
   - **Other runtime files checked.**
@@ -793,6 +793,15 @@ implemented.
       and `.next/static` are copied into the standalone image.
   - Root-only `__pycache__`/`*.pyc` patterns in `backend/.dockerignore` became `**/`.
 
+- **Timescale 2.30.2-pg16 and Caddy 2.10 (before the first launch, 2026-10-04).**
+  - Both are pinned by `tag@sha256` in the compose files, **and** in every CI copy: both
+    `ci.yml` service images, the `caddy validate` step and the `scripts/caddy-smoke.sh` default.
+    So CI tests the versions production runs.
+  - Doing the Timescale jump now is cheapest: there is no database yet, so no
+    `ALTER EXTENSION timescaledb UPDATE`.
+  - **Checked locally on 2.30.2:** all 17 migrations up, 17 down, up again. The extension is
+    2.30.2, and the hypertables are `odds` and `predictions_live`.
+  - **Checked on 2.10.2:** the Caddyfile validates.
 - **Healthchecks bound to the wrong address (fixed 2026-10-04).**
   - **web.** The Next.js standalone server listens on `$HOSTNAME`, which Docker sets to the
     container id. It bound only `172.29.89.10:3000`, so the web healthcheck and deploy.sh's
@@ -1233,7 +1242,9 @@ PR sequence:
     - #6 is deferred.
     - #5, #2 (verify with an rc release publish) and #78 (Caddy + CI pin) come after the first
       successful rehearsal.
-    - #79 (Timescale 2.30.2-pg16) comes before the first launch, as its own PR with the CI pins.
+    - #79 (Timescale 2.30.2-pg16) comes before the first launch, as its own PR with the CI pins:
+      done in `chore/timescale-caddy-bump`, together with Caddy 2.10. Dependabot's #83 was closed in
+      its favour.
 - **Majors that need their own migration plan, after the first launch.**
   - Each one: separate branch, Step 0, and a written before/after check.
   - **pandas 3** (copy-on-write by default, string dtype). It touches every feature builder, so it
