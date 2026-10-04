@@ -1146,8 +1146,9 @@ PR sequence:
     alerts are disabled for this repository". So no PR is ever labelled a security update.
   - The owner should enable *Dependabot alerts* and *Dependabot security updates* in Settings →
     Code security.
-  - Until then, the CI audits are the only signal: `pip-audit` and the prod-only `npm audit`. Both
-    were clean on 2026-10-04, apart from the tracked dev-only `braces`.
+  - Until then, the blocking dependency-audit gates in CI are `pip-audit` and the prod-only
+    `npm audit`. Both were clean on 2026-10-04, apart from the tracked dev-only `braces`. The
+    security workflow also runs gitleaks, Bandit, Semgrep and Trivy on every PR.
 - **Dependabot grouping (#81).**
   - Minor and patch bumps arrive grouped per ecosystem; each major arrives as its own PR.
   - Ignored on purpose: redis-py majors (arq), `@types/node` majors, Python minor/major and Node
