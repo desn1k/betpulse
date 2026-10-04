@@ -7,6 +7,13 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# LightGBM's wheel links the OpenMP runtime, which the slim image lacks: without
+# libgomp1 every worker (they import the training code) dies at startup with
+# "libgomp.so.1: cannot open shared object file". CI imports it in the image.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libgomp1 \
+ && rm -rf /var/lib/apt/lists/*
+
 # Install dependencies first for better layer caching.
 COPY pyproject.toml ./
 RUN pip install --upgrade pip && pip install .

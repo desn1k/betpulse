@@ -228,6 +228,9 @@ jobs:
           [[ "${current%% *}" == "${heads%% *}" ]] || { echo "alembic current != heads" >&2; exit 1; }
           run_api python -m app.cli data-report --help >/dev/null
           run_api python -m app.bootstrap --help >/dev/null
+          # Every process must import in the image itself, not only on the runner:
+          # the workers import the training code (LightGBM needs libgomp1).
+          run_api python -c "import lightgbm, app.main, app.workers.arq_app"
 
       - name: Build web image
         uses: docker/build-push-action@v6
