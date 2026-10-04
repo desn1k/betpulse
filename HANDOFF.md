@@ -563,10 +563,17 @@ lock; unmapped API-Football team/league during live → structured warning + ski
       and connect is never followed.
     - Redirects are not followed; a 3xx counts as a failure.
     - Timeout is 10 s. The response body is never read or logged.
-    - An endpoint refused at send time (a pre-guard row, or DNS that now answers a private
-      address) is pruned like a 404/410.
-    - A DNS failure, a timeout, or a TLS or connection error is a plain `PushError`: retried
-      once, and logged with the exception class only, because httpx messages carry the URL.
+    - Nothing is ever sent to a refused endpoint, but the two kinds of refusal are handled
+      differently:
+      - a wrong shape or a host off the allowlist (e.g. a row stored before the guard) can never
+        work, so it is pruned like a 404/410;
+      - a DNS answer that is non-public, unparsable or empty might be the server resolver's
+        fault (a sinkhole, split horizon), and pruning on it could wipe every subscription. It
+        is a plain `PushError`: retried once, and the row is kept.
+    - A DNS failure, a timeout, or a TLS or connection error is also a plain `PushError`. It is
+      logged with the exception class only, because httpx messages carry the URL.
+    - `push_task` now commits its session. Before, every prune (404/410 included) was rolled back
+      when the task ended, so dead rows were retried on every push.
   - VAPID signing is unchanged; the JWT `aud` is still the push service's origin.
   - Checked live from a workstation: FCM answered 410 and Apple 400 through the pinned address.
     Mozilla was unreachable from that network even with plain curl.

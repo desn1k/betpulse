@@ -42,6 +42,12 @@ class UnsafeEndpoint(ValueError):
     non-public address. The message never contains the endpoint."""
 
 
+class NonPublicAddress(UnsafeEndpoint):
+    """DNS answered a non-public address. Never connected to; at send time it is
+    treated as transient (a broken or sinkholing resolver must not prune every
+    subscription), at subscribe time it is refused like any unsafe endpoint."""
+
+
 class EndpointUnresolvable(Exception):
     """DNS gave no answer (possibly transient)."""
 
@@ -152,11 +158,11 @@ async def resolve_public(host: str) -> IPAddress:
         try:
             addresses.add(ipaddress.ip_address(value))
         except ValueError as exc:
-            raise UnsafeEndpoint("endpoint host resolved to an unparsable address") from exc
+            raise NonPublicAddress("endpoint host resolved to an unparsable address") from exc
     if not addresses:
         raise EndpointUnresolvable("endpoint host has no address")
     if not all(is_public_ip(a) for a in addresses):
-        raise UnsafeEndpoint("endpoint host resolves to a non-public address")
+        raise NonPublicAddress("endpoint host resolves to a non-public address")
     return min(addresses, key=lambda a: (a.version, int(a)))
 
 

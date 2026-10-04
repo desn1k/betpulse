@@ -10,6 +10,7 @@ import pytest
 from app.core.config import get_settings
 from app.services.live.push_endpoint import (
     EndpointUnresolvable,
+    NonPublicAddress,
     UnsafeEndpoint,
     check_endpoint,
     is_public_ip,
@@ -179,7 +180,8 @@ async def test_dns_answer_in_a_non_public_class_is_refused(
     monkeypatch: pytest.MonkeyPatch, address: str
 ) -> None:
     _dns(monkeypatch, [address])
-    with pytest.raises(UnsafeEndpoint):
+    # NonPublicAddress: refused at subscribe time, retried (not pruned) at send time.
+    with pytest.raises(NonPublicAddress):
         await resolve_public("fcm.googleapis.com")
 
 

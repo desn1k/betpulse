@@ -35,6 +35,7 @@ from app.models.user import User
 from app.services.limits import release_push, reserve_push
 from app.services.live.push_endpoint import (
     EndpointUnresolvable,
+    NonPublicAddress,
     UnsafeEndpoint,
     check_endpoint,
     pinned_url,
@@ -129,9 +130,13 @@ async def send_webpush(settings: Settings, endpoint: str) -> None:
         audience=_audience(endpoint),
     )
     # SSRF guard, again at send time (a row may predate the subscribe-time check,
-    # and DNS may have changed since). A refused endpoint can never work: prune it.
+    # and DNS may have changed since). Nothing is ever sent to a refused endpoint.
+    # A non-public DNS answer may be the resolver's fault: retry, keep the row.
+    # A wrong shape or host can never work: prune it.
     try:
         host, ip = await check_endpoint(endpoint, settings.webpush_allowed_host_list)
+    except NonPublicAddress as exc:
+        raise PushError("web push endpoint resolved to a non-public address") from exc
     except UnsafeEndpoint as exc:
         raise PushGone("web push endpoint refused") from exc
     except EndpointUnresolvable as exc:

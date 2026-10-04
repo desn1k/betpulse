@@ -299,25 +299,35 @@ async def test_webpush_refuses_rebinding_to_a_private_address(
     session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Allowed at subscribe time, but DNS now answers a private address: nothing
-    is sent and the subscription is pruned."""
-    _fake_dns(monkeypatch, ["10.0.0.5"])
+    is sent (neither attempt), and the row is kept, since a broken resolver must
+    not prune every subscription."""
+    looked_up = _fake_dns(monkeypatch, ["10.0.0.5"])
     route = respx.route().mock(return_value=httpx.Response(201))
     user_id = await _make_user(session)
     fixture_id = await _make_fixture(session)
-    session.add(
-        PushSubscription(user_id=user_id, channel=PushChannel.webpush, endpoint=FCM_ENDPOINT)
+    subscription = PushSubscription(
+        user_id=user_id, channel=PushChannel.webpush, endpoint=FCM_ENDPOINT
     )
+    session.add(subscription)
     await _follow(session, user_id, fixture_id)
     await session.flush()
 
     result = await dispatch_push(
-        session, get_redis(), fixture_id=fixture_id, text="hi", settings=_vapid_settings()
+        session,
+        get_redis(),
+        fixture_id=fixture_id,
+        text="hi",
+        settings=_vapid_settings(),
+        sleep=_noop_sleep,
     )
     await session.flush()
 
+    assert looked_up == ["fcm.googleapis.com", "fcm.googleapis.com"]  # first try + retry
     assert route.call_count == 0
-    assert result.pruned == 1
+    assert result.pruned == 0
+    assert result.failed == 1
     assert result.delivered == 0
+    assert await session.get(PushSubscription, subscription.id) is not None
 
 
 @pytest.mark.asyncio
@@ -410,3 +420,45 @@ def test_vapid_jwt_is_valid_es256() -> None:
     der = encode_dss_signature(int.from_bytes(raw[:32], "big"), int.from_bytes(raw[32:], "big"))
     # Raises InvalidSignature if the signature does not verify.
     priv.public_key().verify(der, signing_input, ec.ECDSA(hashes.SHA256()))
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_push_task_commits_the_pruning(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ARQ task must commit: a 404/410 or a refused endpoint deleted in its
+    session used to be rolled back, so the dead row was retried on every push."""
+    from app.core.db import _write_sessionmaker
+    from app.workers import tasks
+
+    _fake_dns(monkeypatch, [FCM_IP])
+    respx.post(FCM_PINNED).mock(return_value=httpx.Response(410))
+    monkeypatch.setattr(tasks, "get_settings", _vapid_settings)
+    async with _write_sessionmaker()() as s:
+        user_id = await _make_user(s)
+        fixture_id = await _make_fixture(s)
+        s.add_all(
+            [
+                PushSubscription(
+                    user_id=user_id, channel=PushChannel.webpush, endpoint=FCM_ENDPOINT
+                ),
+                PushSubscription(
+                    user_id=user_id,
+                    channel=PushChannel.webpush,
+                    endpoint="http://mlflow:5000/api",
+                ),
+            ]
+        )
+        await _follow(s, user_id, fixture_id)
+        await s.commit()
+
+    await tasks.push_task({}, str(fixture_id), "hi")
+
+    async with _write_sessionmaker()() as s:
+        remaining = (
+            await s.execute(
+                select(func.count())
+                .select_from(PushSubscription)
+                .where(PushSubscription.user_id == user_id)
+            )
+        ).scalar_one()
+    assert remaining == 0
