@@ -84,6 +84,16 @@ expect() {
 
 expect GET /healthz ok
 
+# The container healthcheck's own listener (not published).
+internal_health="$(docker exec "$proxy" wget -q -O - http://127.0.0.1:8081/healthz 2>/dev/null ||
+  echo "<request failed>")"
+if [[ "$internal_health" == "ok" ]]; then
+  echo "ok   GET :8081/healthz -> ok"
+else
+  echo "FAIL GET :8081/healthz -> $internal_health (expected ok)" >&2
+  failures=$((failures + 1))
+fi
+
 # The only FastAPI path exposed publicly.
 expect POST /push/telegram/webhook upstream=api
 

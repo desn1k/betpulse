@@ -41,3 +41,11 @@
 		reverse_proxy web:3000
 	}
 }
+
+# Container healthcheck (docker-compose.prod.yml), on its own plain-HTTP port,
+# never published. It cannot use the site above: once PUBLIC_DOMAIN is a real
+# domain, http://localhost/healthz is redirected to HTTPS, and there is no
+# certificate for localhost, so the check (and every deploy) would fail.
+http://:8081 {
+	respond /healthz "ok" 200
+}

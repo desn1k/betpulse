@@ -237,9 +237,31 @@ jobs:
         with:
           context: ./frontend
           push: false
-          load: false
+          load: true
+          tags: betpulse-web:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # The image's own HEALTHCHECK must pass: the standalone server has to listen
+      # on 127.0.0.1 too (HOSTNAME=0.0.0.0 in frontend/Dockerfile), not only on the
+      # container's network IP. No backend is needed for /api/health.
+      - name: Built web image becomes healthy
+        run: |
+          docker run -d --name web-ci betpulse-web:ci
+          for attempt in $(seq 1 30); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' web-ci)"
+            echo "attempt $attempt: $status"
+            [[ "$status" == "healthy" ]] && break
+            [[ "$status" == "unhealthy" ]] && break
+            sleep 5
+          done
+          docker exec web-ci wget -q -T 5 -O /dev/null http://127.0.0.1:3000/api/health
+          if [[ "$status" != "healthy" ]]; then
+            docker logs web-ci
+            docker inspect --format '{{json .State.Health}}' web-ci
+            exit 1
+          fi
+          docker rm -f web-ci
 
   ops-config:
     name: Release tooling (shell · compose · Caddy)

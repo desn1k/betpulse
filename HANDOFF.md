@@ -793,6 +793,25 @@ implemented.
       and `.next/static` are copied into the standalone image.
   - Root-only `__pycache__`/`*.pyc` patterns in `backend/.dockerignore` became `**/`.
 
+- **Healthchecks bound to the wrong address (fixed 2026-10-04).**
+  - **web.** The Next.js standalone server listens on `$HOSTNAME`, which Docker sets to the
+    container id. It bound only `172.29.89.10:3000`, so the web healthcheck and deploy.sh's
+    `/api/ready` probe (both via `localhost`) were refused: web stayed `unhealthy` in the rc2
+    rehearsal, although Caddy reached it over the network.
+    - Fix: `ENV HOSTNAME=0.0.0.0` in `frontend/Dockerfile` (an image ENV wins over Docker's runtime
+      value).
+    - Every probe uses `127.0.0.1`: busybox wget resolves `localhost` to `::1`, which a `0.0.0.0`
+      listener does not serve.
+    - CI starts the built web image and waits for its own HEALTHCHECK to report healthy.
+  - **caddy.** Its healthcheck fetched `http://localhost/healthz`. With a real `PUBLIC_DOMAIN`
+    that is `308` to `https://localhost/…`, where Caddy has no certificate, so caddy would stay
+    unhealthy and **every deploy on a real server would fail**. The rehearsal used
+    `PUBLIC_DOMAIN=localhost` and the CI smoke test uses `:80`; both hid it.
+    - Fix: the Caddyfile has an internal `http://:8081` block serving `/healthz` (never published;
+      `check-compose-ports.sh` still allows only 80/443), and the healthcheck uses
+      `http://127.0.0.1:8081/healthz`.
+    - `caddy-smoke.sh` now checks it.
+    - Verified with `PUBLIC_DOMAIN=betpulse.example.test`.
 - **API image lacked libgomp1 (fixed 2026-10-04).**
   - **The bug.** LightGBM's wheel links the OpenMP runtime, which `python:3.12-slim` does not ship.
     In the rc2 rehearsal all three workers crash-looped at startup with

@@ -58,7 +58,7 @@ wait_for_service() {
 # than the check).
 bff_ready() {
   local out
-  if out="$(compose exec -T web wget -q -T "$probe_timeout" -O /dev/null http://localhost:3000/api/ready 2>&1)"; then
+  if out="$(compose exec -T web wget -q -T "$probe_timeout" -O /dev/null http://127.0.0.1:3000/api/ready 2>&1)"; then
     return 0
   fi
   if [[ "$out" == *" 404"* ]]; then
