@@ -3,7 +3,8 @@
 # Caddy's 80/tcp and 443/tcp. Every other service (Postgres, Redis, MLflow,
 # the API, the web app) must stay on the internal network. It also
 # checks that the web container reaches the API at http://api:8000 whatever
-# API_BASE_URL says in .env (its example value is for local dev).
+# API_BASE_URL says in .env (its example value is for local dev), and that no
+# environment value is a comment: Compose reads `KEY=  # note` as `# note`.
 #
 # Why a rendered check: in an override file `ports: []` is *appended* to the
 # base file's list, so it does not remove anything; only `ports: !reset []`
@@ -66,10 +67,22 @@ api_url = web_env.get("API_BASE_URL")
 if api_url != "http://api:8000":
     problems.append(f"web: API_BASE_URL is {api_url!r}, expected 'http://api:8000'")
 
+for name, service in sorted(config.get("services", {}).items()):
+    env = service.get("environment") or {}
+    if isinstance(env, list):
+        env = dict(item.split("=", 1) for item in env if "=" in item)
+    for key, value in sorted(env.items()):
+        if isinstance(value, str) and value.strip().startswith("#"):
+            # The key only: the value may be a secret.
+            problems.append(f"{name}: {key} is a comment, not a value (inline comment in .env?)")
+
 if problems:
     print("Production Compose config is unsafe or miswired:", file=sys.stderr)
     for line in problems:
         print(f"  {line}", file=sys.stderr)
     sys.exit(1)
-print("OK: only caddy 80/tcp and 443/tcp are published; web reaches the API at http://api:8000.")
+print(
+    "OK: only caddy 80/tcp and 443/tcp are published; web reaches the API at "
+    "http://api:8000; no environment value is a comment."
+)
 PY

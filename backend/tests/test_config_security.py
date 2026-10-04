@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import secrets
+
 import pytest
 from app.core.config import Settings
 
@@ -10,8 +12,8 @@ def test_production_rejects_wildcard_cors_with_credentials() -> None:
     with pytest.raises(ValueError, match="explicit origins"):
         Settings(
             environment="production",
-            secret_key="s" * 64,
-            data_encryption_key="d" * 64,
+            secret_key=secrets.token_hex(32),
+            data_encryption_key=secrets.token_hex(32),
             cors_allowed_origins="*",
             trusted_proxy_cidrs="172.29.89.10/32",
         )

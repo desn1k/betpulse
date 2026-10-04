@@ -793,6 +793,49 @@ implemented.
       and `.next/static` are copied into the standalone image.
   - Root-only `__pycache__`/`*.pyc` patterns in `backend/.dockerignore` became `**/`.
 
+- **Placeholder secrets from `.env.example` (security, fixed 2026-10-04).**
+  - **The bug.** Docker Compose reads an `env_file` line `KEY=   # note` (empty value, inline
+    comment) as the value `# note`.
+    - The rc2 dress rehearsal created the first admin with
+      `ADMIN_PASSWORD = "# leave empty to auto-generate a one-time password"`, a string published in
+      the repository. Whoever logs in first can take the account over by changing that password.
+    - The rendered prod config showed the same for `BACKUP_ENCRYPTION_PUBLIC_KEY`,
+      `TELEGRAM_ALERT_CHAT_ID`, both VAPID keys, and, when left empty, `SECRET_KEY`,
+      `DATA_ENCRYPTION_KEY` and `PUBLIC_DOMAIN`.
+    - The old `SECRET_KEY` hint is 49 characters long, so it passed the old "at least 32 characters"
+      check: JWTs would have been signed with a public string.
+  - **The fixes.**
+    - **`.env.example`** has no inline comments. All 37 were moved onto their own lines, and the file
+      says why at the top. `tests/test_env_placeholders.py` fails on any new one.
+    - **`scripts/check-compose-ports.sh`** (CI, and on the server) now also fails when any service
+      environment value starts with `#`. It names the key only, never the value.
+    - **Production startup** (`Settings`) refuses placeholder or weak secrets:
+      - `SECRET_KEY`: placeholder (empty, `#…`, a known stand-in, anything containing "example",
+        three or fewer distinct characters), shorter than 32 characters, or under 128 bits by a
+        Shannon estimate;
+      - `DATA_ENCRYPTION_KEY`: not 32 bytes of hex, or under 128 bits;
+      - `ADMIN_PASSWORD`, if set: a placeholder, shorter than 12 characters, or under 40 bits.
+    - **`create-admin` in production** requires an explicit strong `ADMIN_PASSWORD`. It refuses an
+      empty, placeholder (`#…`), documented-example, short or predictable value with exit 2 and
+      creates nothing. In development an empty value still generates a one-time password.
+    - **Error output.** In production a placeholder `ADMIN_PASSWORD` is rejected by the settings
+      validation itself. `python -m app.bootstrap create-admin` catches that and exits **2**,
+      printing only the error messages.
+    - **Inputs are never echoed.** `Settings` sets `hide_input_in_errors=True`. Before this,
+      pydantic printed `input_value={…}` with the given settings, and its tail showed the
+      password. That affected any misconfigured production start of the api and workers, which
+      could leak secrets into the logs.
+    - Every comment line of `.env.example` is tested to be classified as a placeholder.
+    - **Patterns that fool a Shannon estimate are rejected too** (review, CWE-330):
+      `"abcdefghijklmnop" * 2` (≈128 bits by Shannon) and `"0123456789abcdef" * 4` (valid hex,
+      ≈256 bits) used to pass. Now also refused:
+      - a value made of a repeated block;
+      - a value of 32+ characters with fewer than 10 distinct characters;
+      - any 8-character run stepping by ±1 (`abcdefgh`, `01234567`).
+      Measured on 100 000 values each: `secrets.token_hex(32)` and `secrets.token_urlsafe(32)`
+      were never rejected; the test uses 10 000 seeded values, so it is deterministic.
+  - **Runbook requirement.** Set `ADMIN_PASSWORD` explicitly in the server `.env` before
+    `create-admin`, and generate `SECRET_KEY` / `DATA_ENCRYPTION_KEY` with `openssl rand -hex 32`.
 - **MinIO removed; MLflow serves its own artifacts (fixed 2026-10-04).**
   - **Why.** The dress rehearsal (`v0.0.1-rc1`, real `deploy.sh`) stopped at
     `compose up -d postgres redis minio` with `pull access denied for minio/minio`. MinIO has been
@@ -1140,6 +1183,41 @@ PR sequence:
 4. Post the phase plan, wait for "go", then implement → tests → CI green → PR. The owner merges.
 
 ## 11. Parked work (owner-requested, not yet scheduled)
+
+- **Dependabot: security alerts and security updates are OFF (owner action).**
+  - The repository settings have Dependabot alerts disabled; the API answers 403 "Dependabot
+    alerts are disabled for this repository". So no PR is ever labelled a security update.
+  - The owner should enable *Dependabot alerts* and *Dependabot security updates* in Settings →
+    Code security.
+  - Until then, the blocking dependency-audit gates in CI are `pip-audit` and the prod-only
+    `npm audit`. Both were clean on 2026-10-04, apart from the tracked dev-only `braces`. The
+    security workflow also runs gitleaks, Bandit, Semgrep and Trivy on every PR.
+- **Dependabot grouping (#81).**
+  - Minor and patch bumps arrive grouped per ecosystem; each major arrives as its own PR.
+  - Ignored on purpose: redis-py majors (arq), `@types/node` majors, Python minor/major and Node
+    major in the base images.
+  - CI pins its own Timescale and Caddy images (`ci.yml`, `scripts/caddy-smoke.sh`). Bump them in
+    the same PR, or CI stays green without testing the new version.
+  - Review of 2026-10-04:
+    - #80, #52, #77, #4 and #8 were closed; they will be re-proposed under the new grouping.
+    - #75 and #76 are fine to merge.
+    - #6 is deferred.
+    - #5, #2 (verify with an rc release publish) and #78 (Caddy + CI pin) come after the first
+      successful rehearsal.
+    - #79 (Timescale 2.30.2-pg16) comes before the first launch, as its own PR with the CI pins.
+- **Majors that need their own migration plan, after the first launch.**
+  - Each one: separate branch, Step 0, and a written before/after check.
+  - **pandas 3** (copy-on-write by default, string dtype). It touches every feature builder, so it
+    needs a **before/after comparison of the ML feature tables and the evaluation metrics** (same
+    data, same seeds) before it can merge.
+  - **Next 16**, together with `eslint-config-next` 16 and ESLint 10.
+  - **TypeScript 7**: typescript-eslint does not support it yet.
+  - **Python 3.14** in the base images: wheels for numpy, pandas, scipy, LightGBM, statsmodels and
+    MLflow.
+  - **Node 26**: wait for LTS, then verify that Next supports it.
+  - **Redis 8** server: also check the licence.
+  - **openai 3**: the LLM client API.
+  - **redis-py 8 together with an arq upgrade**: arq 0.28 pins `redis<6`.
 
 - **Re-enable the full blocking npm audit** once GHSA-vfj7-8cjw-p6xm (`braces`, dev-only via
   `eslint-config-next`) has a fixed release: make the "all dependencies" step in `security.yml`
