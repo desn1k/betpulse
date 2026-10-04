@@ -793,6 +793,49 @@ implemented.
       and `.next/static` are copied into the standalone image.
   - Root-only `__pycache__`/`*.pyc` patterns in `backend/.dockerignore` became `**/`.
 
+- **Placeholder secrets from `.env.example` (security, fixed 2026-10-04).**
+  - **The bug.** Docker Compose reads an `env_file` line `KEY=   # note` (empty value, inline
+    comment) as the value `# note`.
+    - The rc2 dress rehearsal created the first admin with
+      `ADMIN_PASSWORD = "# leave empty to auto-generate a one-time password"`, a string published in
+      the repository. Whoever logs in first can take the account over by changing that password.
+    - The rendered prod config showed the same for `BACKUP_ENCRYPTION_PUBLIC_KEY`,
+      `TELEGRAM_ALERT_CHAT_ID`, both VAPID keys, and, when left empty, `SECRET_KEY`,
+      `DATA_ENCRYPTION_KEY` and `PUBLIC_DOMAIN`.
+    - The old `SECRET_KEY` hint is 49 characters long, so it passed the old "at least 32 characters"
+      check: JWTs would have been signed with a public string.
+  - **The fixes.**
+    - **`.env.example`** has no inline comments. All 37 were moved onto their own lines, and the file
+      says why at the top. `tests/test_env_placeholders.py` fails on any new one.
+    - **`scripts/check-compose-ports.sh`** (CI, and on the server) now also fails when any service
+      environment value starts with `#`. It names the key only, never the value.
+    - **Production startup** (`Settings`) refuses placeholder or weak secrets:
+      - `SECRET_KEY`: placeholder (empty, `#…`, a known stand-in, anything containing "example",
+        three or fewer distinct characters), shorter than 32 characters, or under 128 bits by a
+        Shannon estimate;
+      - `DATA_ENCRYPTION_KEY`: not 32 bytes of hex, or under 128 bits;
+      - `ADMIN_PASSWORD`, if set: a placeholder, shorter than 12 characters, or under 40 bits.
+    - **`create-admin` in production** requires an explicit strong `ADMIN_PASSWORD`. It refuses an
+      empty, placeholder (`#…`), documented-example, short or predictable value with exit 2 and
+      creates nothing. In development an empty value still generates a one-time password.
+    - **Error output.** In production a placeholder `ADMIN_PASSWORD` is rejected by the settings
+      validation itself. `python -m app.bootstrap create-admin` catches that and exits **2**,
+      printing only the error messages.
+    - **Inputs are never echoed.** `Settings` sets `hide_input_in_errors=True`. Before this,
+      pydantic printed `input_value={…}` with the given settings, and its tail showed the
+      password. That affected any misconfigured production start of the api and workers, which
+      could leak secrets into the logs.
+    - Every comment line of `.env.example` is tested to be classified as a placeholder.
+    - **Patterns that fool a Shannon estimate are rejected too** (review, CWE-330):
+      `"abcdefghijklmnop" * 2` (≈128 bits by Shannon) and `"0123456789abcdef" * 4` (valid hex,
+      ≈256 bits) used to pass. Now also refused:
+      - a value made of a repeated block;
+      - a value of 32+ characters with fewer than 10 distinct characters;
+      - any 8-character run stepping by ±1 (`abcdefgh`, `01234567`).
+      Measured on 100 000 values each: `secrets.token_hex(32)` and `secrets.token_urlsafe(32)`
+      were never rejected; the test uses 10 000 seeded values, so it is deterministic.
+  - **Runbook requirement.** Set `ADMIN_PASSWORD` explicitly in the server `.env` before
+    `create-admin`, and generate `SECRET_KEY` / `DATA_ENCRYPTION_KEY` with `openssl rand -hex 32`.
 - **MinIO removed; MLflow serves its own artifacts (fixed 2026-10-04).**
   - **Why.** The dress rehearsal (`v0.0.1-rc1`, real `deploy.sh`) stopped at
     `compose up -d postgres redis minio` with `pull access denied for minio/minio`. MinIO has been

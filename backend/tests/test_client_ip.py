@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from typing import Any
 
 import pytest
@@ -86,8 +87,9 @@ def test_invalid_trusted_proxies_are_rejected(raw: str) -> None:
 def _settings(**overrides: Any) -> Settings:
     values: dict[str, Any] = {
         "environment": "production",
-        "secret_key": "a" * 64,
-        "data_encryption_key": "b" * 64,
+        # Real random keys: production rejects placeholder or low-entropy ones.
+        "secret_key": secrets.token_hex(32),
+        "data_encryption_key": secrets.token_hex(32),
         "cors_allowed_origins": "https://betpulse.example",
         "trusted_proxy_cidrs": "172.29.89.10/32,172.29.89.11/32",
     }

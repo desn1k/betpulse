@@ -4,12 +4,19 @@ Usage:
     python -m app.bootstrap create-admin [--force]
 
 Creates the initial admin account from ``ADMIN_EMAIL`` / ``ADMIN_PASSWORD``.
-- If ``ADMIN_PASSWORD`` is empty a strong one-time password is generated and
-  printed to **stdout only** (never logged, never persisted in plaintext).
+- In **production** ``ADMIN_PASSWORD`` is required and explicit: an empty,
+  placeholder (``#...``, a documented example), short or predictable password
+  is refused (exit 2) and nothing is created.
+- In development an empty ``ADMIN_PASSWORD`` still generates a strong one-time
+  password, printed to **stdout only** (never logged, never persisted in plaintext).
 - The admin is created with ``must_change_password=True``; admin routes stay
   locked until the password is changed.
 - Refuses to run if an admin already exists (or the email is taken) unless
   ``--force`` is given, in which case the target account is promoted/reset.
+
+Exit codes: 0 done, 1 the admin/email already exists, 2 the configuration is
+refused (e.g. a production ``ADMIN_PASSWORD`` that is a placeholder: the
+settings validation itself rejects it, and only its message is printed).
 """
 
 from __future__ import annotations
@@ -19,11 +26,11 @@ import asyncio
 import secrets
 import sys
 
+from pydantic import ValidationError
 from sqlalchemy import select
 
-from app.core.config import get_settings
+from app.core.config import admin_password_problem, get_settings, is_placeholder_secret
 from app.core.db import _write_sessionmaker
-from app.core.security import hash_password
 from app.models.user import User, UserRole
 
 
@@ -33,11 +40,24 @@ def _generate_password() -> str:
 
 
 async def _create_admin(force: bool) -> int:
+    # Imported here: app.core.security builds its hasher from the settings at
+    # import time, and main() must validate the settings first (exit code 2).
+    from app.core.security import hash_password
+
     settings = get_settings()
     email = settings.admin_email.strip().lower()
 
     generated: str | None = None
     password = settings.admin_password
+    if settings.is_production or (password and is_placeholder_secret(password)):
+        problem = admin_password_problem(password)
+        if problem:
+            print(
+                f"Refusing to create the admin: ADMIN_PASSWORD {problem}. Set an explicit, "
+                "strong password (at least 12 characters) in .env and re-run.",
+                file=sys.stderr,
+            )
+            return 2
     if not password:
         password = _generate_password()
         generated = password
@@ -97,6 +117,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "create-admin":
+        try:
+            get_settings()
+        except ValidationError as exc:
+            # Messages only: never the input values, which hold the secrets.
+            for error in exc.errors(include_input=False, include_url=False):
+                print(f"Refusing to create the admin: {error['msg']}", file=sys.stderr)
+            return 2
         return asyncio.run(_create_admin(force=args.force))
     parser.error(f"unknown command: {args.command}")
     return 2
