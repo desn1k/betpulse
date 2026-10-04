@@ -279,9 +279,19 @@ docker compose up -d postgres
 make restore                       # or: make restore PITR="2026-07-12 18:30:00+03"
 # 4. verify
 make restore-verify                # row counts + schema diff + latest fixture sanity check
-# 5. restore the mlflow_artifacts volume, then bring up the rest
-make up && make deploy
+# 5. restore the mlflow_artifacts volume BEFORE MLflow starts (the archive is
+#    decrypted first, see the VPS runbook): let Compose create the empty volume
+#    without starting anything, then extract the tar into it
+C="docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.prod.yml"
+$C up --no-start mlflow                       # creates betpulse_mlflow_artifacts
+docker run --rm -i -v betpulse_mlflow_artifacts:/v alpine tar -C /v -xf - < mlflow_artifacts.tar
+# 6. bring up the rest
+make deploy IMAGE_TAG=<release>
 ```
+
+`make restore` / `make restore-verify` above are the *target* design and do not exist yet. Step 5
+(volume creation + `tar` extraction into `betpulse_mlflow_artifacts`) was checked locally. The
+decryption and the full restore drill are part of `docs/DEPLOY_VPS.md` (being written).
 
 ---
 
