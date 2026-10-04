@@ -59,13 +59,31 @@ def test_env_example_has_no_inline_comments() -> None:
     assert offenders == [], "inline comments become values in Compose env files"
 
 
-def test_every_documented_comment_and_example_is_a_placeholder() -> None:
-    texts = _comment_texts()
-    assert texts, "expected comments in .env.example"
-    for text in texts:
-        assert is_placeholder_secret(text), text
+def _compose_values() -> dict[str, str]:
+    """`KEY=VALUE` lines as Compose reads an unquoted env_file value: the rest
+    of the line, with ` #...` cut only when whitespace precedes the `#`."""
+    values: dict[str, str] = {}
+    for line in _env_lines():
+        match = re.match(r"^([A-Z0-9_]+)=(.*)$", line)
+        if match:
+            values[match.group(1)] = re.split(r"\s+#", match.group(2), maxsplit=1)[0].strip()
+    return values
+
+
+def test_no_env_example_value_reads_as_a_comment() -> None:
+    values = _compose_values()
+    assert values, "expected KEY=VALUE lines in .env.example"
+    # `KEY=#note` (no space before #) is the literal value `#note` for Compose.
+    leaked = sorted(key for key, value in values.items() if value.startswith("#"))
+    assert leaked == []
+
+
+def test_documented_examples_and_leaked_comments_are_placeholders() -> None:
     for example in ("change-me", "changeme", "password", "secret", "admin@example.com"):
         assert is_placeholder_secret(example), example
+    # Every comment of the file is what such a value would be if it leaked.
+    for text in _comment_texts():
+        assert is_placeholder_secret(text), text
 
 
 def test_real_random_secrets_are_not_placeholders() -> None:
@@ -154,3 +172,45 @@ async def test_production_create_admin_accepts_an_explicit_strong_password(
     assert await _create_admin(force=False) == 0
     assert password not in capsys.readouterr().out
     assert await session.scalar(select(User).where(User.role == UserRole.admin)) is not None
+
+
+# --- error output never carries secrets ------------------------------------------
+
+
+def test_settings_errors_do_not_echo_the_input_values() -> None:
+    leaked_secret = secrets.token_hex(32)
+    with pytest.raises(ValueError) as exc:
+        _prod(secret_key=leaked_secret, admin_password="#not-a-password")
+    assert "ADMIN_PASSWORD" in str(exc.value)
+    assert leaked_secret not in str(exc.value)
+    assert "#not-a-password" not in str(exc.value)
+
+
+def test_create_admin_cli_exits_2_and_prints_no_secret_for_a_placeholder() -> None:
+    import os
+    import subprocess
+    import sys
+
+    secret = secrets.token_hex(32)
+    env = {
+        **os.environ,
+        "ENVIRONMENT": "production",
+        "SECRET_KEY": secret,
+        "DATA_ENCRYPTION_KEY": secrets.token_hex(32),
+        "TRUSTED_PROXY_CIDRS": "172.29.89.10/32",
+        "CORS_ALLOWED_ORIGINS": "https://app.example.test",
+        "ADMIN_PASSWORD": "# leave empty to auto-generate a one-time password",
+    }
+    result = subprocess.run(  # noqa: S603 - fixed argv, test-only
+        [sys.executable, "-m", "app.bootstrap", "create-admin"],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 2, output
+    assert "ADMIN_PASSWORD" in output
+    assert secret not in output and "leave empty to auto-generate" not in output

@@ -818,6 +818,13 @@ implemented.
     - **`create-admin` in production** requires an explicit strong `ADMIN_PASSWORD`. It refuses an
       empty, placeholder (`#…`), documented-example, short or predictable value with exit 2 and
       creates nothing. In development an empty value still generates a one-time password.
+    - **Error output.** In production a placeholder `ADMIN_PASSWORD` is rejected by the settings
+      validation itself. `python -m app.bootstrap create-admin` catches that and exits **2**,
+      printing only the error messages.
+    - **Inputs are never echoed.** `Settings` sets `hide_input_in_errors=True`. Before this,
+      pydantic printed `input_value={…}` with the given settings, and its tail showed the
+      password. That affected any misconfigured production start of the api and workers, which
+      could leak secrets into the logs.
     - Every comment line of `.env.example` is tested to be classified as a placeholder.
   - **Runbook requirement.** Set `ADMIN_PASSWORD` explicitly in the server `.env` before
     `create-admin`, and generate `SECRET_KEY` / `DATA_ENCRYPTION_KEY` with `openssl rand -hex 32`.

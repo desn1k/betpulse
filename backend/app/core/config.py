@@ -144,6 +144,9 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
+        # A validation error must never echo the settings it was given: they
+        # hold every secret (pydantic otherwise prints `input_value=...`).
+        hide_input_in_errors=True,
     )
 
     # --- Core ---------------------------------------------------------------
