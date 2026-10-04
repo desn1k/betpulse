@@ -55,19 +55,26 @@ async def test_stream_forbidden_for_free_tier(client: AsyncClient, session: Asyn
 
 
 @pytest.mark.asyncio
-async def test_push_subscribe_persists_row(client: AsyncClient, session: AsyncSession) -> None:
+async def test_push_subscribe_persists_row(
+    client: AsyncClient, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def public_dns(host: str) -> list[str]:
+        return ["142.250.74.10"]
+
+    monkeypatch.setattr("app.services.live.push_endpoint._getaddrinfo", public_dns)
+    endpoint = "https://fcm.googleapis.com/fcm/send/dXJ0aWNsZQ:APA91bHqT0"
     headers, user = await _authed_headers(session, UserTier.pro)
     resp = await client.post(
         "/live/push/subscribe",
         headers=headers,
-        json={"channel": "telegram", "endpoint": "12345"},
+        json={"channel": "webpush", "endpoint": endpoint, "keys": {"auth": "a"}},
     )
     assert resp.status_code == 201
     body = resp.json()
-    assert body["channel"] == "telegram"
+    assert body["channel"] == "webpush"
 
     sub = (
         await session.execute(select(PushSubscription).where(PushSubscription.user_id == user.id))
     ).scalar_one()
-    assert sub.channel == PushChannel.telegram
-    assert sub.endpoint == "12345"
+    assert sub.channel == PushChannel.webpush
+    assert sub.endpoint == endpoint

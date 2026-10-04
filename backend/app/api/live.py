@@ -126,7 +126,15 @@ async def subscribe_push(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
 ) -> PushSubscribeOut:
-    """Register (or refresh) a push destination for the current user (Pro/Expert)."""
+    """Register (or refresh) a Web Push destination for the current user (Pro/Expert)."""
+    if body.channel == PushChannel.telegram:
+        # A chat id given here is unproven: anyone could point pushes at someone
+        # else's chat. Telegram binds only through the bot deep link: POST
+        # /push/telegram/link, then the user's own `/start <token>` (webhook).
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Telegram is connected through the bot link, not this endpoint",
+        )
     if body.channel == PushChannel.webpush:
         # SSRF guard: the server POSTs to this URL on every push. The same check
         # runs again before each send (push_endpoint.py).

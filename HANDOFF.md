@@ -589,6 +589,10 @@ lock; unmapped API-Football team/league during live → structured warning + ski
   missing/wrong secret is logged and answered **200 OK (empty)** so Telegram never retries; only a
   valid `/start <token>` records the chat id as a Telegram `PushSubscription`. `DELETE /push/telegram`
   disconnects.
+  - **That is the only way in (fixed 2026-10-04, audit finding A2).** `POST /live/push/subscribe`
+    used to accept `channel=telegram` with any chat id, which skipped the `/start` proof and let a
+    user point pushes at someone else's chat. It now answers 422 for Telegram and takes Web Push
+    only. Production never ran, so no unproven Telegram rows exist.
 - **Frontend.** `NotifyToggle` on the match detail (tier-locked chip for guest/free, follow/unfollow
   otherwise, flips to a lock on a 403); `/settings` → Notifications (enable/disable browser push,
   connect/disconnect Telegram). Same-origin proxies under `/api/push/*` and `/api/live/push/*`.
@@ -1064,6 +1068,10 @@ Check these on the server during the first launch (runbook: `docs/DEPLOY_VPS.md`
   login.
 - [ ] **MLflow over an SSH tunnel.** Start the socat forwarder on `127.0.0.1:5001`, run
   `ssh -L 5001:127.0.0.1:5001`, then open the UI. Only the forwarder itself was checked locally.
+- [ ] **Web Push to Mozilla through the SSRF guard.** Subscribe from Firefox, follow a live
+  match, and confirm a push arrives (or the worker logs a 2xx). FCM and Apple answered through
+  the pinned address from the dev network; `updates.push.services.mozilla.com` was unreachable
+  from there even with plain curl.
 
 ## 9j. Legal & compliance (Russian Federation)
 
