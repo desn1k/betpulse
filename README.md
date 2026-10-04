@@ -284,14 +284,19 @@ make restore-verify                # row counts + schema diff + latest fixture s
 #    without starting anything, then extract the tar into it
 C="docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.prod.yml"
 $C up --no-start mlflow                       # creates betpulse_mlflow_artifacts
-docker run --rm -i -v betpulse_mlflow_artifacts:/v alpine tar -C /v -xf - < mlflow_artifacts.tar
+docker run --rm -i -v betpulse_mlflow_artifacts:/v \
+  alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 \
+  tar -C /v -xf - < mlflow_artifacts.tar
 # 6. bring up the rest
 make deploy IMAGE_TAG=<release>
 ```
 
 `make restore` / `make restore-verify` above are the *target* design and do not exist yet. Step 5
-(volume creation + `tar` extraction into `betpulse_mlflow_artifacts`) was checked locally. The
-decryption and the full restore drill are part of `docs/DEPLOY_VPS.md` (being written).
+(volume creation + `tar` extraction into `betpulse_mlflow_artifacts`) was checked locally. The volume
+name comes from the project name pinned by `name: betpulse` in `infra/docker-compose.yml`, whatever
+the checkout directory is called. Do not pass `-p` or set `COMPOSE_PROJECT_NAME`, or Compose would
+create a different, empty volume. The decryption and the full restore drill are part of
+`docs/DEPLOY_VPS.md` (being written).
 
 ---
 
