@@ -151,6 +151,28 @@ async def test_subscribe_refuses_an_allowed_host_resolving_to_a_non_public_addre
 
 
 @pytest.mark.asyncio
+async def test_subscribe_refuses_telegram_chat_ids(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """A chat id posted here is unproven, so pushes could be pointed at someone
+    else's chat. Telegram binds only through /push/telegram/link + /start."""
+    headers = await _headers(session, UserTier.pro)
+    resp = await client.post(
+        "/live/push/subscribe",
+        headers=headers,
+        json={"channel": "telegram", "endpoint": "987654", "keys": {}},
+    )
+    assert resp.status_code == 422
+    assert "bot link" in resp.json()["detail"]
+    stored = (
+        await session.execute(select(func.count()).select_from(PushSubscription))
+    ).scalar_one()
+    assert stored == 0
+    subs = await client.get("/push/subscriptions", headers=headers)
+    assert subs.json()["telegram_connected"] is False
+
+
+@pytest.mark.asyncio
 async def test_follow_requires_pro(client: AsyncClient, session: AsyncSession) -> None:
     fixture_id = await _make_fixture(session)
     headers = await _headers(session, UserTier.free)
