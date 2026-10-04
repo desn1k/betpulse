@@ -88,6 +88,33 @@ wait_for_bff_ready() {
   return 1
 }
 
+# TimescaleDB: a new image never updates the extension of an existing database
+# (the init scripts run only on an empty volume), and ALTER EXTENSION must be
+# the first command of its own `psql -X` session, so it cannot be an Alembic
+# revision (that fails: "cannot be updated after the old version has already
+# been loaded"). On the first launch the extension does not exist yet and
+# migration 0003 creates it at the image's version, so nothing is done.
+# Every connectable database is checked, so the one DATABASE_URL (Alembic)
+# targets is covered whatever its name; today only that database has it.
+psql_in() {
+  # psql -X in a fresh session on database $1, SQL on stdin.
+  # shellcheck disable=SC2016  # $POSTGRES_USER / $BP_DB expand in the container's shell
+  compose exec -T -e BP_DB="$1" postgres \
+    sh -c 'psql -X -At -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$BP_DB"'
+}
+
+update_timescale_extension() {
+  local databases db installed
+  databases="$(psql_in postgres <<<"SELECT datname FROM pg_database WHERE datallowconn ORDER BY datname;")"
+  while IFS= read -r db; do
+    [[ -n "$db" ]] || continue
+    installed="$(psql_in "$db" <<<"SELECT extversion FROM pg_extension WHERE extname = 'timescaledb';")"
+    [[ -n "$installed" ]] || continue
+    echo "TimescaleDB $installed in database $db; running ALTER EXTENSION timescaledb UPDATE."
+    psql_in "$db" <<<"ALTER EXTENSION timescaledb UPDATE;"
+  done <<<"$databases"
+}
+
 previous_tag=""
 if [[ -f "$last_successful_tag_file" ]]; then
   previous_tag="$(<"$last_successful_tag_file")"
@@ -110,6 +137,7 @@ compose up -d postgres redis
 wait_for_service postgres
 wait_for_service redis
 
+update_timescale_extension
 compose run --rm api alembic upgrade head
 compose up -d --remove-orphans
 for service in "${app_services[@]}" caddy; do
