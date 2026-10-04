@@ -253,10 +253,11 @@ jobs:
             running="$(docker inspect --format '{{.State.Running}}' web-ci)"
             status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' web-ci)"
             echo "attempt $attempt: running=$running health=$status"
-            # A container that exited during startup never turns healthy: stop
-            # waiting and fall through to the diagnostics below.
+            # Stop early only on success or exit. A running container that is
+            # unhealthy can still turn healthy on a later check, so it keeps
+            # its full 30-attempt window.
             [[ "$running" != "true" ]] && status="exited" && break
-            [[ "$status" == "healthy" || "$status" == "unhealthy" ]] && break
+            [[ "$status" == "healthy" ]] && break
             sleep 5
           done
           if [[ "$status" != "healthy" ]]; then
