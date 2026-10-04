@@ -7,6 +7,7 @@ security-critical key is missing or weak.
 
 from __future__ import annotations
 
+import math
 from datetime import date
 from functools import lru_cache
 from typing import Literal
@@ -15,6 +16,97 @@ from pydantic import BaseModel, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.client_ip import IPNetwork, parse_trusted_proxies, validate_production_proxies
+
+# --- placeholder / weak secret detection ---------------------------------------------
+# Docker Compose reads an env_file line `KEY=   # comment` as the value
+# `# comment`, so a documented hint can silently become a secret. Production
+# refuses such values; .env.example keeps its comments on their own lines.
+
+# Values that appear as examples in docs or are common stand-ins.
+_PLACEHOLDER_VALUES = frozenset(
+    {
+        "change-me",
+        "changeme",
+        "change_me",
+        "password",
+        "passw0rd",
+        "secret",
+        "placeholder",
+        "todo",
+        "test",
+        "admin",
+        "football",
+        "minioadmin",
+    }
+)
+SECRET_MIN_BITS = 128
+ADMIN_PASSWORD_MIN_LENGTH = 12  # same floor as PasswordStr in app/schemas/auth.py
+ADMIN_PASSWORD_MIN_BITS = 40
+
+
+def entropy_bits(value: str) -> float:
+    """Shannon estimate of the value's information content (length x bits per
+    character of its own character distribution): a cheap guard against
+    repeated or patterned stand-ins, not a strength meter."""
+    if not value:
+        return 0.0
+    counts: dict[str, int] = {}
+    for ch in value:
+        counts[ch] = counts.get(ch, 0) + 1
+    n = len(value)
+    per_char = -sum((c / n) * math.log2(c / n) for c in counts.values())
+    return per_char * n
+
+
+def is_placeholder_secret(value: str) -> bool:
+    """True for an empty value, a comment that leaked into a value (`#...`), a
+    documented example (anything containing "example") or common stand-in, or a
+    value with almost no character variety."""
+    v = value.strip()
+    if not v or v.startswith("#"):
+        return True
+    low = v.lower()
+    if low in _PLACEHOLDER_VALUES or "example" in low:
+        return True
+    return len(set(v)) <= 3
+
+
+def secret_problem(value: str) -> str | None:
+    """Why ``value`` cannot sign tokens in production, or None."""
+    if is_placeholder_secret(value):
+        return "is empty or a placeholder"
+    if len(value) < 32:
+        return "is shorter than 32 characters"
+    if entropy_bits(value) < SECRET_MIN_BITS:
+        return f"has too little entropy (< {SECRET_MIN_BITS} bits)"
+    return None
+
+
+def encryption_key_problem(value: str) -> str | None:
+    """Why ``value`` is not a usable DATA_ENCRYPTION_KEY (64 hex chars), or None."""
+    if is_placeholder_secret(value):
+        return "is empty or a placeholder"
+    try:
+        raw = bytes.fromhex(value)
+    except ValueError:
+        return "is not hex (generate it with `openssl rand -hex 32`)"
+    if len(raw) != 32:
+        return "must decode to 32 bytes (64 hex characters)"
+    if entropy_bits(value) < SECRET_MIN_BITS:
+        return f"has too little entropy (< {SECRET_MIN_BITS} bits)"
+    return None
+
+
+def admin_password_problem(value: str) -> str | None:
+    """Why ``value`` cannot be the first admin's password, or None."""
+    if is_placeholder_secret(value):
+        return "is empty, a placeholder or a documented example"
+    if len(value) < ADMIN_PASSWORD_MIN_LENGTH:
+        return f"is shorter than {ADMIN_PASSWORD_MIN_LENGTH} characters"
+    if entropy_bits(value) < ADMIN_PASSWORD_MIN_BITS:
+        return "is too predictable"
+    return None
+
 
 Environment = Literal["development", "staging", "production"]
 
@@ -249,10 +341,17 @@ class Settings(BaseSettings):
             if self.trusted_proxy_cidrs is None:
                 raise ValueError("TRUSTED_PROXY_CIDRS must be set explicitly in production")
             validate_production_proxies(networks)
-            for name in ("secret_key", "data_encryption_key"):
-                value = getattr(self, name)
-                if not value or len(value) < 32:
-                    raise ValueError(f"{name.upper()} must be set to a strong value in production")
+            problem = secret_problem(self.secret_key)
+            if problem:
+                raise ValueError(f"SECRET_KEY {problem}; set a random value in production")
+            problem = encryption_key_problem(self.data_encryption_key)
+            if problem:
+                raise ValueError(f"DATA_ENCRYPTION_KEY {problem}")
+            # Optional at startup (only `create-admin` reads it), never a placeholder.
+            if self.admin_password:
+                problem = admin_password_problem(self.admin_password)
+                if problem:
+                    raise ValueError(f"ADMIN_PASSWORD {problem}")
             if "*" in self.cors_origins:
                 raise ValueError(
                     "CORS_ALLOWED_ORIGINS must list explicit origins when credentials are enabled"

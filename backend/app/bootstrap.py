@@ -4,8 +4,11 @@ Usage:
     python -m app.bootstrap create-admin [--force]
 
 Creates the initial admin account from ``ADMIN_EMAIL`` / ``ADMIN_PASSWORD``.
-- If ``ADMIN_PASSWORD`` is empty a strong one-time password is generated and
-  printed to **stdout only** (never logged, never persisted in plaintext).
+- In **production** ``ADMIN_PASSWORD`` is required and explicit: an empty,
+  placeholder (``#...``, a documented example), short or predictable password
+  is refused (exit 2) and nothing is created.
+- In development an empty ``ADMIN_PASSWORD`` still generates a strong one-time
+  password, printed to **stdout only** (never logged, never persisted in plaintext).
 - The admin is created with ``must_change_password=True``; admin routes stay
   locked until the password is changed.
 - Refuses to run if an admin already exists (or the email is taken) unless
@@ -21,7 +24,7 @@ import sys
 
 from sqlalchemy import select
 
-from app.core.config import get_settings
+from app.core.config import admin_password_problem, get_settings, is_placeholder_secret
 from app.core.db import _write_sessionmaker
 from app.core.security import hash_password
 from app.models.user import User, UserRole
@@ -38,6 +41,15 @@ async def _create_admin(force: bool) -> int:
 
     generated: str | None = None
     password = settings.admin_password
+    if settings.is_production or (password and is_placeholder_secret(password)):
+        problem = admin_password_problem(password)
+        if problem:
+            print(
+                f"Refusing to create the admin: ADMIN_PASSWORD {problem}. Set an explicit, "
+                "strong password (at least 12 characters) in .env and re-run.",
+                file=sys.stderr,
+            )
+            return 2
     if not password:
         password = _generate_password()
         generated = password
