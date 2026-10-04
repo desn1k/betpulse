@@ -802,6 +802,21 @@ implemented.
   - **Checked locally on 2.30.2:** all 17 migrations up, 17 down, up again. The extension is
     2.30.2, and the hypertables are `odds` and `predictions_live`.
   - **Checked on 2.10.2:** the Caddyfile validates.
+  - **Existing databases (dev volumes, any future upgrade).** A new image does not update the
+    extension of a database created by an older one: on 2.30.2 a 2.17.2 volume kept `extversion`
+    2.17.2.
+    - An Alembic revision cannot fix this. `ALTER EXTENSION timescaledb UPDATE` must be the first
+      command of its own session; inside a transaction it fails with "cannot be updated after the
+      old version has already been loaded" (checked).
+    - So `deploy.sh` now runs `update_timescale_extension` after postgres is healthy and **before**
+      the migrations. It uses two fresh `psql -X` sessions: one checks `extversion`, the other runs
+      `ALTER EXTENSION timescaledb UPDATE`.
+    - On the first launch the extension does not exist yet (migration 0003 creates it at the image
+      version), so the step is skipped.
+    - Checked on a real 2.17.2 volume: upgraded to 2.30.2; a second run is a no-op NOTICE. The
+      stub test covers both paths and the ordering before Alembic.
+    - On a dev machine, run the same command by hand, or recreate the volume with
+      `docker compose down -v`.
 - **Healthchecks bound to the wrong address (fixed 2026-10-04).**
   - **web.** The Next.js standalone server listens on `$HOSTNAME`, which Docker sets to the
     container id. It bound only `172.29.89.10:3000`, so the web healthcheck and deploy.sh's

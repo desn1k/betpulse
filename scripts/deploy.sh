@@ -88,6 +88,24 @@ wait_for_bff_ready() {
   return 1
 }
 
+# TimescaleDB: a new image never updates the extension of an existing database
+# (the init scripts run only on an empty volume), and ALTER EXTENSION must be
+# the first command of its own `psql -X` session, so it cannot be an Alembic
+# revision (that fails: "cannot be updated after the old version has already
+# been loaded"). On the first launch the extension does not exist yet and
+# migration 0003 creates it at the image's version, so nothing is done.
+update_timescale_extension() {
+  local installed
+  installed="$(compose exec -T postgres sh -c 'psql -X -At -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+    <<<"SELECT extversion FROM pg_extension WHERE extname = 'timescaledb';")"
+  if [[ -z "$installed" ]]; then
+    return 0
+  fi
+  echo "TimescaleDB extension $installed installed; running ALTER EXTENSION timescaledb UPDATE."
+  compose exec -T postgres sh -c 'psql -X -At -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+    <<<"ALTER EXTENSION timescaledb UPDATE;"
+}
+
 previous_tag=""
 if [[ -f "$last_successful_tag_file" ]]; then
   previous_tag="$(<"$last_successful_tag_file")"
@@ -110,6 +128,7 @@ compose up -d postgres redis
 wait_for_service postgres
 wait_for_service redis
 
+update_timescale_extension
 compose run --rm api alembic upgrade head
 compose up -d --remove-orphans
 for service in "${app_services[@]}" caddy; do

@@ -27,6 +27,15 @@ if [[ "$args" == *" ps -q "* ]]; then
   echo "container-id"
   exit 0
 fi
+if [[ "$args" == *" exec -T postgres "* ]]; then
+  # psql reads its SQL from stdin; log it and answer the version query.
+  sql="$(cat)"
+  echo "SQL: $sql" >>"$STUB_LOG"
+  if [[ "$sql" == *"SELECT extversion"* && "${STUB_TIMESCALE:-absent}" == "installed" ]]; then
+    echo "2.17.2"
+  fi
+  exit 0
+fi
 if [[ "$args" == *" exec -T web wget "* ]]; then
   case "${STUB_READY:-ok}" in
     ok) exit 0 ;;
@@ -76,6 +85,26 @@ code="$(run "$root" ok deploy.sh v2.0.0)"
 grep -q "exec -T web wget -q -T 5 -O /dev/null http://127.0.0.1:3000/api/ready" "$root/docker.log" ||
   fail "deploy ok: readiness probe not run inside the web container"
 
+# 1b. first launch: no TimescaleDB extension yet, so no ALTER EXTENSION.
+grep -q "SQL: SELECT extversion" "$root/docker.log" || fail "deploy ok: extension not checked"
+if grep -q "ALTER EXTENSION" "$root/docker.log"; then
+  fail "deploy ok: ALTER EXTENSION run on a database without the extension"
+fi
+
+# 1c. existing database: the extension is updated before the migrations run.
+root="$(setup_root timescale)"
+log="$root/docker.log"
+: >"$log"
+set +e
+PATH="$work/bin:$PATH" STUB_LOG="$log" STUB_READY=ok STUB_TIMESCALE=installed IMAGE_TAG=v2.0.0   DEPLOY_HEALTHCHECK_ATTEMPTS=2 bash "$root/scripts/deploy.sh" >"$root/out.txt" 2>&1
+code=$?
+set -e
+[[ "$code" == "0" ]] || fail "deploy timescale: exit $code, expected 0"
+alter_line="$(grep -n "SQL: ALTER EXTENSION timescaledb UPDATE" "$log" | head -1 | cut -d: -f1)"
+alembic_line="$(grep -n "run --rm api alembic upgrade head" "$log" | head -1 | cut -d: -f1)"
+[[ -n "$alter_line" && -n "$alembic_line" && "$alter_line" -lt "$alembic_line" ]] ||
+  fail "deploy timescale: ALTER EXTENSION must run before the migrations"
+
 # 2. deploy, backend unreachable: fails, rolls back to the previous tag.
 root="$(setup_root unreachable)"
 code="$(run "$root" fail deploy.sh v2.0.0)"
@@ -116,4 +145,4 @@ if ((failures > 0)); then
   echo "$failures deploy-script test(s) failed." >&2
   exit 1
 fi
-echo "OK: deploy/rollback readiness checks behave as expected (6 scenarios)."
+echo "OK: deploy/rollback checks behave as expected (7 scenarios)."
