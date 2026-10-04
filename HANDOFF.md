@@ -793,6 +793,16 @@ implemented.
       and `.next/static` are copied into the standalone image.
   - Root-only `__pycache__`/`*.pyc` patterns in `backend/.dockerignore` became `**/`.
 
+- **API image lacked libgomp1 (fixed 2026-10-04).**
+  - **The bug.** LightGBM's wheel links the OpenMP runtime, which `python:3.12-slim` does not ship.
+    In the rc2 rehearsal all three workers crash-looped at startup with
+    `OSError: libgomp.so.1: cannot open shared object file`, because they import the training code.
+    CI did not see it: the tests run on the runner, which has the library, not inside the image.
+  - **The fix.** `backend/Dockerfile` installs `libgomp1` (no recommends, apt lists removed).
+  - **CI guard.** The "Docker images build" job now runs
+    `python -c "import lightgbm, app.main, app.workers.arq_app"` inside the built image.
+  - **Checked locally.** The imports pass, a 3-round LightGBM training runs, and the process still
+    runs as `appuser`.
 - **Placeholder secrets from `.env.example` (security, fixed 2026-10-04).**
   - **The bug.** Docker Compose reads an `env_file` line `KEY=   # note` (empty value, inline
     comment) as the value `# note`.
