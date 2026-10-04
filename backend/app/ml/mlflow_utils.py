@@ -2,8 +2,9 @@
 
 Every training run stores four things (spec §16/§17): the model binary, the
 feature schema (column names + types), the training-data hash (sha256 of the
-input DataFrame), and the metrics. In dev/prod MLflow proxies artifacts to MinIO
-(S3); in CI/tests the tracking URI points at a temp directory.
+input DataFrame), and the metrics. In dev/prod the MLflow server stores artifacts
+on its `mlflow_artifacts` volume and proxies them over HTTP (--serve-artifacts);
+in CI/tests the tracking URI points at a temp directory.
 """
 
 from __future__ import annotations

@@ -17,7 +17,7 @@ Statistical and machine-learning predictions for **live and upcoming football ma
 |---|---|
 | Frontend | Next.js 15 (App Router) · React 19 · TypeScript · Tailwind v4 · shadcn/ui · TanStack Query · next-intl (RU/EN) |
 | Backend | Python 3.12 · FastAPI · Pydantic v2 · SQLAlchemy 2 (async) · Alembic |
-| Data | PostgreSQL 16 (+TimescaleDB) · Redis 7 · S3-compatible object storage |
+| Data | PostgreSQL 16 (+TimescaleDB) · Redis 7 · MLflow artifact volume |
 | Jobs | ARQ — three queues, one worker service each: `realtime`, `batch`, `ml` |
 | ML | numpy · scipy · statsmodels · scikit-learn · LightGBM · MLflow |
 | LLM | Any OpenAI-compatible endpoint (configurable `base_url`) |
@@ -146,8 +146,10 @@ make train      # build features → train → log to MLflow → write predictio
 
 Each training run stores its **model binary**, **feature schema** (JSON), **training-data hash**
 (sha256 of the input DataFrame) and **metrics** in MLflow. MLflow keeps tracking metadata in a
-dedicated `mlflow` Postgres database and writes **artifacts to MinIO/S3** (`S3_BUCKET_ARTIFACTS`) —
-never to local disk, so any past model version can be rolled back (§16/§17). A nightly
+dedicated `mlflow` Postgres database and stores **artifacts on the `mlflow_artifacts` volume**, served
+by the MLflow server itself (`--serve-artifacts`; clients use its HTTP API). The volume outlives
+container rebuilds and is part of the backups, so any past model version can be rolled back
+(§16/§17). A nightly
 `reevaluate_champions` ARQ task recomputes rolling **prequential** metrics — each prediction made
 only from matches before its kickoff, one explicit model version per method, all methods on the same
 fixtures — and promotes the champion, snapshotting the full registry first for one-click rollback.
@@ -168,7 +170,7 @@ forward test.
 ```bash
 git clone <repo> && cd <repo>
 cp .env.example .env          # fill in the secrets — see comments in the file
-make up                       # docker compose up -d (postgres, redis, minio, mlflow, api, web, worker-realtime, worker-batch, worker-ml)
+make up                       # docker compose up -d (postgres, redis, mlflow, api, web, worker-realtime, worker-batch, worker-ml)
 make migrate                  # alembic upgrade head
 make seed                     # tiers, leagues, admin user
 make bootstrap-history        # ingest football-data.co.uk CSVs (free, no key needed)
@@ -229,11 +231,12 @@ The design is stateless-by-default, so scaling out requires no rewrite:
     time. Training blocks this worker's event loop, which is why it never shares a process with
     live work. To move it to a dedicated CPU-heavy host, run only `worker-ml` there with the same
     image and environment (including `TRUSTED_PROXY_CIDRS`, which production settings require in
-    every backend process), pointed at the same Redis, Postgres and S3, and stop it on the main host.
+    every backend process), pointed at the same Redis, Postgres and MLflow, and stop it on the main host.
   - Each cron is registered on exactly one worker class and takes a Redis lock, so extra replicas
     of any worker are safe hot standbys.
 - Postgres — primary + read replica (read/write routing is already in the session factory).
-- Object storage — S3-compatible from day one (MinIO locally → any provider in prod).
+- Model artifacts — a named volume behind the MLflow server (MinIO was removed in 2026-10: its
+  images are no longer published).
 
 All tasks are idempotent (`fixture_id + method + model_version`), so retries and duplicate
 deliveries are safe.
@@ -242,11 +245,20 @@ deliveries are safe.
 
 ## Backups & disaster recovery
 
+> **Status: planned.** `make backup` / `make restore-drill` are stubs and WAL-G is not set up. Until
+> then backups are manual (Postgres dumps + the `mlflow_artifacts` volume, encrypted, copied off the
+> server): see the VPS runbook (`docs/DEPLOY_VPS.md`). In the target design below, model artifacts
+> live on the `mlflow_artifacts` volume (no S3 on the server). The off-server backup destination is
+> **not chosen yet** (owner decision): an S3-compatible bucket at an external provider, or another
+> host.
+
 Three tracks, all **encrypted before leaving the host**:
 
-1. **Database** — WAL-G continuous archiving to S3: nightly base backup + WAL shipping → PITR.
+1. **Database** — WAL-G continuous archiving to an **off-server** destination (S3-compatible bucket
+   at an external provider or another host; to be chosen): nightly base backup + WAL shipping → PITR.
    Retention 7 daily / 4 weekly / 6 monthly.
-2. **Models** — MLflow artifacts on S3. Every version keeps the model binary, feature schema,
+2. **Models** — MLflow artifacts on the `mlflow_artifacts` volume (backed up with the database).
+   Every version keeps the model binary, feature schema,
    training-data hash, metrics, and a `model_registry` snapshot → **rollback to any past version
    without retraining**. Champions are kept forever; last 10 versions per method otherwise.
 3. **Config/secrets** — repo is the source of truth; secrets backed up separately, encrypted.
@@ -267,9 +279,24 @@ docker compose up -d postgres
 make restore                       # or: make restore PITR="2026-07-12 18:30:00+03"
 # 4. verify
 make restore-verify                # row counts + schema diff + latest fixture sanity check
-# 5. bring up the rest, models are pulled from S3 automatically
-make up && make deploy
+# 5. restore the mlflow_artifacts volume BEFORE MLflow starts (the archive is
+#    decrypted first, see the VPS runbook): let Compose create the empty volume
+#    without starting anything, then extract the tar into it
+C="docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.prod.yml"
+$C up --no-start mlflow                       # creates betpulse_mlflow_artifacts
+docker run --rm -i -v betpulse_mlflow_artifacts:/v \
+  alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 \
+  tar -C /v -xf - < mlflow_artifacts.tar
+# 6. bring up the rest
+make deploy IMAGE_TAG=<release>
 ```
+
+`make restore` / `make restore-verify` above are the *target* design and do not exist yet. Step 5
+(volume creation + `tar` extraction into `betpulse_mlflow_artifacts`) was checked locally. The volume
+name comes from the project name pinned by `name: betpulse` in `infra/docker-compose.yml`, whatever
+the checkout directory is called. Do not pass `-p` or set `COMPOSE_PROJECT_NAME`, or Compose would
+create a different, empty volume. The decryption and the full restore drill are part of
+`docs/DEPLOY_VPS.md` (being written).
 
 ---
 

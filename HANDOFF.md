@@ -45,8 +45,9 @@ Monorepo:
 | `/.github` | `ci.yml`, `security.yml`, dependabot |
 | `/docs` | `DATA_SOURCES.md` (provider canon) |
 
-Data plane: PostgreSQL 16 + TimescaleDB (hypertables `odds`, `predictions_live`) · Redis 7 · MinIO
-(S3) · MLflow (Postgres backend + MinIO artifacts) · ARQ (async Redis queues `realtime`, `batch`, `ml`,
+Data plane: PostgreSQL 16 + TimescaleDB (hypertables `odds`, `predictions_live`) · Redis 7 · MLflow
+(Postgres backend + artifacts on the `mlflow_artifacts` volume, served over HTTP; MinIO removed
+2026-10) · ARQ (async Redis queues `realtime`, `batch`, `ml`,
 one worker service each — see §9k; the spec's five queue names were consolidated).
 
 Backend layout of note: `app/core` (config, db, redis, security, crypto, deps), `app/models`,
@@ -98,8 +99,8 @@ Backend CI specifics (`.github/workflows/ci.yml`): Postgres (timescaledb image) 
 containers; installs `libgomp1` for LightGBM; runs the **migration round-trip**
 `upgrade head → downgrade base → upgrade head`; runs **offline historical ingestion** against the
 committed CSV fixture; then pytest with `--cov-fail-under=80`. MLflow uses a temp **file store** in
-CI (`MLFLOW_TRACKING_URI=file://…`, `MLFLOW_ALLOW_FILE_STORE=true`) — Postgres+MinIO only in
-dev/prod. `make train` is deliberately **not** in CI (LightGBM on real data takes minutes; the
+CI (`MLFLOW_TRACKING_URI=file://…`, `MLFLOW_ALLOW_FILE_STORE=true`) — the MLflow server (Postgres
++ artifacts volume) only in dev/prod. `make train` is deliberately **not** in CI (LightGBM on real data takes minutes; the
 fixture pipeline test covers the full path instead — see the comment in `ci.yml`).
 
 **Playwright security e2e shipped in Phase 13d.** `Browser security (Playwright)` builds the
@@ -758,7 +759,11 @@ implemented.
   - **Tests.** `scripts/tests/deploy-scripts-test.sh` (stubbed `docker`/`sleep`, run in CI) covers
     6 scenarios: deploy ok, unreachable → rollback to the previous tag, old image; rollback ok,
     unreachable, old image.
-- **Backups:** add WAL-G continuous Postgres archiving to S3-compatible storage, `make backup`, weekly
+- **Backups:** (target: WAL-G to an **off-server** destination, an S3-compatible bucket at an external
+  provider or another host, **not chosen yet** (owner); the on-server MinIO bucket is gone. The
+  first-launch plan is
+  manual: Postgres dumps of `football` and `mlflow` plus a tar of the `mlflow_artifacts` volume,
+  encrypted and copied off the server, see `docs/DEPLOY_VPS.md`) — then `make backup`, weekly
   `make restore-drill`, backup freshness checks, and Telegram ops alerting when backups are stale
   (owner target: alert if backup is older than 15 minutes).
 - **Docs:** update README/deploy docs with required env vars, tag-based release flow, deploy, rollback,
@@ -783,10 +788,49 @@ implemented.
     `python -m app.cli data-report --help` and `python -m app.bootstrap --help`.
   - **Other runtime files checked.**
     - Backend: only the user-supplied `--offline-dir` CSVs are read from disk; MLflow artifacts are
-      in S3; `ml_artifacts/` is unused by code.
+      on the `mlflow_artifacts` volume behind the MLflow server; `ml_artifacts/` is unused by code.
     - Frontend: no runtime `fs` reads; locale messages and legal texts are bundled; `public/sw.js`
       and `.next/static` are copied into the standalone image.
   - Root-only `__pycache__`/`*.pyc` patterns in `backend/.dockerignore` became `**/`.
+
+- **MinIO removed; MLflow serves its own artifacts (fixed 2026-10-04).**
+  - **Why.** The dress rehearsal (`v0.0.1-rc1`, real `deploy.sh`) stopped at
+    `compose up -d postgres redis minio` with `pull access denied for minio/minio`. MinIO has been
+    source-only since 2025-10: `minio/minio` and `minio/mc` are gone from Docker Hub, quay.io
+    refuses anonymous pulls, and dl.min.io answers `410 Gone`.
+  - **Scope check.** S3 was used only by MLflow artifacts (server side, via `--serve-artifacts`) and
+    a `backups` bucket that no code used. No backend code imported `boto3`, and
+    `MLFLOW_ARTIFACT_ROOT` was unused.
+  - **The change.**
+    - The `minio` and `createbuckets` services, the `mc` healthcheck, the `S3_*` /
+      `MLFLOW_ARTIFACT_ROOT` variables and `boto3` (backend and MLflow image) are removed.
+    - The MLflow server stores artifacts on the `mlflow_artifacts` named volume:
+      `--serve-artifacts --artifacts-destination /mlflow/artifacts
+      --default-artifact-root mlflow-artifacts:/`. Clients upload and download over its HTTP API.
+    - `deploy.sh` starts `postgres redis` first.
+  - **Second finding, fixed in the same PR.** MLflow 3 rejects any Host header outside its allow
+    list (`403 Invalid Host header - possible DNS rebinding attack detected`). The default list
+    allows localhost and private IPs, but not the service name, so every training run from the
+    api/workers (`http://mlflow:5000`) would have failed. The server now runs with
+    `--allowed-hosts mlflow,mlflow:5000,localhost,localhost:*,127.0.0.1:*`.
+  - **Verified locally** (postgres + the new MLflow from the prod config, the `v0.0.1-rc1` api image):
+    - `log_training_run` logged a run;
+    - the files landed on the volume (`/mlflow/artifacts/1/<run>/artifacts/model/model.joblib`,
+      `feature_schema.json`);
+    - the model and schema loaded back through the proxy and matched;
+    - after `rm` + `up` of the MLflow container the model still loaded;
+    - through a socat forwarder on `127.0.0.1:5001` the UI and the API answered 200.
+  - **Backups.** The `mlflow_artifacts` volume must be backed up together with the `football` and
+    `mlflow` databases (volume tar, encrypted off-server copy) — see the VPS runbook.
+  - **Dev databases** that still hold experiments with `s3://` artifact locations must be recreated
+    (`docker compose down -v`). Production never ran, so nothing there is affected.
+  - **Image pinning and checks.**
+    - Third-party images are pinned by `tag@sha256` in the compose files and the Dockerfile bases.
+    - Dependabot covers `docker-compose` (`/infra`) and the MLflow Dockerfile.
+    - `.github/workflows/upstream-images.yml` runs weekly (Mondays 05:17 UTC) and on demand. It
+      pulls every non-betpulse image of the rendered prod config and every Dockerfile base image,
+      and rebuilds the MLflow image, so a vanished upstream image is caught before a deploy needs
+      it.
 
 ### Pre-deploy manual checklist
 
@@ -888,7 +932,7 @@ as its own Compose service:
   `redis-cli DEL arq:queue`. `deploy.sh` runs `up -d --remove-orphans`, which stops the old single
   `worker` container. Rolling back to a pre-split image also needs the pre-split Compose files.
 - **Scaling:** run `worker-ml` on a dedicated host by starting only that service there (same image and
-  env, same Redis/Postgres/S3) and stopping it on the main host.
+  env, same Redis/Postgres/MLflow) and stopping it on the main host.
 
 **Backlog (separate tasks):**
 - **Nightly retrain cron.** `RETRAIN_CRON` (`.env`) is read nowhere; the only ML cron is the champion

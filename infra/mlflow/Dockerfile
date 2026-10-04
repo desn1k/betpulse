@@ -1,11 +1,10 @@
-# MLflow tracking server with the S3 (MinIO) + PostgreSQL backends it needs.
-# The stock image ships neither boto3 nor a Postgres driver, so artifacts could
-# only go to local disk — which breaks model rollback (§16/§17).
-FROM python:3.12-slim
+# MLflow tracking server with the PostgreSQL driver it needs (the stock image
+# ships none). Artifacts are stored on a local volume and served by the server
+# itself (--serve-artifacts), so no object-storage client is installed.
+FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016
 
 RUN pip install --no-cache-dir \
     "mlflow==3.14.0" \
-    "boto3==1.43.47" \
     "psycopg[binary]==3.2.3"
 
 EXPOSE 5000
