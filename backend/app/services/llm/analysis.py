@@ -24,6 +24,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.crypto import decrypt_secret
+from app.core.outbound import register_secret
 from app.ml.base import Method
 from app.models.fixture import Fixture
 from app.models.llm import LlmAnalysis, LlmConfig
@@ -122,10 +123,12 @@ async def build_context(session: AsyncSession, fixture_id: uuid.UUID) -> str | N
 async def generate_completion(config: LlmConfig, *, system: str, user: str) -> tuple[str, int, int]:
     """Call the configured OpenAI-compatible endpoint. Returns (content, in, out).
     Isolated so tests can monkeypatch it (no live API key needed)."""
-    client = AsyncOpenAI(
-        base_url=config.base_url or None,
-        api_key=decrypt_secret(config.encrypted_key) if config.encrypted_key else "",
-    )
+    api_key = decrypt_secret(config.encrypted_key) if config.encrypted_key else ""
+    # The OpenAI SDK is the one outbound client outside app.core.outbound (it
+    # sends the key as a header); registering the key lets the log safety net
+    # redact it if it ever shows up in a log line or a traceback.
+    register_secret(api_key)
+    client = AsyncOpenAI(base_url=config.base_url or None, api_key=api_key)
     resp = await client.chat.completions.create(
         model=config.model,
         max_tokens=config.max_tokens,

@@ -329,7 +329,8 @@ use, indefinite storage, ML training and derived data, so the adapter may declar
 *Access and quota*
 - **Host and auth.** Host `https://api.the-odds-api.com`; the key is the `apiKey` **query
   parameter** — there is no header option. It is therefore scrubbed from every logged URL and
-  exception.
+  exception by the shared outbound client (`app/core/outbound.py`: `outbound_client`,
+  `check_status`, and the log-record safety net; see HANDOFF "Outbound scrubber").
 - **Quota headers** on every response: `x-requests-remaining`, `x-requests-used`,
   `x-requests-last`. A 429 means rate limited. An empty result costs nothing.
 - **Time:** ISO 8601 UTC (`Z`).

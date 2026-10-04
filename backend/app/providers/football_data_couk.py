@@ -16,9 +16,9 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
-import httpx
 import pandas as pd
 
+from app.core.outbound import check_status, outbound_client
 from app.providers.base import (
     BaseProvider,
     Capability,
@@ -144,9 +144,9 @@ class FootballDataCoUkProvider(BaseProvider):
         url = CSV_URL_TEMPLATE.format(
             season=season_to_fd(season), code=canonical_to_fd_code(league_code)
         )
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with outbound_client(timeout=self._timeout) as client:
             resp = await client.get(url)
-            resp.raise_for_status()
+            check_status(resp)
             return resp.content
 
     async def fetch(self, league_code: str, season: str) -> list[FixtureDTO]:

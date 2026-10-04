@@ -5,6 +5,7 @@ from __future__ import annotations
 import httpx
 
 from app.core.config import Settings
+from app.core.outbound import outbound_client
 
 
 class OpsAlertNotConfigured(Exception):
@@ -20,7 +21,7 @@ async def send_ops_alert(settings: Settings, message: str) -> None:
         raise OpsAlertNotConfigured
     url = f"{settings.telegram_api_base_url}/bot{settings.telegram_bot_token}/sendMessage"
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with outbound_client(secrets=[settings.telegram_bot_token], timeout=15.0) as client:
             resp = await client.post(
                 url,
                 json={"chat_id": settings.telegram_alert_chat_id, "text": message},

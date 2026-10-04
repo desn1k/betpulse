@@ -23,6 +23,7 @@ import sys
 from pathlib import Path
 
 from app.core.db import _write_sessionmaker
+from app.core.outbound import install_log_safety
 from app.providers.football_data_couk import FootballDataCoUkProvider
 from app.services.ingestion.football_data import LEAGUE_META
 from app.services.ingestion.runner import (
@@ -201,6 +202,7 @@ async def _train() -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    install_log_safety()
     parser = argparse.ArgumentParser(prog="app.cli")
     sub = parser.add_subparsers(dest="command", required=True)
 

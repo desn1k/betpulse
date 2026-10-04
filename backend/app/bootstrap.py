@@ -31,6 +31,7 @@ from sqlalchemy import select
 
 from app.core.config import admin_password_problem, get_settings, is_placeholder_secret
 from app.core.db import _write_sessionmaker
+from app.core.outbound import install_log_safety
 from app.models.user import User, UserRole
 
 
@@ -110,6 +111,7 @@ async def _create_admin(force: bool) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    install_log_safety()
     parser = argparse.ArgumentParser(prog="app.bootstrap")
     sub = parser.add_subparsers(dest="command", required=True)
     create = sub.add_parser("create-admin", help="Create the initial admin account")
