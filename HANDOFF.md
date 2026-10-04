@@ -826,6 +826,14 @@ implemented.
       password. That affected any misconfigured production start of the api and workers, which
       could leak secrets into the logs.
     - Every comment line of `.env.example` is tested to be classified as a placeholder.
+    - **Patterns that fool a Shannon estimate are rejected too** (review, CWE-330):
+      `"abcdefghijklmnop" * 2` (≈128 bits by Shannon) and `"0123456789abcdef" * 4` (valid hex,
+      ≈256 bits) used to pass. Now also refused:
+      - a value made of a repeated block;
+      - a value of 32+ characters with fewer than 10 distinct characters;
+      - any 8-character run stepping by ±1 (`abcdefgh`, `01234567`).
+      Measured on 100 000 values each: `secrets.token_hex(32)` and `secrets.token_urlsafe(32)`
+      were never rejected; the test uses 10 000 seeded values, so it is deterministic.
   - **Runbook requirement.** Set `ADMIN_PASSWORD` explicitly in the server `.env` before
     `create-admin`, and generate `SECRET_KEY` / `DATA_ENCRYPTION_KEY` with `openssl rand -hex 32`.
 - **MinIO removed; MLflow serves its own artifacts (fixed 2026-10-04).**

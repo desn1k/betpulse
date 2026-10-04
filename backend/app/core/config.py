@@ -58,17 +58,48 @@ def entropy_bits(value: str) -> float:
     return per_char * n
 
 
+# A long value from a CSPRNG uses many distinct characters: token_hex(32) has
+# 16 distinct hex digits almost surely, token_urlsafe(32) ~30. Fewer than this
+# many in a value of LONG_VALUE_LENGTH+ characters means it was typed, not drawn.
+LONG_VALUE_LENGTH = 32
+LONG_VALUE_MIN_DISTINCT = 10
+# abcdefgh / 01234567 / hgfedcba: a keyboard walk, not randomness. For
+# token_hex(32) the chance of such a run is ~4e-7 per key.
+MONOTONIC_RUN_LENGTH = 8
+
+
+def _is_periodic(value: str) -> bool:
+    """True when the value is a shorter block repeated (abab..., 0123...0123)."""
+    return len(value) > 1 and value in (value + value)[1:-1]
+
+
+def _has_monotonic_run(value: str, length: int = MONOTONIC_RUN_LENGTH) -> bool:
+    """True when `length` consecutive characters step by +1 (or by -1) each."""
+    up = down = 1
+    for prev, cur in zip(value, value[1:], strict=False):
+        step = ord(cur) - ord(prev)
+        up = up + 1 if step == 1 else 1
+        down = down + 1 if step == -1 else 1
+        if up >= length or down >= length:
+            return True
+    return False
+
+
 def is_placeholder_secret(value: str) -> bool:
     """True for an empty value, a comment that leaked into a value (`#...`), a
     documented example (anything containing "example") or common stand-in, or a
-    value with almost no character variety."""
+    value that is visibly not random: almost no character variety, a repeated
+    block, too few distinct characters for its length, or a long run such as
+    abcdefgh / 01234567. Shannon entropy alone misses the last three."""
     v = value.strip()
     if not v or v.startswith("#"):
         return True
     low = v.lower()
     if low in _PLACEHOLDER_VALUES or "example" in low:
         return True
-    return len(set(v)) <= 3
+    if len(set(v)) <= 3 or _is_periodic(low) or _has_monotonic_run(low):
+        return True
+    return len(v) >= LONG_VALUE_LENGTH and len(set(v)) < LONG_VALUE_MIN_DISTINCT
 
 
 def secret_problem(value: str) -> str | None:

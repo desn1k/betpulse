@@ -214,3 +214,63 @@ def test_create_admin_cli_exits_2_and_prints_no_secret_for_a_placeholder() -> No
     assert result.returncode == 2, output
     assert "ADMIN_PASSWORD" in output
     assert secret not in output and "leave empty to auto-generate" not in output
+
+
+# --- patterned values that fool a Shannon estimate -------------------------------
+
+PATTERNED_SECRET_KEYS = [
+    "abcdefghijklmnop" * 2,  # review example: ~128 bits by Shannon, still a pattern
+    "0123456789abcdef" * 4,  # review example: valid hex, ~256 bits by Shannon
+    "Kx7Pq2Lm" * 8,  # periodic, no run
+    "q9" + "abcdefghij" + secrets.token_hex(20),  # random tail, but a keyboard run
+]
+
+
+@pytest.mark.parametrize("value", PATTERNED_SECRET_KEYS)
+def test_patterned_values_are_placeholders(value: str) -> None:
+    assert is_placeholder_secret(value)
+
+
+@pytest.mark.parametrize("value", PATTERNED_SECRET_KEYS)
+def test_production_rejects_patterned_secret_key(value: str) -> None:
+    with pytest.raises(ValueError, match="SECRET_KEY"):
+        _prod(secret_key=value)
+
+
+@pytest.mark.parametrize("value", ["0123456789abcdef" * 4, "deadbeef" * 8, "fedcba9876543210" * 4])
+def test_production_rejects_patterned_data_encryption_key(value: str) -> None:
+    with pytest.raises(ValueError, match="DATA_ENCRYPTION_KEY"):
+        _prod(data_encryption_key=value)
+
+
+def test_few_distinct_characters_in_a_long_value_are_rejected() -> None:
+    value = "qwrtzpkmvwqtrzkpmvqzwtrkmpvzqwkt"  # 32 long, 9 distinct, no block, no run
+    assert len(value) == 32 and len(set(value)) == 9
+    assert is_placeholder_secret(value)
+
+
+def test_admin_password_with_a_keyboard_run_is_rejected() -> None:
+    with pytest.raises(ValueError, match="ADMIN_PASSWORD"):
+        _prod(admin_password="Password12345678")
+
+
+def test_random_secrets_have_no_false_positives() -> None:
+    """10k values per generator shape, from a seeded RNG so the test is
+    deterministic. Same alphabets and lengths as secrets.token_hex(32) and
+    secrets.token_urlsafe(32), the commands the docs tell operators to use."""
+    import base64
+    import random
+
+    rng = random.Random(20261004)  # noqa: S311 - test data, not secrets
+    rejected: list[str] = []
+    for _ in range(10_000):
+        raw = rng.randbytes(32)
+        for value in (raw.hex(), base64.urlsafe_b64encode(raw).rstrip(b"=").decode()):
+            if is_placeholder_secret(value):
+                rejected.append(value)
+    assert rejected == []
+    # And a few real CSPRNG draws, end to end through production validation.
+    for _ in range(50):
+        assert _prod(
+            secret_key=secrets.token_urlsafe(32), data_encryption_key=secrets.token_hex(32)
+        )
