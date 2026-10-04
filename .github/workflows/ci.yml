@@ -248,19 +248,24 @@ jobs:
       - name: Built web image becomes healthy
         run: |
           docker run -d --name web-ci betpulse-web:ci
+          status="unknown"
           for attempt in $(seq 1 30); do
-            status="$(docker inspect --format '{{.State.Health.Status}}' web-ci)"
-            echo "attempt $attempt: $status"
-            [[ "$status" == "healthy" ]] && break
-            [[ "$status" == "unhealthy" ]] && break
+            running="$(docker inspect --format '{{.State.Running}}' web-ci)"
+            status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' web-ci)"
+            echo "attempt $attempt: running=$running health=$status"
+            # A container that exited during startup never turns healthy: stop
+            # waiting and fall through to the diagnostics below.
+            [[ "$running" != "true" ]] && status="exited" && break
+            [[ "$status" == "healthy" || "$status" == "unhealthy" ]] && break
             sleep 5
           done
-          docker exec web-ci wget -q -T 5 -O /dev/null http://127.0.0.1:3000/api/health
           if [[ "$status" != "healthy" ]]; then
+            # Diagnostics first, before anything that needs a running container.
+            docker inspect --format '{{json .State}}' web-ci
             docker logs web-ci
-            docker inspect --format '{{json .State.Health}}' web-ci
             exit 1
           fi
+          docker exec web-ci wget -q -T 5 -O /dev/null http://127.0.0.1:3000/api/health
           docker rm -f web-ci
 
   ops-config:
