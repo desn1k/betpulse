@@ -7,6 +7,7 @@ security-critical key is missing or weak.
 
 from __future__ import annotations
 
+import math
 from datetime import date
 from functools import lru_cache
 from typing import Literal
@@ -15,6 +16,128 @@ from pydantic import BaseModel, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.client_ip import IPNetwork, parse_trusted_proxies, validate_production_proxies
+
+# --- placeholder / weak secret detection ---------------------------------------------
+# Docker Compose reads an env_file line `KEY=   # comment` as the value
+# `# comment`, so a documented hint can silently become a secret. Production
+# refuses such values; .env.example keeps its comments on their own lines.
+
+# Values that appear as examples in docs or are common stand-ins.
+_PLACEHOLDER_VALUES = frozenset(
+    {
+        "change-me",
+        "changeme",
+        "change_me",
+        "password",
+        "passw0rd",
+        "secret",
+        "placeholder",
+        "todo",
+        "test",
+        "admin",
+        "football",
+        "minioadmin",
+    }
+)
+SECRET_MIN_BITS = 128
+ADMIN_PASSWORD_MIN_LENGTH = 12  # same floor as PasswordStr in app/schemas/auth.py
+ADMIN_PASSWORD_MIN_BITS = 40
+
+
+def entropy_bits(value: str) -> float:
+    """Shannon estimate of the value's information content (length x bits per
+    character of its own character distribution): a cheap guard against
+    repeated or patterned stand-ins, not a strength meter."""
+    if not value:
+        return 0.0
+    counts: dict[str, int] = {}
+    for ch in value:
+        counts[ch] = counts.get(ch, 0) + 1
+    n = len(value)
+    per_char = -sum((c / n) * math.log2(c / n) for c in counts.values())
+    return per_char * n
+
+
+# A long value from a CSPRNG uses many distinct characters: token_hex(32) has
+# 16 distinct hex digits almost surely, token_urlsafe(32) ~30. Fewer than this
+# many in a value of LONG_VALUE_LENGTH+ characters means it was typed, not drawn.
+LONG_VALUE_LENGTH = 32
+LONG_VALUE_MIN_DISTINCT = 10
+# abcdefgh / 01234567 / hgfedcba: a keyboard walk, not randomness. For
+# token_hex(32) the chance of such a run is ~4e-7 per key.
+MONOTONIC_RUN_LENGTH = 8
+
+
+def _is_periodic(value: str) -> bool:
+    """True when the value is a shorter block repeated (abab..., 0123...0123)."""
+    return len(value) > 1 and value in (value + value)[1:-1]
+
+
+def _has_monotonic_run(value: str, length: int = MONOTONIC_RUN_LENGTH) -> bool:
+    """True when `length` consecutive characters step by +1 (or by -1) each."""
+    up = down = 1
+    for prev, cur in zip(value, value[1:], strict=False):
+        step = ord(cur) - ord(prev)
+        up = up + 1 if step == 1 else 1
+        down = down + 1 if step == -1 else 1
+        if up >= length or down >= length:
+            return True
+    return False
+
+
+def is_placeholder_secret(value: str) -> bool:
+    """True for an empty value, a comment that leaked into a value (`#...`), a
+    documented example (anything containing "example") or common stand-in, or a
+    value that is visibly not random: almost no character variety, a repeated
+    block, too few distinct characters for its length, or a long run such as
+    abcdefgh / 01234567. Shannon entropy alone misses the last three."""
+    v = value.strip()
+    if not v or v.startswith("#"):
+        return True
+    low = v.lower()
+    if low in _PLACEHOLDER_VALUES or "example" in low:
+        return True
+    if len(set(v)) <= 3 or _is_periodic(low) or _has_monotonic_run(low):
+        return True
+    return len(v) >= LONG_VALUE_LENGTH and len(set(v)) < LONG_VALUE_MIN_DISTINCT
+
+
+def secret_problem(value: str) -> str | None:
+    """Why ``value`` cannot sign tokens in production, or None."""
+    if is_placeholder_secret(value):
+        return "is empty or a placeholder"
+    if len(value) < 32:
+        return "is shorter than 32 characters"
+    if entropy_bits(value) < SECRET_MIN_BITS:
+        return f"has too little entropy (< {SECRET_MIN_BITS} bits)"
+    return None
+
+
+def encryption_key_problem(value: str) -> str | None:
+    """Why ``value`` is not a usable DATA_ENCRYPTION_KEY (64 hex chars), or None."""
+    if is_placeholder_secret(value):
+        return "is empty or a placeholder"
+    try:
+        raw = bytes.fromhex(value)
+    except ValueError:
+        return "is not hex (generate it with `openssl rand -hex 32`)"
+    if len(raw) != 32:
+        return "must decode to 32 bytes (64 hex characters)"
+    if entropy_bits(value) < SECRET_MIN_BITS:
+        return f"has too little entropy (< {SECRET_MIN_BITS} bits)"
+    return None
+
+
+def admin_password_problem(value: str) -> str | None:
+    """Why ``value`` cannot be the first admin's password, or None."""
+    if is_placeholder_secret(value):
+        return "is empty, a placeholder or a documented example"
+    if len(value) < ADMIN_PASSWORD_MIN_LENGTH:
+        return f"is shorter than {ADMIN_PASSWORD_MIN_LENGTH} characters"
+    if entropy_bits(value) < ADMIN_PASSWORD_MIN_BITS:
+        return "is too predictable"
+    return None
+
 
 Environment = Literal["development", "staging", "production"]
 
@@ -52,6 +175,9 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
+        # A validation error must never echo the settings it was given: they
+        # hold every secret (pydantic otherwise prints `input_value=...`).
+        hide_input_in_errors=True,
     )
 
     # --- Core ---------------------------------------------------------------
@@ -249,10 +375,17 @@ class Settings(BaseSettings):
             if self.trusted_proxy_cidrs is None:
                 raise ValueError("TRUSTED_PROXY_CIDRS must be set explicitly in production")
             validate_production_proxies(networks)
-            for name in ("secret_key", "data_encryption_key"):
-                value = getattr(self, name)
-                if not value or len(value) < 32:
-                    raise ValueError(f"{name.upper()} must be set to a strong value in production")
+            problem = secret_problem(self.secret_key)
+            if problem:
+                raise ValueError(f"SECRET_KEY {problem}; set a random value in production")
+            problem = encryption_key_problem(self.data_encryption_key)
+            if problem:
+                raise ValueError(f"DATA_ENCRYPTION_KEY {problem}")
+            # Optional at startup (only `create-admin` reads it), never a placeholder.
+            if self.admin_password:
+                problem = admin_password_problem(self.admin_password)
+                if problem:
+                    raise ValueError(f"ADMIN_PASSWORD {problem}")
             if "*" in self.cors_origins:
                 raise ValueError(
                     "CORS_ALLOWED_ORIGINS must list explicit origins when credentials are enabled"
