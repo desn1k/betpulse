@@ -25,7 +25,7 @@ dependencies = [
     "click==8.4.2",
     # HTTP client for providers; pandas for CSV/feature work (mlflow caps <3).
     "httpx==0.28.1",
-    "pandas==2.3.3",
+    "pandas==3.0.6",
     # ML stack (Phase 4).
     "scipy==1.18.0",
     "scikit-learn==1.9.0",
