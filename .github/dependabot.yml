@@ -1,4 +1,8 @@
 version: 2
+# Weekly updates. Per ecosystem, minor + patch bumps arrive grouped in one PR;
+# every major bump arrives as its own PR (no group), so a breaking upgrade is
+# never hidden inside a routine batch. Majors that need a migration plan are
+# ignored below with the reason; review them on purpose, not weekly.
 updates:
   - package-ecosystem: pip
     directory: /backend
@@ -6,8 +10,13 @@ updates:
       interval: weekly
     open-pull-requests-limit: 10
     groups:
-      backend-dependencies:
+      backend-minor-patch:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      # arq 0.28 requires redis-py < 6; bump together with arq.
+      - dependency-name: redis
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: /frontend
@@ -15,33 +24,59 @@ updates:
       interval: weekly
     open-pull-requests-limit: 10
     groups:
-      frontend-dependencies:
+      frontend-minor-patch:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      # Typings follow the runtime: Node 22 (frontend/Dockerfile).
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
+  # Base images. Python and Node move by plan (new wheels, runtime support), not
+  # weekly: only digest/patch updates of the current line arrive automatically.
   - package-ecosystem: docker
     directory: /backend
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   - package-ecosystem: docker
     directory: /frontend
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
 
   # Third-party images pinned by tag@digest in the compose files and the MLflow
   # image: Dependabot bumps the digest (and tag) so pinning does not freeze
   # security updates. The weekly upstream-images workflow catches removals.
+  # CI pins its own copies (ci.yml service images, scripts/caddy-smoke.sh):
+  # bump those in the same PR, or CI does not test the new version.
   - package-ecosystem: docker-compose
     directory: /infra
     schedule:
       interval: weekly
+    groups:
+      compose-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: docker
     directory: /infra/mlflow
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]

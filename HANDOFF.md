@@ -1184,6 +1184,41 @@ PR sequence:
 
 ## 11. Parked work (owner-requested, not yet scheduled)
 
+- **Dependabot: security alerts and security updates are OFF (owner action).**
+  - The repository settings have Dependabot alerts disabled; the API answers 403 "Dependabot
+    alerts are disabled for this repository". So no PR is ever labelled a security update.
+  - The owner should enable *Dependabot alerts* and *Dependabot security updates* in Settings →
+    Code security.
+  - Until then, the blocking dependency-audit gates in CI are `pip-audit` and the prod-only
+    `npm audit`. Both were clean on 2026-10-04, apart from the tracked dev-only `braces`. The
+    security workflow also runs gitleaks, Bandit, Semgrep and Trivy on every PR.
+- **Dependabot grouping (#81).**
+  - Minor and patch bumps arrive grouped per ecosystem; each major arrives as its own PR.
+  - Ignored on purpose: redis-py majors (arq), `@types/node` majors, Python minor/major and Node
+    major in the base images.
+  - CI pins its own Timescale and Caddy images (`ci.yml`, `scripts/caddy-smoke.sh`). Bump them in
+    the same PR, or CI stays green without testing the new version.
+  - Review of 2026-10-04:
+    - #80, #52, #77, #4 and #8 were closed; they will be re-proposed under the new grouping.
+    - #75 and #76 are fine to merge.
+    - #6 is deferred.
+    - #5, #2 (verify with an rc release publish) and #78 (Caddy + CI pin) come after the first
+      successful rehearsal.
+    - #79 (Timescale 2.30.2-pg16) comes before the first launch, as its own PR with the CI pins.
+- **Majors that need their own migration plan, after the first launch.**
+  - Each one: separate branch, Step 0, and a written before/after check.
+  - **pandas 3** (copy-on-write by default, string dtype). It touches every feature builder, so it
+    needs a **before/after comparison of the ML feature tables and the evaluation metrics** (same
+    data, same seeds) before it can merge.
+  - **Next 16**, together with `eslint-config-next` 16 and ESLint 10.
+  - **TypeScript 7**: typescript-eslint does not support it yet.
+  - **Python 3.14** in the base images: wheels for numpy, pandas, scipy, LightGBM, statsmodels and
+    MLflow.
+  - **Node 26**: wait for LTS, then verify that Next supports it.
+  - **Redis 8** server: also check the licence.
+  - **openai 3**: the LLM client API.
+  - **redis-py 8 together with an arq upgrade**: arq 0.28 pins `redis<6`.
+
 - **Re-enable the full blocking npm audit** once GHSA-vfj7-8cjw-p6xm (`braces`, dev-only via
   `eslint-config-next`) has a fixed release: make the "all dependencies" step in `security.yml`
   blocking again (drop `continue-on-error`) and delete the prod-only note in §5.
