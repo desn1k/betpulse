@@ -320,7 +320,7 @@ def install_log_safety() -> None:
             logging.getLogger(name).setLevel(logging.WARNING)
         try:
             register_secret(*_settings_secrets())
-        except Exception:  # noqa: S110 - invalid settings fail elsewhere, loudly
+        except Exception:  # noqa: S110  # nosec B110  (invalid settings fail elsewhere)
             pass
         if _installed:
             return
@@ -330,7 +330,7 @@ def install_log_safety() -> None:
             record = previous(*args, **kwargs)
             try:
                 _scrub_record(record)
-            except Exception:  # noqa: S110 - logging must never fail on redaction
+            except Exception:  # noqa: S110  # nosec B110  (logging must not fail on redaction)
                 pass
             return record
 
