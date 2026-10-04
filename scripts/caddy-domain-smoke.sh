@@ -47,9 +47,13 @@ fail() {
   exit 1
 }
 
-if domain="" compose config --quiet 2>/dev/null; then
+if out="$(domain="" compose config --quiet 2>&1)"; then
   fail "compose config accepted an empty PUBLIC_DOMAIN"
 fi
+# Any other failure (a missing POSTGRES_PASSWORD, a missing env file) must not
+# pass for the PUBLIC_DOMAIN guard.
+[[ "$out" == *"PUBLIC_DOMAIN is required"* ]] ||
+  fail "compose config failed, but not on PUBLIC_DOMAIN: $out"
 echo "ok: compose config refuses an empty PUBLIC_DOMAIN"
 
 start_caddy() {
