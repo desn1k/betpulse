@@ -31,7 +31,7 @@ from app.core.deps import (
     require_push_tier,
 )
 from app.models.fixture import Fixture
-from app.models.live import LiveUpdate, PushSubscription
+from app.models.live import LiveUpdate, PushChannel, PushSubscription
 from app.models.reference import Team
 from app.models.user import User
 from app.schemas.live import PushSubscribeIn, PushSubscribeOut
@@ -40,6 +40,11 @@ from app.services.live.events import (
     format_sse,
     replay_since,
     subscribe_live_updates,
+)
+from app.services.live.push_endpoint import (
+    EndpointUnresolvable,
+    UnsafeEndpoint,
+    check_endpoint,
 )
 from app.services.live.recompute import LIVE_BASELINE_NOTE, live_labels
 from app.services.push.follows import (
@@ -119,8 +124,19 @@ async def subscribe_push(
     body: PushSubscribeIn,
     user: Annotated[User, Depends(require_push_tier)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
 ) -> PushSubscribeOut:
     """Register (or refresh) a push destination for the current user (Pro/Expert)."""
+    if body.channel == PushChannel.webpush:
+        # SSRF guard: the server POSTs to this URL on every push. The same check
+        # runs again before each send (push_endpoint.py).
+        try:
+            await check_endpoint(body.endpoint, settings.webpush_allowed_host_list)
+        except (UnsafeEndpoint, EndpointUnresolvable) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Unsupported push endpoint",
+            ) from exc
     stmt = (
         pg_insert(PushSubscription)
         .values(

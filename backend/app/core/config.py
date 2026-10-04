@@ -316,6 +316,14 @@ class Settings(BaseSettings):
     webpush_vapid_private_key: str = ""
     webpush_vapid_public_key: str = ""
     webpush_contact_email: str = "admin@example.com"
+    # Push services a Web Push endpoint may point at, comma-separated: an exact
+    # host, or a suffix starting with "." (any subdomain). Checked when a
+    # subscription is stored and again before every send (SSRF guard,
+    # app/services/live/push_endpoint.py).
+    webpush_allowed_hosts: str = (
+        "fcm.googleapis.com,updates.push.services.mozilla.com,"
+        "web.push.apple.com,.notify.windows.com"
+    )
     # At most one push per fixture per this many seconds (spec: 5 minutes).
     push_rate_limit_seconds: int = 300
     # On a delivery failure, retry exactly once after this delay, then discard.
@@ -324,6 +332,10 @@ class Settings(BaseSettings):
     @property
     def vapid_subject(self) -> str:
         return f"mailto:{self.webpush_contact_email}"
+
+    @property
+    def webpush_allowed_host_list(self) -> list[str]:
+        return [h.strip().lower() for h in self.webpush_allowed_hosts.split(",") if h.strip()]
 
     @property
     def cors_origins(self) -> list[str]:

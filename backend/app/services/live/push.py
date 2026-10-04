@@ -33,9 +33,18 @@ from app.core.config import Settings
 from app.models.live import PushChannel, PushFollow, PushSubscription
 from app.models.user import User
 from app.services.limits import release_push, reserve_push
+from app.services.live.push_endpoint import (
+    EndpointUnresolvable,
+    NonPublicAddress,
+    UnsafeEndpoint,
+    check_endpoint,
+    pinned_url,
+)
 from app.services.tiers import resolve_tier_context
 
 logger = logging.getLogger("live.push")
+
+WEBPUSH_TIMEOUT_SECONDS = 10.0
 
 SleepFn = Callable[[float], Awaitable[None]]
 
@@ -120,17 +129,48 @@ async def send_webpush(settings: Settings, endpoint: str) -> None:
         subject=settings.vapid_subject,
         audience=_audience(endpoint),
     )
+    # SSRF guard, again at send time (a row may predate the subscribe-time check,
+    # and DNS may have changed since). Nothing is ever sent to a refused endpoint.
+    # A non-public DNS answer may be the resolver's fault: retry, keep the row.
+    # A wrong shape or host can never work: prune it.
+    try:
+        host, ip = await check_endpoint(endpoint, settings.webpush_allowed_host_list)
+    except NonPublicAddress as exc:
+        raise PushError("web push endpoint resolved to a non-public address") from exc
+    except UnsafeEndpoint as exc:
+        raise PushGone("web push endpoint refused") from exc
+    except EndpointUnresolvable as exc:
+        raise PushError("web push endpoint did not resolve") from exc
     headers = {
         "Authorization": f"vapid t={jwt}, k={settings.webpush_vapid_public_key}",
         "TTL": "300",
+        # Connect to the checked address (no second DNS lookup to rebind), but
+        # speak to and verify the certificate of the original host.
+        "Host": host,
     }
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(endpoint, headers=headers, content=b"")
-    if resp.status_code in (404, 410):
+    try:
+        async with (
+            httpx.AsyncClient(timeout=WEBPUSH_TIMEOUT_SECONDS, follow_redirects=False) as client,
+            client.stream(
+                "POST",
+                pinned_url(endpoint, ip),
+                headers=headers,
+                content=b"",
+                extensions={"sni_hostname": host},
+            ) as resp,
+        ):
+            # The body is never read or logged: only the status matters.
+            status_code = resp.status_code
+    except httpx.HTTPError as exc:
+        # Timeouts, TLS and connection errors: retried once like any failure.
+        # The class name only: httpx messages can carry the URL.
+        raise PushError(f"web push transport error: {type(exc).__name__}") from exc
+    if status_code in (404, 410):
         # The browser dropped this subscription; it will never work again.
-        raise PushGone(f"web push gone: {resp.status_code}")
-    if resp.status_code >= 400:
-        raise PushError(f"web push failed: {resp.status_code}")
+        raise PushGone(f"web push gone: {status_code}")
+    if not 200 <= status_code < 300:
+        # Includes 3xx: redirects are never followed.
+        raise PushError(f"web push failed: {status_code}")
 
 
 async def _deliver_one(settings: Settings, sub: PushSubscription, text: str) -> None:

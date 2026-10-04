@@ -181,6 +181,9 @@ async def push_task(ctx: dict[str, Any], fixture_id: str, text: str) -> int:
         result = await dispatch_push(
             session, redis, fixture_id=uuid.UUID(fixture_id), text=text, settings=settings
         )
+        # Persist the pruning of dead or refused endpoints; without it the delete
+        # was rolled back and the same row was retried on every push.
+        await session.commit()
     return result.delivered
 
 
