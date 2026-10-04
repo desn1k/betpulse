@@ -107,6 +107,11 @@ services:
     depends_on:
       - api
       - web
+    environment:
+      # The Caddyfile's site address is {$PUBLIC_DOMAIN:localhost}: without this
+      # line Caddy serves only `localhost` and never requests a certificate for
+      # the real domain. Required, so a missing value fails `compose config`.
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?PUBLIC_DOMAIN is required (the DNS name Caddy serves)}
     networks:
       default:
         ipv4_address: ${BETPULSE_CADDY_IP:-172.29.89.11}
