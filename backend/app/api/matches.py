@@ -1,10 +1,20 @@
-"""Public match read endpoints (Phase 6).
+"""Public match read endpoints (Phase 6, tier enforcement from Phase 7).
 
 Read-only projections over ``fixtures`` / ``predictions`` / ``model_registry``
-that power the frontend match list and match card. No authentication: guests
-read them too. Tier enforcement (blurring the per-method bars for guests) is
-Phase 7 — for now every field is returned plus a ``tier_required`` flag so the
-frontend can already render the lock placeholder.
+that power the frontend match list and match card. No authentication needed:
+``TierContextDep`` resolves the caller to a tier (guest per client IP, a signed-in
+user per account) and the limits are enforced server-side:
+
+- The match card consumes one unit of the tier's daily match-view quota; past it
+  the card answers 403 with ``tier_required`` (the next tier up). The list
+  reports the remaining quota without consuming it.
+- Per-method bars are returned only to tiers whose ``methods`` flag shows them
+  (``all`` / ``all_weights``); guest (``blurred_consensus``, the frontend blurs
+  the consensus) and free (``consensus``) get an empty ``methods`` list plus the
+  card ``flags``. Aggregate signals (model agreement, delta vs market) are
+  computed from the full set and returned to every tier.
+- The list contains only fixtures with at least one stored prediction, so
+  upcoming fixtures without one are not listed (HANDOFF §9m, ER-C-01).
 
 Everything is ORM / bound-param queries; no raw SQL string building. Only
 ``model_registry.is_visible`` methods are exposed on the card, matching the

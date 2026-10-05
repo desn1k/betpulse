@@ -721,9 +721,10 @@ The owner-approved fuller Phase 12d scope is larger than the 12d-core PR. Do not
 this into an unrelated phase; schedule it as one or more follow-up PRs after 12d-core is merged and CI
 is green:
 
-1. **Extended system health + real readiness** — add components for API readiness, ARQ worker/queue
-   depth, latest ingestion run, latest model re-evaluation, today's LLM token spend, and backup status
-   (`not_configured` until Phase 14 backup lands). Upgrade `/health/ready` from the process-only stub
+1. **Extended system health + real readiness** (readiness part: **ER-M-01** in §9m) — add
+   components for API readiness, ARQ worker/queue depth, latest ingestion run, latest model
+   re-evaluation, today's LLM token spend, and backup status (`not_configured` until Phase 14
+   backup lands). Upgrade `/health/ready` from the process-only stub
    to real Postgres + Redis checks.
 2. **Automatic ops alerts with Redis dedup** — send Telegram ops alerts when ingestion fails or the
    LLM daily budget is exhausted. Deduplicate via Redis keys to avoid alert spam. No new table: write
@@ -1073,7 +1074,8 @@ secrets.
   - the database was unchanged afterwards (Alembic head, admin login), and `rollback.sh` passed.
 - **Findings, each its own PR:**
   - F1: caddy got no `PUBLIC_DOMAIN` (fixed above);
-  - F2: the MLflow image is built on the server and never rebuilt by `deploy.sh`;
+  - F2: the MLflow image is built on the server and never rebuilt by `deploy.sh` (lands with
+    **ER-H-09**, deploy by digest, §9m);
   - F3: without `API_FOOTBALL_KEY` the live poll calls the API every minute and fails with 403;
   - F4: `deploy.sh`'s automatic rollback does not wait for health or `/api/ready`.
 
@@ -1369,14 +1371,15 @@ confirmation.
 Sanitised real responses (no keys, no account data) become test fixtures; a contract test fails
 loudly on a shape change.
 
-PR sequence:
+PR sequence (reordered by the owner on 2026-10-05: PR 1 moved first because the Sportmonks trial
+ends about **2026-10-17**, and its saved responses must be recorded before then):
 
 | Step | PR |
 |---|---|
-| 0 | This docs PR |
+| 0 | Data-provider docs PR — **done** |
+| 1 | **Urgent — first.** HTTP foundation through `outbound_client` (keys registered with the scrubber, key lookup, retries, quotas, credits logged per call) + real responses saved as fixtures (fixture guard scans them), contract tests. Order of calls: free The Odds API calls, then the cheap paid ones, then the Sportmonks list |
 | 0b | `data-report` fixtures per source |
 | — | Live base rates from current Dixon-Coles estimates (variant a) |
-| 1 | HTTP foundation: key lookup, scrubbing, retries, quotas, contract tests — **only after real responses are saved** |
 | 2 | Sportmonks adapter + resumable backfill |
 | 2b | `replace-source` for football-data rows in production, if any — see above |
 | 3 | Aliases + data-report mapping quality |
@@ -1392,6 +1395,52 @@ PR sequence:
 - [ ] Sportmonks: RPL coverage, bookmaker list, odds availability.
 - [ ] Payment and account access for a customer in Russia.
 - [ ] Written answers from every provider (the five points above).
+
+## 9m. External review (2026-10-05) — verified backlog
+
+Another agent reviewed the code by static analysis; it ran no tests. Each finding below was then
+**verified by code reading against main `5eedb0b`, not reproduced by tests**: every fix still
+starts with the failing test named in its row. The reviewer's confidence percentages were
+ignored. Line numbers are as of `5eedb0b` and will drift.
+
+**Labels.** Findings carry the `ER-` prefix. The bare labels in §11 (`M-02` backtester memory,
+`H-02`/`L-01` LLM) belong to an older audit and are different items.
+
+**Mandatory notes** (part of each fix's definition of done):
+- **ER-C-01 — acceptance criterion.** Upcoming matches are not listed at all today: `/matches`
+  keeps only fixtures with `exists(Prediction)`. The pre-match inference task must also make
+  scheduled fixtures visible. Done means a scheduled fixture appears in `/matches` with a
+  consensus.
+- **ER-H-02 — spend under-reporting.** The analysis upsert overwrites the `llm_analysis` row, and
+  the LLM spend dashboard sums those rows, so every regeneration (language switch, cache expiry)
+  drops the earlier generation's tokens and cost. The fix must correct the spend figures as well
+  as the cache key.
+- **ER-H-09 — required tag.** `infra/docker-compose.prod.yml` falls back to `${IMAGE_TAG:-latest}`
+  (lines 21, 46, 89); `deploy.sh` refuses `latest`, but a manual `docker compose up` does not. The
+  fix must make it `${IMAGE_TAG:?}` (no fallback).
+
+| ID | Verdict | Evidence | Severity | Smallest fix | First failing test | Slot |
+|---|---|---|---|---|---|---|
+| ER-C-01 | Confirmed; the failure differs | `Prediction` is written only by training (`ml/training.py:300`); `/matches` requires `exists(Prediction)` (`api/matches.py:231-232`), so upcoming matches are not listed at all (not listed with `consensus: null`). Same gap as §11 "online inference" | Critical for launch | Scoring task: load the champion, build as-of features, write `Prediction` for scheduled fixtures | A scheduled fixture, after the task runs, is in `/matches` with a consensus | Right after real data is loaded |
+| ER-H-01 | Confirmed, wider | Every poll tick enqueues a recompute for **every** live fixture (`services/live/ingestion.py:118`, `workers/tasks.py:108-117`) with no `_job_id`, `max_jobs=20`: duplicates and out-of-order states (an older minute stored after a newer one) | Medium now (live is dev-only); High when live is public | Per-fixture `pg_advisory_xact_lock` in `recompute_fixture`; skip a state not newer than the latest | Two concurrent `recompute_fixture` calls with the same new state → one `LiveUpdate`, one `should_push` | With live moving to Sportmonks, together with ER-M-02 |
+| ER-H-02 | Confirmed, plus spend | Cache lookup and `uq_llm_analysis_fixture_model` ignore `language` (`services/llm/analysis.py:170-174`, `models/llm.py:62`); upsert overwrites (`analysis.py:218-229`); spend sums the rows (`services/llm/spend.py:81-83`) | High | Migration: unique `(fixture_id, model, language)`, filter by language; keep every generation for spend (see note) | `ru` then `en` → two LLM calls, `en` content served; spend counts both | Quick fixes, after the F-series |
+| ER-H-03 | Confirmed | Budget check and `INCRBY` are separate (`analysis.py:193-214`); `INCRBY` + `EXPIREAT` not atomic (also in §11); concurrent cache misses all call the LLM | High (cost) | Atomic Lua reservation of `max_tokens` in `app/services/counters.py` style, settled with the real usage after the call | 20 concurrent requests with budget left for one → at most one `generate_completion` call | LLM pack, before user-facing launch |
+| ER-H-04 | Confirmed | `AsyncOpenAI(...)` never closed (`analysis.py:130-131`) | Low–Medium | `async with AsyncOpenAI(...)` | A fake client records `close()` | LLM pack |
+| ER-H-05 | Confirmed | `session.get(Fixture)` (`api/llm.py:98`) checks out a request-pool connection that is held through the LLM call until `commit` (line 110); request pool = 15 | High under load | Read, close the session, call the LLM, write in a short separate session | `pool.checkedout() == 0` while a stubbed `generate_completion` runs | LLM pack |
+| ER-H-06 | Confirmed, wider | FastAPI 0.139 closes yield dependencies after the response; `require_streaming_tier` and `get_current_user` use `get_db` (`api/live.py:56-64`, `core/deps.py:49-51`), so **every open stream holds a write connection with an open transaction**, replay or not. Not reachable today: Caddy sends only the Telegram webhook to the API (`infra/Caddyfile:36-41`) and the BFF has no stream route | High before SSE is exposed | Resolve user/tier and replay in short sessions; the stream itself uses Redis only | `checkedout() == 0` while a stream is open | Before SSE is exposed |
+| ER-H-07 | Partly true | Unbounded fetch (`services/backtester/engine.py:186-197`), but `backtest_features` has one row per fixture: 5 leagues × 7 seasons ≈ 13k rows, not 1M; runs are tier-limited per day | Low–Medium | Row cap and a narrow select | A run over the cap → explicit error/refusal | Later |
+| ER-H-08 | Confirmed (policy) | Rollback restores images, not schema (`scripts/deploy.sh:123-131,141`); `scripts/rollback.sh:97` does so on purpose | Medium–High at the first upgrade with migrations | Expand/contract migration policy + PR checklist | CI job: release N−1's tests against head schema (design separately) | Before the first public release |
+| ER-H-09 | Confirmed, plus fallback | Tags are not pinned to digests (`.github/workflows/release.yml:74-76,89-91`); `${IMAGE_TAG:-latest}` in prod compose (see note) | Medium | With F2: record digests in the release, deploy by digest, `${IMAGE_TAG:?}` | Release-tooling test: `compose config` without `IMAGE_TAG` fails | With F2 |
+| ER-H-10 | Partly true | Order is `(kickoff_at, id)` only (`ml/chronology.py:30-38`); date-only fixtures sit at 12:00 UTC. Production never uses football-data, and Sportmonks has kickoff times, so this hits dev data and old CSV seasons | Low for production; Medium for dev-metric honesty | Conservative chronology: a league-day with any unknown-time fixture is one batch | An unknown-time match's result never changes a same-day known-time match's prediction | Later |
+| ER-M-01 | Confirmed | `/health/ready` returns `ready` unconditionally (`api/health.py:42-49`); also §9g 12d item 1 | Medium | `SELECT 1` + Redis `PING` with timeouts, 503 on failure | Redis ping fails → 503 | Before the first public release |
+| ER-M-02 | Confirmed | If the enqueue in `finally` fails (`workers/tasks.py:120-127`), the self-rescheduling chain ends until a worker restart (seeded only at start-up, `workers/arq_app.py:80-84`) | Medium | A cron re-seeds the poll with a fixed `_job_id` | Enqueue in `finally` raises → the cron restores the chain | With ER-H-01 |
+| ER-M-03 | Confirmed | `BatchCreate.size` has no upper bound (`schemas/promo.py`), loop in `services/promo.py:144`; admin + TOTP only | Low | `le=100_000` | `size=100_500` → 422 | Quick fixes |
+| ER-M-04 | Confirmed | `/auth/register` has no rate limit and answers 409 for a known address; not routed today (the BFF has only login/logout/me/refresh) | Medium before sign-up opens | §11 O2 | §11 O2 | O2 |
+| ER-M-05 | Confirmed | The match-view quota is consumed before the fixture lookup (`api/matches.py:319-343`); a guest burns mostly their own (IP or /64) quota, NAT neighbours share it | Low–Medium | Consume after the lookup | Random UUID → 404, remaining quota unchanged | Quick fixes |
+| ER-M-06 | Partly true | `ilike('%x%')` without an index (`api/system.py:87-100`); user `%`/`_` are not escaped; admin-only, small log at launch | Low | Escape wildcards; `pg_trgm` later | A literal `%` in `target` matches only itself | Later |
+| ER-L-01 | Confirmed, negligible | `XgModel` built in the loop (`ml/features.py:190-194`), but its `__init__` is trivial (`ml/xg.py:35-36`) | Low (cosmetic) | Hoist out of the loop | — | Later |
+| ER-L-02 | Confirmed | O(n·k) season grouping (`services/backtester/engine.py:241-252`), k ≤ 7 | Low | `defaultdict` | — | Later |
+| ER-L-03 | Confirmed | Stale module docstring (`api/matches.py:1-7`) | Low | Docstring rewrite | — | **Fixed in this docs PR** |
 
 ## 10. How to resume
 
@@ -1458,7 +1507,8 @@ PR sequence:
   - multi-season history import, the prerequisite for LightGBM/consensus to reach champion size;
   - **online inference** for upcoming fixtures: today `Prediction` rows are written only by training
     (finished fixtures), so pre-match cards for upcoming matches need a scoring job that loads the
-    registered model (by `mlflow_run_id`) and predicts before kickoff — estimate ~5–7 days;
+    registered model (by `mlflow_run_id`) and predicts before kickoff — estimate ~5–7 days; tracked
+    as **ER-C-01** in §9m, which also requires scheduled fixtures to become visible in `/matches`;
   - **Web Push payload**: `send_webpush` posts an empty body (no RFC 8291 payload encryption), so
     the service worker never gets the fixture id and always shows its generic, localized text.
     Sending the id (encrypted) would let it render the match and the baseline numbers. The snapshot
@@ -1466,7 +1516,7 @@ PR sequence:
   - **team-aware live base rates** from the running Dixon-Coles fit (replacing the fixed
     `get_base_rates`), after which the live label can change from `live_baseline`.
 
-- **Before registration is opened to the public** (audit 1b, O2): `POST /auth/register` has no
+- **Before registration is opened to the public** (audit 1b, O2; also **ER-M-04** in §9m): `POST /auth/register` has no
   rate limit and answers `409 Email already registered`, which lets anyone check whether an
   address has an account. Before any sign-up form or BFF route exposes it:
   - add a per-IP and per-email rate limit;
@@ -1483,7 +1533,8 @@ PR sequence:
   - Still open: backtester memory (M-02); LLM issues (H-02, L-01), including the LLM daily token
     budget in `app/services/llm/analysis.py`, which still does a non-atomic `INCRBY` + `EXPIREAT`
     (dated key, so a leak rather than a lockout) — move it onto `app.services.counters` with the
-    LLM PR.
+    LLM PR. The 2026-10-05 external review tracks these as **ER-H-07** (backtester) and
+    **ER-H-02…ER-H-05** (LLM) in §9m.
 
 - **Custom user alerts** (a *separate* phase, to be scheduled **after Phase 14 release/deploy**). User-defined alert
   rules that trigger a push delivery to Telegram / Web Push when their condition is met on a live
