@@ -35,6 +35,13 @@ def _odds_headers(last: int, used: int, remaining: int) -> dict[str, str]:
     }
 
 
+@pytest.fixture(autouse=True)
+def _http_logger_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Alembic's fileConfig (the migration tests) disables loggers that exist at
+    that point; caplog must still see this module's lines when run after them."""
+    monkeypatch.setattr(logging.getLogger("app.providers.http"), "disabled", False)
+
+
 class _Sleeps:
     def __init__(self) -> None:
         self.calls: list[float] = []
