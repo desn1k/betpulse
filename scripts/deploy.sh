@@ -8,7 +8,8 @@
 #   3  deployment failed and the automatic rollback failed too: the site may be down;
 #   4  deployment failed, no automatic rollback (first deploy here, or no stored digests
 #      for the previous release).
-# 2, 3 and 4 also say whether migrations ran: the schema is never rolled back.
+# 2, 3 and 4 also say whether migrations ran or the TimescaleDB extension was
+# updated: the schema is never rolled back.
 set -Eeuo pipefail
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -133,6 +134,7 @@ update_timescale_extension() {
     installed="$(psql_in "$db" <<<"SELECT extversion FROM pg_extension WHERE extname = 'timescaledb';")"
     [[ -n "$installed" ]] || continue
     echo "TimescaleDB $installed in database $db; running ALTER EXTENSION timescaledb UPDATE."
+    extension_updated=true # set first, like migrations_ran
     psql_in "$db" <<<"ALTER EXTENSION timescaledb UPDATE;"
   done <<<"$databases"
 }
@@ -143,9 +145,12 @@ if [[ -f "$last_successful_tag_file" ]]; then
 fi
 
 migrations_ran=false
+extension_updated=false
 schema_note() {
   if [[ "$migrations_ran" == true ]]; then
     echo "Note: the database schema is NOT rolled back: the migrations of $image_tag already ran (HANDOFF ER-H-08)." >&2
+  elif [[ "$extension_updated" == true ]]; then
+    echo "Note: no migration ran, but a TimescaleDB extension update may have changed the database schema; it is NOT rolled back (HANDOFF ER-H-08)." >&2
   else
     echo "Note: no migration ran, so the database schema is unchanged." >&2
   fi

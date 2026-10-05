@@ -41,6 +41,10 @@ if [[ "$args" == *" exec -T -e BP_DB="*" postgres "* ]]; then
   db="${db%% *}"
   sql="$(cat)"
   echo "SQL[$db]: $sql" >>"$STUB_LOG"
+  # STUB_PSQL_FAIL_DB: every psql session on that database fails.
+  if [[ -n "${STUB_PSQL_FAIL_DB:-}" && "$db" == "$STUB_PSQL_FAIL_DB" ]]; then
+    exit 1
+  fi
   if [[ "$sql" == *"FROM pg_database"* ]]; then
     printf 'football\nmlflow\npostgres\n'
   elif [[ "$sql" == *"SELECT extversion"* && "$db" == "football" &&
@@ -106,6 +110,7 @@ run() {
   set +e
   PATH="$work/bin:$PATH" STUB_LOG="$log" STUB_READY="$ready" IMAGE_TAG="$tag" \
     STUB_READY_FAIL_TAG="${READY_FAIL_TAG:-}" STUB_UNHEALTHY_TAG="${UNHEALTHY_TAG:-}" \
+    STUB_TIMESCALE="${TIMESCALE:-absent}" STUB_PSQL_FAIL_DB="${PSQL_FAIL_DB:-}" \
     RELEASE_DIGESTS="$digests" DEPLOY_HEALTHCHECK_ATTEMPTS=2 \
     bash "$root/scripts/$script" >"$root/out.txt" 2>&1
   local code=$?
@@ -204,7 +209,22 @@ code="$(UNHEALTHY_TAG=v2.0.0 run "$root" ok deploy.sh v2.0.0 "$root/release-v2.0
 if grep -q "alembic upgrade head" "$root/docker.log"; then
   fail "deploy before migrations: migrations ran"
 fi
-grep -q "no migration ran" "$root/out.txt" || fail "deploy before migrations: schema state not reported"
+grep -q "no migration ran, so the database schema is unchanged" "$root/out.txt" ||
+  fail "deploy before migrations: schema state not reported"
+
+# 2e. the TimescaleDB extension is updated in one database, then a later
+# database check fails before the migrations: rolled back, and the message does
+# not claim the schema is unchanged.
+root="$(setup_root extension-updated)"
+code="$(TIMESCALE=installed PSQL_FAIL_DB=mlflow run "$root" ok deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
+[[ "$code" == "2" ]] || fail "deploy extension updated: exit $code, expected 2"
+grep -q "SQL\[football\]: ALTER EXTENSION timescaledb UPDATE" "$root/docker.log" ||
+  fail "deploy extension updated: the extension was not updated first"
+grep -q "TimescaleDB extension update may have changed the database schema" "$root/out.txt" ||
+  fail "deploy extension updated: the extension update not reported"
+if grep -q "schema is unchanged" "$root/out.txt"; then
+  fail "deploy extension updated: claimed the schema is unchanged"
+fi
 
 # 3. deploy of an image without /api/ready: fails fast with its own message; the
 # previous image (the stub answers 404 for every release) has none either, so
@@ -341,4 +361,4 @@ if ((failures > 0)); then
   echo "$failures deploy-script test(s) failed." >&2
   exit 1
 fi
-echo "OK: deploy, rollback, prod-compose and release-version checks behave as expected (21 scenarios)."
+echo "OK: deploy, rollback, prod-compose and release-version checks behave as expected (22 scenarios)."

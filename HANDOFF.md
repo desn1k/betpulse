@@ -1076,8 +1076,8 @@ implemented.
     - `3` deployment failed **and the automatic rollback failed too: the site may be down**;
     - `4` deployment failed, no automatic rollback (first deploy on this server, or no stored
       digests for the previous release).
-    Codes 2–4 also say whether migrations ran: the database schema is never rolled back
-    (ER-H-08). Before F4 a failure exited with the failing command's own code (any number).
+    Codes 2–4 also say whether migrations ran, or only the TimescaleDB extension was updated:
+    the database schema is never rolled back (ER-H-08). Before F4 a failure exited with the failing command's own code (any number).
   - The tag in an image reference is decorative: Docker pulls `repo:tag@digest` by the digest
     even when the tag does not exist (checked 2026-10-05).
   - `IMAGE_TAG=<version> scripts/rollback.sh` uses `.release/<version>.digests`, or
