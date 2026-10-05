@@ -149,12 +149,41 @@ def _fixture_files() -> list[Path]:
     return sorted(p for p in FIXTURES.rglob("*") if p.is_file())
 
 
+# The Odds API names sports and bookmakers in a JSON field called "key"
+# ("key": "soccer_epl"), which the "secret JSON/YAML field" pattern matches.
+# Owner-approved exceptions (2026-10-05), per file, never global:
+# - exact values in one odds file;
+# - in the sports catalogue only, any lowercase snake_case identifier.
+# Any other "key" value, in these files or any other, is still a finding.
+KEY_FIELD_EXACT_VALUES: dict[str, frozenset[str]] = {
+    "tests/fixtures/the_odds_api/free/odds_epl_h2h_eu.json": frozenset({"betfair_ex_eu"}),
+}
+KEY_FIELD_SNAKE_CASE_FILES = frozenset({"tests/fixtures/the_odds_api/free/sports.json"})
+_KEY_FIELD = re.compile(r"\"key\"\s*:\s*\"([^\"]*)\"")
+_SNAKE_CASE = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)*$")
+
+
+def fixture_findings(relative_path: str, text: str) -> list[str]:
+    """``find_key_like`` after blanking only the "key" fields allowed for this file."""
+    exact = KEY_FIELD_EXACT_VALUES.get(relative_path, frozenset())
+    snake = relative_path in KEY_FIELD_SNAKE_CASE_FILES
+
+    def blank(match: re.Match[str]) -> str:
+        value = match.group(1)
+        if value in exact or (snake and _SNAKE_CASE.match(value)):
+            return '"key": "REDACTED"'
+        return match.group(0)
+
+    return find_key_like(_KEY_FIELD.sub(blank, text))
+
+
 def test_fixtures_carry_no_key_looking_strings() -> None:
     offenders = []
     for path in _fixture_files():
         text = path.read_text(encoding="utf-8", errors="replace")
-        for kind in find_key_like(text):
-            offenders.append(f"{path.relative_to(BACKEND)}: {kind}")
+        relative = path.relative_to(BACKEND).as_posix()
+        for kind in fixture_findings(relative, text):
+            offenders.append(f"{relative}: {kind}")
     assert not offenders, "Sanitize these fixtures (replace keys with REDACTED):\n" + "\n".join(
         offenders
     )
@@ -202,3 +231,37 @@ def test_fixture_scanner_catches_planted_keys(text: str, kind: str) -> None:
 )
 def test_fixture_scanner_accepts_sanitized_text(text: str) -> None:
     assert find_key_like(text) == []
+
+
+_SPORTS = "tests/fixtures/the_odds_api/free/sports.json"
+_ODDS = "tests/fixtures/the_odds_api/free/odds_epl_h2h_eu.json"
+
+
+@pytest.mark.parametrize(
+    ("path", "text"),
+    [
+        # Any other file: the exceptions do not apply.
+        ("tests/fixtures/sportmonks/trial/leagues_p1.json", '{"key": "soccer_epl_identifier"}'),
+        ("tests/fixtures/other/x.json", '{"key": "betfair_ex_eu"}'),
+        # The sports catalogue: only snake_case identifiers pass.
+        (_SPORTS, '{"key": "AbCdEf0123456789XyZ"}'),
+        (_SPORTS, '{"key": "0f3a9c2b-1d4e-4f5a-9b8c-7d6e5f4a3b2c"}'),
+        # The odds file: only the listed exact values pass.
+        (_ODDS, '{"key": "unlisted_bookmaker_key"}'),
+        # The exceptions cover the "key" field only, never the other patterns.
+        (_SPORTS, '{"api_token": "AbCdEfGhIjKlMnOpQrSt"}'),
+    ],
+)
+def test_key_field_exceptions_stay_narrow(path: str, text: str) -> None:
+    assert "secret JSON/YAML field" in fixture_findings(path, text)
+
+
+@pytest.mark.parametrize(
+    ("path", "text"),
+    [
+        (_SPORTS, '{"key": "soccer_russia_premier_league", "group": "Soccer"}'),
+        (_ODDS, '{"key": "betfair_ex_eu", "title": "Betfair"}'),
+    ],
+)
+def test_key_field_exceptions_accept_the_approved_values(path: str, text: str) -> None:
+    assert fixture_findings(path, text) == []
