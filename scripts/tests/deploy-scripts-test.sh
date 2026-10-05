@@ -21,7 +21,12 @@ cat >"$work/bin/docker" <<'STUB'
 #!/usr/bin/env bash
 echo "IMAGE_TAG=${IMAGE_TAG:-} API=${API_IMAGE_DIGEST:-} WEB=${WEB_IMAGE_DIGEST:-} MLFLOW=${MLFLOW_IMAGE_DIGEST:-} $*" >>"$STUB_LOG"
 if [[ "${1:-}" == "inspect" ]]; then
-  echo healthy
+  # STUB_UNHEALTHY_TAG: containers of that release never become healthy.
+  if [[ -n "${STUB_UNHEALTHY_TAG:-}" && "${IMAGE_TAG:-}" == "$STUB_UNHEALTHY_TAG" ]]; then
+    echo unhealthy
+  else
+    echo healthy
+  fi
   exit 0
 fi
 args=" $* "
@@ -45,6 +50,11 @@ if [[ "$args" == *" exec -T -e BP_DB="*" postgres "* ]]; then
   exit 0
 fi
 if [[ "$args" == *" exec -T web wget "* ]]; then
+  # STUB_READY_FAIL_TAG: only that release's web cannot reach the API.
+  if [[ -n "${STUB_READY_FAIL_TAG:-}" && "${IMAGE_TAG:-}" == "$STUB_READY_FAIL_TAG" ]]; then
+    echo "wget: can't connect to remote host: Connection refused" >&2
+    exit 1
+  fi
   case "${STUB_READY:-ok}" in
     ok) exit 0 ;;
     404) echo "wget: server returned error: HTTP/1.1 404 Not Found" >&2; exit 1 ;;
@@ -95,6 +105,7 @@ run() {
   : >"$log"
   set +e
   PATH="$work/bin:$PATH" STUB_LOG="$log" STUB_READY="$ready" IMAGE_TAG="$tag" \
+    STUB_READY_FAIL_TAG="${READY_FAIL_TAG:-}" STUB_UNHEALTHY_TAG="${UNHEALTHY_TAG:-}" \
     RELEASE_DIGESTS="$digests" DEPLOY_HEALTHCHECK_ATTEMPTS=2 \
     bash "$root/scripts/$script" >"$root/out.txt" 2>&1
   local code=$?
@@ -147,26 +158,60 @@ if grep -q "SQL\[mlflow\]: ALTER EXTENSION" "$log"; then
   fail "deploy timescale: ALTER EXTENSION run in a database without the extension"
 fi
 
-# 2. deploy, backend unreachable: fails, rolls back to the previous release by
-# its stored digests; the failed release is not recorded.
+# 2. deploy fails /api/ready, the previous release is fine: rolled back through
+# rollback.sh by the stored digests, which waits for health and /api/ready
+# under the previous release; exit 2. The failed release is not recorded, and
+# the schema warning is printed (migrations already ran).
 root="$(setup_root unreachable)"
-code="$(run "$root" fail deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
-[[ "$code" != "0" ]] || fail "deploy unreachable: exit 0, expected failure"
-grep -q "cannot reach the API" "$root/out.txt" || fail "deploy unreachable: no clear message"
-grep -q "Deployment failed; restoring application images of v1.0.0" "$root/out.txt" ||
-  fail "deploy unreachable: rollback not announced"
+code="$(READY_FAIL_TAG=v2.0.0 run "$root" ok deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
+[[ "$code" == "2" ]] || fail "deploy rolled back: exit $code, expected 2"
+grep -q "cannot reach the API" "$root/out.txt" || fail "deploy rolled back: no clear message"
+grep -q "Deployment of v2.0.0 failed; rolled back to v1.0.0, which is healthy and ready" "$root/out.txt" ||
+  fail "deploy rolled back: outcome not reported"
 grep -q "^IMAGE_TAG=v1.0.0 API=$DIGEST1 WEB=$DIGEST1 MLFLOW=$DIGEST1 .* up -d --no-deps" "$root/docker.log" ||
-  fail "deploy unreachable: previous images not restarted by their stored digests"
+  fail "deploy rolled back: previous images not restarted by their stored digests"
+grep -q "^IMAGE_TAG=v1.0.0 API=$DIGEST1 .* exec -T web wget .*/api/ready" "$root/docker.log" ||
+  fail "deploy rolled back: /api/ready not checked under the previous release"
+grep -q "^IMAGE_TAG=v1.0.0 .* inspect " "$root/docker.log" ||
+  fail "deploy rolled back: health not waited for under the previous release"
+grep -q "database schema is NOT rolled back" "$root/out.txt" ||
+  fail "deploy rolled back: no schema warning after migrations ran"
 [[ "$(<"$root/.release/last-successful-image-tag")" == "v1.0.0" ]] ||
-  fail "deploy unreachable: last successful tag overwritten"
-[[ ! -f "$root/.release/v2.0.0.digests" ]] || fail "deploy unreachable: failed release stored"
+  fail "deploy rolled back: last successful tag overwritten"
+[[ ! -f "$root/.release/v2.0.0.digests" ]] || fail "deploy rolled back: failed release stored"
+
+# 2b. the previous release cannot reach the API either: the rollback fails, exit 3.
+root="$(setup_root rollback-fails)"
+code="$(run "$root" fail deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
+[[ "$code" == "3" ]] || fail "deploy rollback failed: exit $code, expected 3"
+grep -q "AUTOMATIC ROLLBACK TO v1.0.0 FAILED" "$root/out.txt" ||
+  fail "deploy rollback failed: outcome not reported"
+grep -q "database schema is NOT rolled back" "$root/out.txt" ||
+  fail "deploy rollback failed: no schema warning after migrations ran"
+
+# 2c. the previous release never becomes healthy: the rollback fails, exit 3.
+root="$(setup_root rollback-unhealthy)"
+code="$(READY_FAIL_TAG=v2.0.0 UNHEALTHY_TAG=v1.0.0 run "$root" ok deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
+[[ "$code" == "3" ]] || fail "deploy rollback unhealthy: exit $code, expected 3"
+grep -q "AUTOMATIC ROLLBACK TO v1.0.0 FAILED" "$root/out.txt" ||
+  fail "deploy rollback unhealthy: outcome not reported"
+
+# 2d. the new release fails before the migrations (Postgres never healthy):
+# rolled back, exit 2, and the message says no migration ran.
+root="$(setup_root before-migrations)"
+code="$(UNHEALTHY_TAG=v2.0.0 run "$root" ok deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
+[[ "$code" == "2" ]] || fail "deploy before migrations: exit $code, expected 2"
+if grep -q "alembic upgrade head" "$root/docker.log"; then
+  fail "deploy before migrations: migrations ran"
+fi
+grep -q "no migration ran" "$root/out.txt" || fail "deploy before migrations: schema state not reported"
 
 # 3. deploy of an image without /api/ready: fails fast with its own message.
 root="$(setup_root old-image)"
 code="$(run "$root" 404 deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
-[[ "$code" != "0" ]] || fail "deploy 404: exit 0, expected failure"
+[[ "$code" == "2" ]] || fail "deploy 404: exit $code, expected 2 (failed, rolled back)"
 grep -q "has no /api/ready" "$root/out.txt" || fail "deploy 404: no clear message"
-[[ "$(grep -c "exec -T web wget" "$root/docker.log")" == "1" ]] || fail "deploy 404: probe retried"
+[[ "$(grep -c "^IMAGE_TAG=v2.0.0 .* exec -T web wget" "$root/docker.log")" == "1" ]] || fail "deploy 404: probe of the new release retried"
 
 # 4. rollback to an image without /api/ready: warns, succeeds.
 root="$(setup_root rollback-old)"
@@ -190,14 +235,14 @@ grep -q "^IMAGE_TAG=v1.0.0 API=$DIGEST1 WEB=$DIGEST1 MLFLOW=$DIGEST1 .* up -d --
 # 7. deploy without a digests file: refused before any docker call.
 root="$(setup_root no-digests)"
 code="$(run "$root" ok deploy.sh v2.0.0)"
-[[ "$code" != "0" ]] || fail "deploy no digests: exit 0, expected failure"
+[[ "$code" == "1" ]] || fail "deploy no digests: exit $code, expected 1 (refused)"
 grep -q "release-v2.0.0.digests" "$root/out.txt" || fail "deploy no digests: no clear message"
 [[ ! -s "$root/docker.log" ]] || fail "deploy no digests: docker was called"
 
 # 8. digests file of another release: refused.
 root="$(setup_root wrong-version)"
 code="$(run "$root" ok deploy.sh v2.0.1 "$root/release-v2.0.0.digests")"
-[[ "$code" != "0" ]] || fail "deploy wrong version: exit 0, expected failure"
+[[ "$code" == "1" ]] || fail "deploy wrong version: exit $code, expected 1 (refused)"
 grep -qF "is for release 'v2.0.0', not 'v2.0.1'" "$root/out.txt" || fail "deploy wrong version: no clear message"
 [[ ! -s "$root/docker.log" ]] || fail "deploy wrong version: docker was called"
 
@@ -206,14 +251,14 @@ root="$(setup_root bad-digest)"
 printf 'RELEASE_VERSION=v2.0.0\nAPI_IMAGE_DIGEST=sha256:abc\nWEB_IMAGE_DIGEST=%s\nMLFLOW_IMAGE_DIGEST=%s\n' \
   "$DIGEST2" "$DIGEST2" >"$root/bad.digests"
 code="$(run "$root" ok deploy.sh v2.0.0 "$root/bad.digests")"
-[[ "$code" != "0" ]] || fail "deploy bad digest: exit 0, expected failure"
+[[ "$code" == "1" ]] || fail "deploy bad digest: exit $code, expected 1 (refused)"
 grep -qF "sha256:<64 hex>" "$root/out.txt" || fail "deploy bad digest: no clear message"
 {
   cat "$root/release-v2.0.0.digests"
   echo "IMAGE_TAG=latest"
 } >"$root/extra.digests"
 code="$(run "$root" ok deploy.sh v2.0.0 "$root/extra.digests")"
-[[ "$code" != "0" ]] || fail "deploy unknown key: exit 0, expected failure"
+[[ "$code" == "1" ]] || fail "deploy unknown key: exit $code, expected 1 (refused)"
 [[ ! -s "$root/docker.log" ]] || fail "deploy bad digests: docker was called"
 
 # 10. failed deploy whose previous release has no stored digests: no blind
@@ -221,11 +266,18 @@ code="$(run "$root" ok deploy.sh v2.0.0 "$root/extra.digests")"
 root="$(setup_root no-previous-digests)"
 rm "$root/.release/v1.0.0.digests"
 code="$(run "$root" fail deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
-[[ "$code" != "0" ]] || fail "deploy no previous digests: exit 0, expected failure"
+[[ "$code" == "4" ]] || fail "deploy no previous digests: exit $code, expected 4 (no automatic rollback)"
 grep -q "No stored digests for v1.0.0" "$root/out.txt" || fail "deploy no previous digests: no clear message"
 if grep -q "^IMAGE_TAG=v1.0.0 " "$root/docker.log"; then
   fail "deploy no previous digests: rolled back without digests"
 fi
+
+# 10b. first deploy on this server fails: nothing to roll back to, exit 4.
+root="$(setup_root first-deploy)"
+rm "$root/.release/last-successful-image-tag" "$root/.release/v1.0.0.digests"
+code="$(run "$root" fail deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
+[[ "$code" == "4" ]] || fail "first deploy failed: exit $code, expected 4"
+grep -q "no earlier release to roll back to" "$root/out.txt" || fail "first deploy failed: no clear message"
 
 # 11. rollback to a release never deployed here: needs its digests file.
 root="$(setup_root rollback-no-digests)"
@@ -282,4 +334,4 @@ if ((failures > 0)); then
   echo "$failures deploy-script test(s) failed." >&2
   exit 1
 fi
-echo "OK: deploy, rollback, prod-compose and release-version checks behave as expected (16 scenarios)."
+echo "OK: deploy, rollback, prod-compose and release-version checks behave as expected (21 scenarios)."
