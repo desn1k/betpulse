@@ -291,6 +291,32 @@ async def test_record_stops_before_exceeding_the_credit_cap(tmp_path: Path) -> N
     assert any(line.startswith("STOP before odds_b") for line in lines)
 
 
+@pytest.mark.asyncio
+async def test_record_stops_before_exceeding_reported_remaining_credits(tmp_path: Path) -> None:
+    seen: list[httpx.Request] = []
+    lines: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=[], headers=_odds_headers(1, 1, 0))
+
+    calls = [
+        Call("odds_a", "/v4/sports/soccer_epl/odds", {}, credits=1),
+        Call("odds_b", "/v4/sports/soccer_epl/odds", {}, credits=1),
+    ]
+    spent, completed = await record(
+        "the_odds_api",
+        calls,
+        key=ODDS_KEY,
+        out_dir=tmp_path,
+        max_credits=5,
+        client_kwargs={"transport": httpx.MockTransport(handler)},
+        echo=lines.append,
+    )
+    assert spent == 1 and len(seen) == 1 and not completed
+    assert "STOP before odds_b: needs 1, 0 remaining" in lines
+
+
 def test_cli_dry_run_makes_no_request(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
