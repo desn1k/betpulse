@@ -1516,9 +1516,10 @@ ignored. Line numbers are as of `5eedb0b` and will drift.
   the LLM spend dashboard sums those rows, so every regeneration (language switch, cache expiry)
   drops the earlier generation's tokens and cost. The fix must correct the spend figures as well
   as the cache key.
-- **ER-H-09 — required tag** (fixed with F2, see §9i "Release images and digests"). `infra/docker-compose.prod.yml` falls back to `${IMAGE_TAG:-latest}`
-  (lines 21, 46, 89); `deploy.sh` refuses `latest`, but a manual `docker compose up` does not. The
-  fix must make it `${IMAGE_TAG:?}` (no fallback).
+- **ER-H-09 — required tag** (fixed with F2, see §9i "Release images and digests"). Before the
+  fix, `infra/docker-compose.prod.yml` fell back to `${IMAGE_TAG:-latest}` (lines 21, 46, 89):
+  `deploy.sh` refused `latest`, a manual `docker compose up` did not. The overlay now requires
+  `${IMAGE_TAG:?}` and a digest for every app image (no fallback).
 
 | ID | Verdict | Evidence | Severity | Smallest fix | First failing test | Slot |
 |---|---|---|---|---|---|---|

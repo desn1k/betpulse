@@ -20,8 +20,10 @@ on:
         required: true
         type: string
 
+# One group per version, whatever started the run: a manual run and a tag push
+# for the same version queue instead of racing past each other's checks.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.version || github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -59,8 +61,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          # Fail closed: only a confirmed "release not found" lets the run go on.
+          if out="$(gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" 2>&1)"; then
             echo "GitHub Release $VERSION already exists; publish a new version instead." >&2
+            exit 1
+          fi
+          if ! grep -qi "release not found" <<<"$out"; then
+            echo "Cannot tell whether GitHub Release $VERSION exists:" >&2
+            echo "$out" >&2
             exit 1
           fi
 
