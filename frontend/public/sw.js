@@ -1,80 +1,75 @@
 // BetPulse Web Push service worker (Phase 11).
 //
-// The server sends a "tickle" on a probability swing. When the tickle carries
-// the fixture id we fetch the public latest-swing snapshot and render a
-// notification from it; otherwise a generic text is shown. Clicking the
-// notification focuses (or opens) the match page.
+// The server sends a "tickle" on a probability swing and the worker shows a
+// generic, localized notification (ru, else en). Clicking it focuses (or opens)
+// the match page when the push names a fixture, else the home page.
 //
-// The live numbers come from the in-play baseline (score and minute only, no
-// team strength). Every text says so and never presents them as a model edge.
-// Today the sender posts an empty body (no payload encryption), so the generic
-// text is what users see; it follows the browser language (ru, else en).
+// No live numbers are fetched: the public snapshot endpoint that used to back
+// a richer text was removed (audit A3), because it served in-play
+// probabilities to tiers that may not see them. It may return only together
+// with an encrypted push payload (RFC 8291) and a tier check (HANDOFF §9f).
+// Today the sender posts an empty body, so the push never names a fixture.
+//
+// The texts describe the in-play baseline honestly (score and minute only, no
+// team strength) and never present it as a model edge.
 
 /* global self, clients */
+
+// Bump on every change to this file: browsers compare the bytes, and the
+// install/activate handlers below make the new version take over open tabs.
+const SW_VERSION = "2026-10-05-a3";
 
 const TEXTS = {
   ru: {
     fallback:
       "Обновилась базовая in-play оценка матча, за которым вы следите (только счёт и минута, без силы команд).",
-    home: "П1",
-    updated: "оценка обновлена",
-    note: "Базовая in-play модель: учитывает только счёт и минуту, без силы команд",
   },
   en: {
     fallback:
       "The baseline in-play estimate moved on a match you follow (score and minute only, not team strength).",
-    home: "home win",
-    updated: "estimate updated",
-    note: "Baseline in-play model: uses only the score and the minute, not team strength",
   },
 };
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function texts() {
   const lang = (self.navigator && self.navigator.language) || "";
   return lang.toLowerCase().startsWith("ru") ? TEXTS.ru : TEXTS.en;
 }
 
+// Activate a new version at once instead of waiting until every tab using the
+// old one is closed, and take control of the open pages.
+self.addEventListener("install", () => {
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
 self.addEventListener("push", (event) => {
   event.waitUntil(handlePush(event));
 });
 
-async function handlePush(event) {
-  let fixtureId = null;
+function fixtureIdOf(event) {
   try {
-    fixtureId = event.data ? event.data.text() : null;
+    const text = event.data ? event.data.text().trim() : "";
+    // Only a fixture id may become part of a URL.
+    return UUID.test(text) ? text : null;
   } catch {
-    fixtureId = null;
+    return null;
   }
+}
 
-  const t = texts();
-  let title = "BetPulse";
-  let body = t.fallback;
-  let url = "/";
-
-  if (fixtureId) {
-    url = `/matches/${fixtureId}`;
-    try {
-      const res = await fetch(
-        `/api/live/push/latest/${encodeURIComponent(fixtureId)}`,
-      );
-      if (res.ok) {
-        const data = await res.json();
-        title = `${data.home_team} ${data.home_score}–${data.away_score} ${data.away_team}`;
-        const home = data.probs?.["1x2"]?.home;
-        body =
-          typeof home === "number"
-            ? `${data.minute}' · ${t.home} ${Math.round(home * 100)}% · ${t.note}`
-            : `${data.minute}' · ${t.updated} · ${t.note}`;
-      }
-    } catch {
-      // Fall back to the generic notification below.
-    }
-  }
-
-  await self.registration.showNotification(title, {
-    body,
+async function handlePush(event) {
+  const fixtureId = fixtureIdOf(event);
+  await self.registration.showNotification("BetPulse", {
+    body: texts().fallback,
     tag: fixtureId ?? "betpulse",
-    data: { url },
+    data: {
+      url: fixtureId ? `/matches/${fixtureId}` : "/",
+      version: SW_VERSION,
+    },
   });
 }
 

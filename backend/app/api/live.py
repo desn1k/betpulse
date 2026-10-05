@@ -16,10 +16,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from redis.asyncio import Redis
-from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
 
 from app.core.config import Settings
 from app.core.db import get_read_session, get_session
@@ -31,11 +29,10 @@ from app.core.deps import (
     require_push_tier,
 )
 from app.models.fixture import Fixture
-from app.models.live import LiveUpdate, PushChannel, PushSubscription
-from app.models.reference import Team
+from app.models.live import PushChannel, PushSubscription
 from app.models.user import User
 from app.schemas.live import PushSubscribeIn, PushSubscribeOut
-from app.schemas.push import FollowOut, FollowsOut, LatestSwingOut
+from app.schemas.push import FollowOut, FollowsOut
 from app.services.live.events import (
     format_sse,
     replay_since,
@@ -46,7 +43,6 @@ from app.services.live.push_endpoint import (
     UnsafeEndpoint,
     check_endpoint,
 )
-from app.services.live.recompute import LIVE_BASELINE_NOTE, live_labels
 from app.services.push.follows import (
     follow_fixture,
     followed_fixture_ids,
@@ -197,49 +193,3 @@ async def unfollow_match(
     await unfollow_fixture(session, user_id=user.id, fixture_id=fixture_id)
     await session.commit()
     return FollowOut(fixture_id=fixture_id, following=False)
-
-
-@router.get("/live/push/latest/{fixture_id}", response_model=LatestSwingOut)
-async def latest_swing(
-    fixture_id: uuid.UUID,
-    session: Annotated[AsyncSession, Depends(get_read_session)],
-) -> LatestSwingOut:
-    """Public latest live snapshot for a fixture — the service worker fetches this
-    on a push tickle to render the notification (same data as the live card)."""
-    home_team = aliased(Team)
-    away_team = aliased(Team)
-    row = (
-        await session.execute(
-            select(LiveUpdate, home_team.name, away_team.name)
-            .join(Fixture, Fixture.id == LiveUpdate.fixture_id)
-            .join(home_team, home_team.id == Fixture.home_team_id)
-            .join(away_team, away_team.id == Fixture.away_team_id)
-            .where(LiveUpdate.fixture_id == fixture_id)
-            .order_by(LiveUpdate.created_at.desc())
-            .limit(1)
-        )
-    ).first()
-    if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No live update")
-    update, home_name, away_name = row
-    payload = update.payload if isinstance(update.payload, dict) else {}
-    probs = payload.get("probs", {})
-    # Recompute stores the 1X2 probabilities flat; the response nests them by market.
-    if probs and all(isinstance(v, int | float) for v in probs.values()):
-        probs = {"1x2": probs}
-    labels = live_labels()
-    return LatestSwingOut(
-        fixture_id=fixture_id,
-        home_team=home_name,
-        away_team=away_name,
-        minute=update.minute,
-        home_score=update.home_score,
-        away_score=update.away_score,
-        probs=probs,
-        method=str(labels["method"]),
-        # Rows written before the relabel carry the old version name; the
-        # computation was the same baseline, so the labels below still hold.
-        model_version=str(payload.get("model_version") or labels["model_version"]),
-        team_strength=bool(labels["team_strength"]),
-        note=LIVE_BASELINE_NOTE,
-    )

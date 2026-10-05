@@ -35,23 +35,6 @@ class FollowsOut(BaseModel):
     fixture_ids: list[uuid.UUID]
 
 
-class LatestSwingOut(BaseModel):
-    """Public snapshot the service worker fetches to render a push notification."""
-
-    fixture_id: uuid.UUID
-    home_team: str
-    away_team: str
-    minute: int
-    home_score: int
-    away_score: int
-    probs: dict[str, dict[str, float]]
-    # The live numbers come from the in-play baseline (score + minute only).
-    method: str
-    model_version: str
-    team_strength: bool
-    note: str
-
-
 class TelegramLinkOut(BaseModel):
     """Deep link the user opens to connect Telegram, plus its expiry."""
 

@@ -219,35 +219,29 @@ async def test_vapid_public_key_is_public(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_latest_swing_returns_snapshot(client: AsyncClient, session: AsyncSession) -> None:
+async def test_latest_swing_snapshot_is_gone(client: AsyncClient, session: AsyncSession) -> None:
+    """Audit A3: the public snapshot leaked in-play probabilities to guest/free,
+    who cannot open the live stream. Removed until Web Push carries an
+    encrypted payload and the snapshot can be tier-checked (HANDOFF §9f)."""
     fixture_id = await _make_fixture(session)
     session.add(
         LiveUpdate(
             fixture_id=fixture_id,
-            minute=57,
+            minute=55,
             home_score=1,
             away_score=0,
-            payload={"probs": {"1x2": {"home": 0.6, "draw": 0.25, "away": 0.15}}},
+            payload={"probs": {"home": 0.6, "draw": 0.25, "away": 0.15}},
         )
     )
-    await session.commit()
-
-    resp = await client.get(f"/live/push/latest/{fixture_id}")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["minute"] == 57 and body["home_score"] == 1
-    assert body["probs"]["1x2"]["home"] == 0.6
-    assert body["home_team"] == "Home"
-
-
-@pytest.mark.asyncio
-async def test_latest_swing_404_when_no_update(client: AsyncClient, session: AsyncSession) -> None:
-    fixture_id = await _make_fixture(session)
-    resp = await client.get(f"/live/push/latest/{fixture_id}")
-    assert resp.status_code == 404
-
-
-# --- Telegram deep-link + webhook -------------------------------------------
+    await session.flush()
+    anonymous = await client.get(f"/live/push/latest/{fixture_id}")
+    pro = await client.get(
+        f"/live/push/latest/{fixture_id}", headers=await _headers(session, UserTier.pro)
+    )
+    assert anonymous.status_code == 404
+    assert pro.status_code == 404
+    paths = (await client.get("/openapi.json")).json()["paths"]
+    assert not [p for p in paths if p.startswith("/live/push/latest")]
 
 
 @pytest.mark.asyncio
