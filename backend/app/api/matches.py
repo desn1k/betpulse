@@ -8,10 +8,11 @@ user per account) and the limits are enforced server-side:
 - The match card consumes one unit of the tier's daily match-view quota; past it
   the card answers 403 with ``tier_required`` (the next tier up). The list
   reports the remaining quota without consuming it.
-- Per-method bars are returned only to tiers whose ``methods`` flag shows them;
-  other tiers get an empty ``methods`` list plus the card ``flags`` (the
-  frontend blurs the consensus). Aggregate signals (model agreement, delta vs
-  market) are computed from the full set and returned to every tier.
+- Per-method bars are returned only to tiers whose ``methods`` flag shows them
+  (``all`` / ``all_weights``); guest (``blurred_consensus``, the frontend blurs
+  the consensus) and free (``consensus``) get an empty ``methods`` list plus the
+  card ``flags``. Aggregate signals (model agreement, delta vs market) are
+  computed from the full set and returned to every tier.
 - The list contains only fixtures with at least one stored prediction, so
   upcoming fixtures without one are not listed (HANDOFF §9m, ER-C-01).
 
