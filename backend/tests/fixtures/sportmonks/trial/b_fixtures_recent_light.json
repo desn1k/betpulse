@@ -1,0 +1,28 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v3/football/fixtures/between/2026-09-25/2026-10-05",
+    "params": {
+      "filters": "fixtureLeagues:8,564,384,82,301,486",
+      "per_page": 50
+    }
+  },
+  "auth": "valid",
+  "status": 200,
+  "quota": {
+    "remaining": 2485,
+    "resets_in_seconds": 3257,
+    "entity": "Fixture"
+  },
+  "recorded_at": "2026-10-05T11:10:55+00:00",
+  "body": {
+    "data": [],
+    "message": "No result(s) found matching your request. Either the query did not return any results or you don't have access to it via your current subscription.",
+    "rate_limit": {
+      "resets_in_seconds": 3257,
+      "remaining": 2485,
+      "requested_entity": "Fixture"
+    },
+    "timezone": "UTC"
+  }
+}

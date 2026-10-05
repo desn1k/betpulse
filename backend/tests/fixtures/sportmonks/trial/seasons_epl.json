@@ -1,0 +1,78 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v3/football/seasons",
+    "params": {
+      "filters": "seasonLeagues:8",
+      "per_page": 50
+    }
+  },
+  "auth": "valid",
+  "status": 200,
+  "quota": {
+    "remaining": 2499,
+    "resets_in_seconds": 3600,
+    "entity": "Season"
+  },
+  "recorded_at": "2026-10-05T11:05:08+00:00",
+  "body": {
+    "data": [
+      {
+        "id": 23614,
+        "sport_id": 1,
+        "league_id": 8,
+        "tie_breaker_rule_id": 171,
+        "name": "2024/2025",
+        "finished": true,
+        "pending": false,
+        "is_current": false,
+        "starting_at": "2024-08-16",
+        "ending_at": "2025-05-25",
+        "standings_recalculated_at": "2026-02-15 10:56:11",
+        "games_in_current_week": false
+      },
+      {
+        "id": 25583,
+        "sport_id": 1,
+        "league_id": 8,
+        "tie_breaker_rule_id": 1526,
+        "name": "2025/2026",
+        "finished": true,
+        "pending": false,
+        "is_current": false,
+        "starting_at": "2025-08-15",
+        "ending_at": "2026-05-24",
+        "standings_recalculated_at": "2026-08-13 14:36:12",
+        "games_in_current_week": false
+      },
+      {
+        "id": 28083,
+        "sport_id": 1,
+        "league_id": 8,
+        "tie_breaker_rule_id": 1526,
+        "name": "2026/2027",
+        "finished": false,
+        "pending": false,
+        "is_current": true,
+        "starting_at": "2026-08-21",
+        "ending_at": "2027-05-30",
+        "standings_recalculated_at": "2026-09-20 19:38:15",
+        "games_in_current_week": false
+      }
+    ],
+    "pagination": {
+      "count": 3,
+      "per_page": 50,
+      "has_more": false,
+      "current_page": 1,
+      "next_page": null,
+      "next_cursor": null
+    },
+    "rate_limit": {
+      "resets_in_seconds": 3600,
+      "remaining": 2499,
+      "requested_entity": "Season"
+    },
+    "timezone": "UTC"
+  }
+}

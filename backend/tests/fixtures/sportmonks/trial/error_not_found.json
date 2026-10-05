@@ -1,0 +1,24 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v3/football/fixtures/999999999",
+    "params": {}
+  },
+  "auth": "valid",
+  "status": 200,
+  "quota": {
+    "remaining": 2489,
+    "resets_in_seconds": 3591,
+    "entity": "Fixture"
+  },
+  "recorded_at": "2026-10-05T11:05:22+00:00",
+  "body": {
+    "message": "No result(s) found matching your request. Either the query did not return any results or you don't have access to it via your current subscription.",
+    "rate_limit": {
+      "resets_in_seconds": 3591,
+      "remaining": 2489,
+      "requested_entity": "Fixture"
+    },
+    "timezone": "UTC"
+  }
+}

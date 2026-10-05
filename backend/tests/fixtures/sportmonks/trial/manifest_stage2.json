@@ -1,0 +1,210 @@
+{
+  "comment": "Sportmonks stage 2. League ids from stage 1 (leagues_p1.json): EPL 8, La Liga 564, Serie A 384, Bundesliga 82, Ligue 1 301, RPL 486. Seasons per league give the listed history; one opening round of 2019-20 per league (and EPL 2015-16) shows whether the plan serves old fixtures with scores and statistics. fixtures_recent_full_epl then teams_probe: if the Team bucket is untouched, includes do not count against the rate limit. xGFixture and premiumOdds show what the plan refuses (403 plan_required) or serves.",
+  "calls": [
+    {
+      "name": "seasons_epl",
+      "path": "/v3/football/seasons",
+      "params": {
+        "filters": "seasonLeagues:8",
+        "per_page": 50
+      }
+    },
+    {
+      "name": "seasons_laliga",
+      "path": "/v3/football/seasons",
+      "params": {
+        "filters": "seasonLeagues:564",
+        "per_page": 50
+      }
+    },
+    {
+      "name": "seasons_seriea",
+      "path": "/v3/football/seasons",
+      "params": {
+        "filters": "seasonLeagues:384",
+        "per_page": 50
+      }
+    },
+    {
+      "name": "seasons_bundesliga",
+      "path": "/v3/football/seasons",
+      "params": {
+        "filters": "seasonLeagues:82",
+        "per_page": 50
+      }
+    },
+    {
+      "name": "seasons_ligue1",
+      "path": "/v3/football/seasons",
+      "params": {
+        "filters": "seasonLeagues:301",
+        "per_page": 50
+      }
+    },
+    {
+      "name": "seasons_rpl",
+      "path": "/v3/football/seasons",
+      "params": {
+        "filters": "seasonLeagues:486",
+        "per_page": 50
+      }
+    },
+    {
+      "name": "fixtures_recent_light",
+      "path": "/v3/football/fixtures/between/2026-10-02/2026-10-05",
+      "params": {
+        "filters": "fixtureLeagues:8,564,384,82,301,486",
+        "per_page": 50
+      }
+    },
+    {
+      "name": "fixtures_recent_full_epl",
+      "path": "/v3/football/fixtures/between/2026-10-02/2026-10-05",
+      "params": {
+        "filters": "fixtureLeagues:8",
+        "include": "participants;scores;state;statistics.type;lineups",
+        "per_page": 5
+      }
+    },
+    {
+      "name": "teams_probe_after_includes",
+      "path": "/v3/football/teams",
+      "params": {
+        "per_page": 1
+      }
+    },
+    {
+      "name": "fixtures_recent_xg_epl",
+      "path": "/v3/football/fixtures/between/2026-10-02/2026-10-05",
+      "params": {
+        "filters": "fixtureLeagues:8",
+        "include": "xGFixture",
+        "per_page": 5
+      },
+      "expect": [
+        200,
+        403
+      ]
+    },
+    {
+      "name": "fixtures_2019_epl",
+      "path": "/v3/football/fixtures/between/2019-08-09/2019-08-12",
+      "params": {
+        "filters": "fixtureLeagues:8",
+        "include": "participants;scores;state;statistics.type",
+        "per_page": 10
+      },
+      "expect": [
+        200,
+        403
+      ]
+    },
+    {
+      "name": "fixtures_2019_laliga",
+      "path": "/v3/football/fixtures/between/2019-08-16/2019-08-19",
+      "params": {
+        "filters": "fixtureLeagues:564",
+        "include": "participants;scores;state;statistics.type",
+        "per_page": 10
+      },
+      "expect": [
+        200,
+        403
+      ]
+    },
+    {
+      "name": "fixtures_2019_seriea",
+      "path": "/v3/football/fixtures/between/2019-08-24/2019-08-26",
+      "params": {
+        "filters": "fixtureLeagues:384",
+        "include": "participants;scores;state;statistics.type",
+        "per_page": 10
+      },
+      "expect": [
+        200,
+        403
+      ]
+    },
+    {
+      "name": "fixtures_2019_bundesliga",
+      "path": "/v3/football/fixtures/between/2019-08-16/2019-08-18",
+      "params": {
+        "filters": "fixtureLeagues:82",
+        "include": "participants;scores;state;statistics.type",
+        "per_page": 10
+      },
+      "expect": [
+        200,
+        403
+      ]
+    },
+    {
+      "name": "fixtures_2019_ligue1",
+      "path": "/v3/football/fixtures/between/2019-08-09/2019-08-11",
+      "params": {
+        "filters": "fixtureLeagues:301",
+        "include": "participants;scores;state;statistics.type",
+        "per_page": 10
+      },
+      "expect": [
+        200,
+        403
+      ]
+    },
+    {
+      "name": "fixtures_2019_rpl",
+      "path": "/v3/football/fixtures/between/2019-07-12/2019-07-15",
+      "params": {
+        "filters": "fixtureLeagues:486",
+        "include": "participants;scores;state;statistics.type",
+        "per_page": 10
+      },
+      "expect": [
+        200,
+        403
+      ]
+    },
+    {
+      "name": "fixtures_2015_epl",
+      "path": "/v3/football/fixtures/between/2015-08-08/2015-08-10",
+      "params": {
+        "filters": "fixtureLeagues:8",
+        "include": "scores;statistics.type",
+        "per_page": 10
+      },
+      "expect": [
+        200,
+        403
+      ]
+    },
+    {
+      "name": "livescores_inplay",
+      "path": "/v3/football/livescores/inplay",
+      "params": {
+        "include": "participants;scores;state",
+        "per_page": 10
+      }
+    },
+    {
+      "name": "error_premium_include",
+      "path": "/v3/football/fixtures/between/2026-10-02/2026-10-05",
+      "params": {
+        "filters": "fixtureLeagues:8",
+        "include": "premiumOdds",
+        "per_page": 1
+      },
+      "expect": [
+        200,
+        403
+      ]
+    },
+    {
+      "name": "error_not_found",
+      "path": "/v3/football/fixtures/999999999",
+      "params": {},
+      "expect": [
+        404
+      ]
+    }
+  ]
+}

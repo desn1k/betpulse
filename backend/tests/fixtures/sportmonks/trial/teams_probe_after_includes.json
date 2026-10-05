@@ -1,0 +1,49 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v3/football/teams",
+    "params": {
+      "per_page": 1
+    }
+  },
+  "auth": "valid",
+  "status": 200,
+  "quota": {
+    "remaining": 2499,
+    "resets_in_seconds": 3600,
+    "entity": "Team"
+  },
+  "recorded_at": "2026-10-05T11:05:14+00:00",
+  "body": {
+    "data": [
+      {
+        "id": 1,
+        "sport_id": 1,
+        "country_id": 462,
+        "venue_id": 214,
+        "gender": "male",
+        "name": "West Ham United",
+        "short_code": "WHU",
+        "image_path": "https://cdn.sportmonks.com/images/soccer/teams/1/1.png",
+        "founded": 1895,
+        "type": "domestic",
+        "placeholder": false,
+        "last_played_at": "2026-09-19 11:30:00"
+      }
+    ],
+    "pagination": {
+      "count": 1,
+      "per_page": 1,
+      "has_more": true,
+      "current_page": 1,
+      "next_page": "https://api.sportmonks.com/v3/football/teams?per_page=1&page=2",
+      "next_cursor": "https://api.sportmonks.com/v3/football/teams?cursor=WzEsMSxbMV0sW1sic3BvcnRzLnRlYW1zLmlkIiwwXV1d"
+    },
+    "rate_limit": {
+      "resets_in_seconds": 3600,
+      "remaining": 2499,
+      "requested_entity": "Team"
+    },
+    "timezone": "UTC"
+  }
+}
