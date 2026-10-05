@@ -118,6 +118,19 @@ covered by Vitest + React Testing Library.
 - **Secrets** (TOTP, provider/LLM keys) are Fernet-encrypted at rest with `DATA_ENCRYPTION_KEY`;
   never returned to the client (masked suffix only). Provider keys are entered in the Admin UI;
   `.env` values are a dev/CI fallback only.
+- **Every route has an access policy (`tests/api/test_authorization_matrix.py`).** `ROUTE_POLICY`
+  holds one row per (method, path): `public`, `public_tier`, `user`, `push_tier`, `stream_tier`,
+  `csrf` or `admin`. A new route fails CI until it gets a row; each row must match the route's
+  dependency tree (`require_admin`, `get_current_user`, `require_push_tier`,
+  `require_streaming_tier`, `verify_csrf`, `get_tier_context`); every `/admin/*` route is admin;
+  public routes are listed in `PUBLIC_ROUTES` with a reason each and capped at 11 — adding one is
+  a security decision. The matrix calls every route as anonymous, garbage/expired token, inactive
+  user, inactive admin, free user, expert user, admin without 2FA, admin who must change the
+  password, and admin, and expects 401/403/"allowed" (anything but 401/403) per policy. A tier
+  gate inside a handler is declared in `HANDLER_TIER_GATES`; a route whose allowed call cannot be
+  made (the SSE stream) in `ALLOWED_CALL_SKIPPED`, both with a reason. BOLA tests cover
+  strategies (404), push subscriptions and follows (scoped, idempotent deletes: 204/200 and the
+  other user's row survives).
 - **Request bodies forbid unknown fields; a 422 never echoes the request.** Every model FastAPI
   parses as a body, and every model nested in one, derives from `app.schemas.base.RequestModel`
   (`extra="forbid"`): a misspelt or smuggled field is a 422 `extra_forbidden`, never dropped.
@@ -1409,6 +1422,21 @@ ends about **2026-10-17**, and its saved responses must be recorded before then)
   fallback, registered with the scrubber. Today `provider-record` reads keys only from the env file.
 - Moving the API-Football live poller to that lookup (it still reads `API_FOOTBALL_KEY`).
 - Storing the latest quota in `provider_accounts.quota_state` (with the PR 4 budget guard).
+
+**Waiting on the owner (do not act without an ok):**
+- **Sportmonks live format retries** — each one needs the owner's ok (the owner pings in time),
+  then `/livescores` and `/livescores/inplay` once:
+  - RPL, Friday 2026-10-09, from about 16:45 UTC;
+  - EPL, Saturday 2026-10-10, from about 11:45 UTC.
+- **Sportmonks written answers (received 2026-10-05):**
+  - Growth gives the **latest 3 seasons** (matches the trial: 2024/25–2026/27).
+  - Older seasons come with the **Historical Data add-on: one-time 99 EUR excl. VAT, no trial,
+    paid upfront**. Provider PR 2 (adapter and backfill) is designed around this: 2019-20..2023-24
+    only after the add-on is bought.
+  - **Licence:** our own commercial model training and publishing derived probabilities are
+    allowed; reselling or redistributing raw data is forbidden. `licensed_for_production` may
+    become `True` for Sportmonks on that basis once the owner confirms in writing in the repo.
+  - **Payment:** card, PayPal, and bank transfer (bank transfer only for annual plans).
 
 **Known dev-only side effect.** The default `DATABASE_URL` password is `football`, and the log
 scrubber registers settings secrets of 8+ characters, so in dev every log line shows `football` as
