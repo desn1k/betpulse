@@ -8,7 +8,8 @@
 # The compose files live in infra/, but the .env stays at the repo root, so the
 # env file is passed explicitly (otherwise compose would look for infra/.env).
 COMPOSE      := docker compose --env-file .env -f infra/docker-compose.yml
-COMPOSE_PROD := docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.prod.yml
+# The deployed release's tag and digests are required by the prod config.
+COMPOSE_PROD := bash scripts/prod-compose.sh
 
 .DEFAULT_GOAL := help
 .PHONY: help dev up down logs ps build test test-backend test-frontend test-e2e lint lint-backend lint-frontend \
@@ -84,11 +85,11 @@ backup: ## On-demand encrypted backup (Phase 14)
 restore-drill: ## Restore latest backup into a throwaway container (Phase 14)
 	@echo "restore-drill: not implemented yet"
 
-deploy: ## Deploy immutable GHCR image tag (IMAGE_TAG=vX.Y.Z)
-	@IMAGE_TAG="$(IMAGE_TAG)" bash scripts/deploy.sh
+deploy: ## Deploy a release by digest (IMAGE_TAG=vX.Y.Z RELEASE_DIGESTS=release-vX.Y.Z.digests)
+	@IMAGE_TAG="$(IMAGE_TAG)" RELEASE_DIGESTS="$(RELEASE_DIGESTS)" bash scripts/deploy.sh
 
-rollback: ## Restore immutable GHCR app image tag (IMAGE_TAG=vX.Y.Z)
-	@IMAGE_TAG="$(IMAGE_TAG)" bash scripts/rollback.sh
+rollback: ## Restore a release by its stored digests (IMAGE_TAG=vX.Y.Z [RELEASE_DIGESTS=...])
+	@IMAGE_TAG="$(IMAGE_TAG)" RELEASE_DIGESTS="$(RELEASE_DIGESTS)" bash scripts/rollback.sh
 
 logs-prod: ## Tail production Compose logs
 	$(COMPOSE_PROD) logs -f

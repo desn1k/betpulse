@@ -2,9 +2,16 @@
 #
 #   docker compose -f infra/docker-compose.yml -f infra/docker-compose.prod.yml up -d
 #
-# In production the api/web images are pulled from GHCR (published by
-# release.yml, Phase 14) instead of being built locally, and Caddy terminates
-# TLS in front of the stack.
+# In production the api, web and mlflow images are pulled from GHCR (published
+# by release.yml) instead of being built locally, and Caddy terminates TLS in
+# front of the stack. Each is referenced by tag AND digest, and both are
+# required (no `latest` fallback): scripts/deploy.sh and rollback.sh export the
+# digests from the release's release-<tag>.digests file, so a re-pushed tag can
+# never change what runs. scripts/check-compose-ports.sh fails on any image
+# without a digest.
+#
+# `build: !reset null` removes the base file's build section; a plain
+# `build: null` is ignored by the merge, so the server could still build.
 #
 # Only Caddy publishes ports (80/443). Every other service must clear the ports
 # it publishes in docker-compose.yml with `ports: !reset []`: a plain
@@ -18,8 +25,7 @@ x-trusted-proxy-cidrs: &trusted-proxy-cidrs "${BETPULSE_WEB_IP:-172.29.89.10}/32
 
 # Shared by the three ARQ worker services (realtime, batch, ml).
 x-worker-prod: &worker-prod
-  image: ghcr.io/${GHCR_OWNER:-desn1k}/betpulse-api:${IMAGE_TAG:-latest}
-  build: null
+  image: ghcr.io/${GHCR_OWNER:-desn1k}/betpulse-api:${IMAGE_TAG:?IMAGE_TAG is required (a release tag, never latest)}@${API_IMAGE_DIGEST:?API_IMAGE_DIGEST is required (release-<tag>.digests)}
   environment:
     # Production settings validation requires it in every backend process.
     TRUSTED_PROXY_CIDRS: *trusted-proxy-cidrs
@@ -43,8 +49,8 @@ services:
           memory: 512M
 
   api:
-    image: ghcr.io/${GHCR_OWNER:-desn1k}/betpulse-api:${IMAGE_TAG:-latest}
-    build: null
+    image: ghcr.io/${GHCR_OWNER:-desn1k}/betpulse-api:${IMAGE_TAG:?IMAGE_TAG is required (a release tag, never latest)}@${API_IMAGE_DIGEST:?API_IMAGE_DIGEST is required (release-<tag>.digests)}
+    build: !reset null
     ports: !reset []
     environment:
       TRUSTED_PROXY_CIDRS: *trusted-proxy-cidrs
@@ -57,6 +63,8 @@ services:
 
   worker-realtime:
     <<: *worker-prod
+    # Here, not in the anchor: Compose v2 ignores `!reset` merged in by `<<:`.
+    build: !reset null
     deploy:
       resources:
         limits:
@@ -65,6 +73,8 @@ services:
 
   worker-batch:
     <<: *worker-prod
+    # Here, not in the anchor: Compose v2 ignores `!reset` merged in by `<<:`.
+    build: !reset null
     deploy:
       resources:
         limits:
@@ -75,6 +85,8 @@ services:
   # with the same image and env, pointed at the same Redis, Postgres and MLflow.
   worker-ml:
     <<: *worker-prod
+    # Here, not in the anchor: Compose v2 ignores `!reset` merged in by `<<:`.
+    build: !reset null
     deploy:
       resources:
         limits:
@@ -83,11 +95,14 @@ services:
 
   # Tracking server: internal only, reached as http://mlflow:5000 (it has no auth).
   mlflow:
+    image: ghcr.io/${GHCR_OWNER:-desn1k}/betpulse-mlflow:${IMAGE_TAG:?IMAGE_TAG is required (a release tag, never latest)}@${MLFLOW_IMAGE_DIGEST:?MLFLOW_IMAGE_DIGEST is required (release-<tag>.digests)}
+    build: !reset null
     ports: !reset []
+    restart: always
 
   web:
-    image: ghcr.io/${GHCR_OWNER:-desn1k}/betpulse-web:${IMAGE_TAG:-latest}
-    build: null
+    image: ghcr.io/${GHCR_OWNER:-desn1k}/betpulse-web:${IMAGE_TAG:?IMAGE_TAG is required (a release tag, never latest)}@${WEB_IMAGE_DIGEST:?WEB_IMAGE_DIGEST is required (release-<tag>.digests)}
+    build: !reset null
     ports: !reset []
     environment:
       # The BFF reaches FastAPI over the internal network. Hardcoded on purpose:

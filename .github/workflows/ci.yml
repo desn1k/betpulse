@@ -269,6 +269,23 @@ jobs:
           docker exec web-ci wget -q -T 5 -O /dev/null http://127.0.0.1:3000/api/health
           docker rm -f web-ci
 
+      # release.yml publishes this image as betpulse-mlflow; production pulls it
+      # by digest instead of building it on the server.
+      - name: Build MLflow image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./infra/mlflow
+          push: false
+          load: true
+          tags: betpulse-mlflow:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: MLflow image starts and has the Postgres driver
+        run: |
+          docker run --rm betpulse-mlflow:ci --version
+          docker run --rm --entrypoint python betpulse-mlflow:ci -c "import psycopg"
+
   ops-config:
     name: Release tooling (shell · compose · Caddy)
     runs-on: ubuntu-latest
@@ -279,7 +296,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck
 
       - name: Validate deployment scripts
-        run: shellcheck scripts/deploy.sh scripts/rollback.sh scripts/caddy-smoke.sh scripts/check-compose-ports.sh scripts/caddy-domain-smoke.sh scripts/tests/deploy-scripts-test.sh
+        run: shellcheck -x scripts/deploy.sh scripts/rollback.sh scripts/prod-compose.sh scripts/release-digests.sh scripts/release-version.sh scripts/caddy-smoke.sh scripts/check-compose-ports.sh scripts/caddy-domain-smoke.sh scripts/tests/deploy-scripts-test.sh
 
       - name: Deploy/rollback readiness behaviour (stubbed docker)
         run: bash scripts/tests/deploy-scripts-test.sh
@@ -290,15 +307,35 @@ jobs:
           PUBLIC_DOMAIN: betpulse.example.test
           GHCR_OWNER: desn1k
           IMAGE_TAG: v0.0.0-ci
+          API_IMAGE_DIGEST: sha256:1111111111111111111111111111111111111111111111111111111111111111
+          WEB_IMAGE_DIGEST: sha256:2222222222222222222222222222222222222222222222222222222222222222
+          MLFLOW_IMAGE_DIGEST: sha256:3333333333333333333333333333333333333333333333333333333333333333
           # The dev value: production must still wire web to http://api:8000.
           API_BASE_URL: http://localhost:8000
         run: |
           cp .env.example .env
           docker compose --env-file .env -f infra/docker-compose.yml config --quiet
           docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.prod.yml config --quiet
-          # Production may publish only caddy 80/443 (ports: [] in an override does not reset).
+          # Production may publish only caddy 80/443 (ports: [] in an override does not reset),
+          # and every image must be pinned by digest with nothing built on the server.
           docker compose version
           bash scripts/check-compose-ports.sh .env
+          # ER-H-09: no tag or no digest -> the production config does not render.
+          prod_config() {
+            docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.prod.yml config --quiet
+          }
+          for missing in IMAGE_TAG API_IMAGE_DIGEST WEB_IMAGE_DIGEST MLFLOW_IMAGE_DIGEST; do
+            if (unset "$missing"; prod_config) 2>/dev/null; then
+              echo "production config rendered without $missing" >&2
+              exit 1
+            fi
+          done
+          # The image checks themselves fail on an unpinned image and on a build.
+          printf 'services:\n  web:\n    image: ghcr.io/desn1k/betpulse-web:v0.0.0-ci\n  mlflow:\n    build:\n      context: ./mlflow\n' > /tmp/unpinned.yml
+          if CHECK_EXTRA_COMPOSE_FILE=/tmp/unpinned.yml bash scripts/check-compose-ports.sh .env; then
+            echo "check-compose-ports.sh accepted an unpinned image and a server-side build" >&2
+            exit 1
+          fi
 
       - name: Validate Caddy configuration
         env:
@@ -322,4 +359,8 @@ jobs:
           POSTGRES_PASSWORD: ci-postgres-password
           GHCR_OWNER: desn1k
           IMAGE_TAG: v0.0.0-ci
+          # Required to render the prod config; only caddy is started (--no-deps).
+          API_IMAGE_DIGEST: sha256:1111111111111111111111111111111111111111111111111111111111111111
+          WEB_IMAGE_DIGEST: sha256:2222222222222222222222222222222222222222222222222222222222222222
+          MLFLOW_IMAGE_DIGEST: sha256:3333333333333333333333333333333333333333333333333333333333333333
         run: bash scripts/caddy-domain-smoke.sh .env

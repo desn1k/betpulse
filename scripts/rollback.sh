@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 env_file="$root_dir/.env"
+state_dir="$root_dir/.release"
 health_attempts="${DEPLOY_HEALTHCHECK_ATTEMPTS:-30}"
 # Per-request timeout of the BFF readiness probe (busybox wget -T), so a stalled
 # request cannot hold the retry loop: the whole check is bounded by
@@ -10,7 +11,7 @@ health_attempts="${DEPLOY_HEALTHCHECK_ATTEMPTS:-30}"
 probe_timeout="${DEPLOY_READY_TIMEOUT_SECONDS:-5}"
 # Application services built from release images. Keep in sync with
 # infra/docker-compose*.yml (one ARQ worker per queue, app/workers/queues.py).
-app_services=(api worker-realtime worker-batch worker-ml web)
+app_services=(api worker-realtime worker-batch worker-ml web mlflow)
 
 if [[ ! -f "$env_file" ]]; then
   echo "Missing $env_file. Copy .env.example and configure production secrets first." >&2
@@ -22,6 +23,18 @@ if [[ -z "$image_tag" || "$image_tag" == "latest" || ! "$image_tag" =~ ^[0-9A-Za
   echo "Set IMAGE_TAG to the immutable release tag to restore (for example v1.2.2)." >&2
   exit 1
 fi
+
+# Every app image is deployed by the digest release.yml published, never by
+# its tag alone (a GHCR tag can be re-pushed): the release-<tag>.digests asset
+# of the GitHub Release, or the copy kept from an earlier deploy of this tag.
+# shellcheck source=scripts/release-digests.sh
+. "$root_dir/scripts/release-digests.sh"
+digests_file="${RELEASE_DIGESTS:-$state_dir/$image_tag.digests}"
+if [[ ! -f "$digests_file" ]]; then
+  echo "Set RELEASE_DIGESTS to release-$image_tag.digests, the asset of the GitHub Release $image_tag (HANDOFF section 9i)." >&2
+  exit 1
+fi
+load_release_digests "$digests_file" "$image_tag" || exit 1
 
 compose() {
   IMAGE_TAG="$image_tag" docker compose --env-file "$env_file" \

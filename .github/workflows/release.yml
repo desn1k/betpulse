@@ -1,5 +1,14 @@
 name: Release
 
+# Publishes the three application images (api, web, mlflow) to GHCR under one
+# version tag, records their digests in release-<version>.digests and attaches
+# that file to a GitHub Release of the same name. Production deploys by those
+# digests (scripts/deploy.sh, HANDOFF section 9i), never by tag alone.
+#
+# A version is published once: the run fails if the GitHub Release or any of
+# the three tags already exists. A failed or repeated pre-release gets a new
+# rc number instead of overwriting.
+
 on:
   push:
     tags:
@@ -7,12 +16,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Immutable release version, for example v1.2.3
+        description: Immutable release version, for example v1.2.3 or v1.2.3-rc1
         required: true
         type: string
 
+# One group per version, whatever started the run: a manual run and a tag push
+# for the same version queue instead of racing past each other's checks.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.version || github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -24,8 +35,11 @@ jobs:
     name: Validate release version
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.version.outputs.value }}
+      version: ${{ steps.version.outputs.version }}
+      stable: ${{ steps.version.outputs.stable }}
     steps:
+      - uses: actions/checkout@v4
+
       - id: version
         shell: bash
         env:
@@ -37,11 +51,26 @@ jobs:
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             version="$INPUT_VERSION"
           fi
-          if [[ ! "$version" =~ ^v[0-9]+(\.[0-9]+){2}([-.][0-9A-Za-z.-]+)?$ ]]; then
-            echo "Release version must use vMAJOR.MINOR.PATCH format." >&2
+          # Validates the format; only vX.Y.Z (no suffix) is stable and gets `latest`.
+          stable_line="$(bash scripts/release-version.sh "$version")"
+          printf 'version=%s\n%s\n' "$version" "$stable_line" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse an existing GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Fail closed: only a confirmed "release not found" lets the run go on.
+          if out="$(gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" 2>&1)"; then
+            echo "GitHub Release $VERSION already exists; publish a new version instead." >&2
             exit 1
           fi
-          printf 'value=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          if ! grep -qi "release not found" <<<"$out"; then
+            echo "Cannot tell whether GitHub Release $VERSION exists:" >&2
+            echo "$out" >&2
+            exit 1
+          fi
 
   verify:
     name: Required release checks
@@ -54,6 +83,12 @@ jobs:
     name: Publish GHCR images
     needs: [prepare, verify]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # the GitHub Release and its digests asset
+      packages: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      STABLE: ${{ needs.prepare.outputs.stable }}
     steps:
       - uses: actions/checkout@v4
 
@@ -66,32 +101,132 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Image names
+        id: names
+        shell: bash
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          for image in api web mlflow; do
+            echo "${image}=ghcr.io/${owner}/betpulse-${image}" >> "$GITHUB_OUTPUT"
+          done
+
+      # GHCR tags are mutable: never overwrite a published version. "Not found"
+      # is the only answer that lets the run go on; any other error stops it.
+      - name: Refuse to overwrite a published version
+        shell: bash
+        env:
+          API: ${{ steps.names.outputs.api }}
+          WEB: ${{ steps.names.outputs.web }}
+          MLFLOW: ${{ steps.names.outputs.mlflow }}
+        run: |
+          for repo in "$API" "$WEB" "$MLFLOW"; do
+            if out="$(docker buildx imagetools inspect "$repo:$VERSION" 2>&1)"; then
+              echo "$repo:$VERSION is already published; release a new version instead." >&2
+              exit 1
+            fi
+            if ! grep -qiE "not found|manifest unknown" <<<"$out"; then
+              echo "Cannot tell whether $repo:$VERSION exists:" >&2
+              echo "$out" >&2
+              exit 1
+            fi
+          done
+
       - name: Publish API image
+        id: api
         uses: docker/build-push-action@v6
         with:
           context: ./backend
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/betpulse-api:${{ needs.prepare.outputs.version }}
-            ghcr.io/${{ github.repository_owner }}/betpulse-api:latest
+            ${{ steps.names.outputs.api }}:${{ env.VERSION }}
+            ${{ env.STABLE == 'true' && format('{0}:latest', steps.names.outputs.api) || '' }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
+            org.opencontainers.image.version=${{ env.VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Publish web image
+        id: web
         uses: docker/build-push-action@v6
         with:
           context: ./frontend
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/betpulse-web:${{ needs.prepare.outputs.version }}
-            ghcr.io/${{ github.repository_owner }}/betpulse-web:latest
+            ${{ steps.names.outputs.web }}:${{ env.VERSION }}
+            ${{ env.STABLE == 'true' && format('{0}:latest', steps.names.outputs.web) || '' }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
+            org.opencontainers.image.version=${{ env.VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Publish MLflow image
+        id: mlflow
+        uses: docker/build-push-action@v6
+        with:
+          context: ./infra/mlflow
+          push: true
+          tags: |
+            ${{ steps.names.outputs.mlflow }}:${{ env.VERSION }}
+            ${{ env.STABLE == 'true' && format('{0}:latest', steps.names.outputs.mlflow) || '' }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ env.VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # `digest` is the top-level digest of what was pushed (the image index when
+      # attestations are attached), so `docker pull <image>@<digest>` resolves
+      # the same multi-manifest object on every platform.
+      - name: Write release digests
+        shell: bash
+        env:
+          API_DIGEST: ${{ steps.api.outputs.digest }}
+          WEB_DIGEST: ${{ steps.web.outputs.digest }}
+          MLFLOW_DIGEST: ${{ steps.mlflow.outputs.digest }}
+        run: |
+          for digest in "$API_DIGEST" "$WEB_DIGEST" "$MLFLOW_DIGEST"; do
+            if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "Unexpected image digest '$digest'." >&2
+              exit 1
+            fi
+          done
+          file="release-$VERSION.digests"
+          printf 'RELEASE_VERSION=%s\nAPI_IMAGE_DIGEST=%s\nWEB_IMAGE_DIGEST=%s\nMLFLOW_IMAGE_DIGEST=%s\n' \
+            "$VERSION" "$API_DIGEST" "$WEB_DIGEST" "$MLFLOW_DIGEST" >"$file"
+          {
+            echo "### Release $VERSION"
+            echo
+            echo '```'
+            cat "$file"
+            echo '```'
+            echo
+            echo "latest moved: $STABLE"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ env.VERSION }}-digests
+          path: release-${{ env.VERSION }}.digests
+
+      # The asset is downloadable without credentials (public repository):
+      #   curl -fLO https://github.com/<owner>/<repo>/releases/download/<version>/release-<version>.digests
+      - name: Create the GitHub Release with the digests asset
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=()
+          if [[ "$STABLE" != "true" ]]; then
+            prerelease=(--prerelease)
+          fi
+          gh release create "$VERSION" "release-$VERSION.digests" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$VERSION" \
+            --notes "Images ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/betpulse-{api,web,mlflow}:$VERSION. Deploy by the digests in release-$VERSION.digests (scripts/deploy.sh, HANDOFF section 9i)." \
+            "${prerelease[@]}"
