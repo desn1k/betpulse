@@ -1,0 +1,23 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v4/sports/soccer_epl/odds",
+    "params": {
+      "regions": "eu",
+      "markets": "not_a_market"
+    }
+  },
+  "auth": "valid",
+  "status": 422,
+  "quota": {
+    "credits_last": 0,
+    "credits_used": 3,
+    "credits_remaining": 497
+  },
+  "recorded_at": "2026-10-05T10:57:05+00:00",
+  "body": {
+    "message": "Invalid markets: not_a_market",
+    "error_code": "INVALID_MARKET",
+    "details_url": "https://the-odds-api.com/liveapi/guides/v4/api-error-codes.html#invalid-market"
+  }
+}

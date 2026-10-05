@@ -1,0 +1,16 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v3/football/leagues",
+    "params": {
+      "per_page": 1
+    }
+  },
+  "auth": "invalid",
+  "status": 401,
+  "quota": {},
+  "recorded_at": "2026-10-05T11:00:18+00:00",
+  "body": {
+    "message": "Invalid token provided"
+  }
+}

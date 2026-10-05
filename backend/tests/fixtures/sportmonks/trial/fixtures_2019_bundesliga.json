@@ -1,0 +1,29 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v3/football/fixtures/between/2019-08-16/2019-08-18",
+    "params": {
+      "filters": "fixtureLeagues:82",
+      "include": "participants;scores;state;statistics.type",
+      "per_page": 10
+    }
+  },
+  "auth": "valid",
+  "status": 200,
+  "quota": {
+    "remaining": 2494,
+    "resets_in_seconds": 3595,
+    "entity": "Fixture"
+  },
+  "recorded_at": "2026-10-05T11:05:17+00:00",
+  "body": {
+    "data": [],
+    "message": "No result(s) found matching your request. Either the query did not return any results or you don't have access to it via your current subscription.",
+    "rate_limit": {
+      "resets_in_seconds": 3595,
+      "remaining": 2494,
+      "requested_entity": "Fixture"
+    },
+    "timezone": "UTC"
+  }
+}

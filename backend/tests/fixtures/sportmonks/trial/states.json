@@ -1,0 +1,210 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v3/football/states",
+    "params": {
+      "per_page": 50
+    }
+  },
+  "auth": "valid",
+  "status": 200,
+  "quota": {
+    "remaining": 2498,
+    "resets_in_seconds": 3414,
+    "entity": "State"
+  },
+  "recorded_at": "2026-10-05T11:00:18+00:00",
+  "body": {
+    "data": [
+      {
+        "id": 1,
+        "state": "NS",
+        "name": "Not Started",
+        "short_name": "NS",
+        "developer_name": "NS"
+      },
+      {
+        "id": 2,
+        "state": "INPLAY_1ST_HALF",
+        "name": "1st Half",
+        "short_name": "1st",
+        "developer_name": "INPLAY_1ST_HALF"
+      },
+      {
+        "id": 3,
+        "state": "HT",
+        "name": "Half Time",
+        "short_name": "HT",
+        "developer_name": "HT"
+      },
+      {
+        "id": 4,
+        "state": "BREAK",
+        "name": "Break",
+        "short_name": "BRK",
+        "developer_name": "BREAK"
+      },
+      {
+        "id": 5,
+        "state": "FT",
+        "name": "Full Time",
+        "short_name": "FT",
+        "developer_name": "FT"
+      },
+      {
+        "id": 6,
+        "state": "INPLAY_ET",
+        "name": "Extra Time",
+        "short_name": "et",
+        "developer_name": "INPLAY_ET"
+      },
+      {
+        "id": 7,
+        "state": "AET",
+        "name": "After Extra Time",
+        "short_name": "AET",
+        "developer_name": "AET"
+      },
+      {
+        "id": 8,
+        "state": "FT_PEN",
+        "name": "After Penalties",
+        "short_name": "FTP",
+        "developer_name": "FT_PEN"
+      },
+      {
+        "id": 9,
+        "state": "INPLAY_PENALTIES",
+        "name": "Penalties",
+        "short_name": "PEN",
+        "developer_name": "INPLAY_PENALTIES"
+      },
+      {
+        "id": 10,
+        "state": "POSTPONED",
+        "name": "Postponed",
+        "short_name": "POST",
+        "developer_name": "POSTPONED"
+      },
+      {
+        "id": 11,
+        "state": "SUSPENDED",
+        "name": "Suspended",
+        "short_name": "SUSP",
+        "developer_name": "SUSPENDED"
+      },
+      {
+        "id": 12,
+        "state": "CANCELLED",
+        "name": "Cancelled",
+        "short_name": "CANC",
+        "developer_name": "CANCELLED"
+      },
+      {
+        "id": 13,
+        "state": "TBA",
+        "name": "To Be Announced",
+        "short_name": "TBA",
+        "developer_name": "TBA"
+      },
+      {
+        "id": 14,
+        "state": "WO",
+        "name": "Walk Over",
+        "short_name": "WO",
+        "developer_name": "WO"
+      },
+      {
+        "id": 15,
+        "state": "ABANDONED",
+        "name": "Abandoned",
+        "short_name": "ABAN",
+        "developer_name": "ABANDONED"
+      },
+      {
+        "id": 16,
+        "state": "DELAYED",
+        "name": "Delayed",
+        "short_name": "DELA",
+        "developer_name": "DELAYED"
+      },
+      {
+        "id": 17,
+        "state": "AWARDED",
+        "name": "Awarded",
+        "short_name": "AWAR",
+        "developer_name": "AWARDED"
+      },
+      {
+        "id": 18,
+        "state": "INTERRUPTED",
+        "name": "Interrupted",
+        "short_name": "INT",
+        "developer_name": "INTERRUPTED"
+      },
+      {
+        "id": 19,
+        "state": "AWAITING_UPDATES",
+        "name": "Awaiting Updates",
+        "short_name": "AU",
+        "developer_name": "AWAITING_UPDATES"
+      },
+      {
+        "id": 20,
+        "state": "DELETED",
+        "name": "Deleted",
+        "short_name": "DEL",
+        "developer_name": "DELETED"
+      },
+      {
+        "id": 21,
+        "state": "EXTRA_TIME_BREAK",
+        "name": "Extra Time - Break",
+        "short_name": "ETB",
+        "developer_name": "EXTRA_TIME_BREAK"
+      },
+      {
+        "id": 22,
+        "state": "INPLAY_2ND_HALF",
+        "name": "2nd Half",
+        "short_name": "2nd",
+        "developer_name": "INPLAY_2ND_HALF"
+      },
+      {
+        "id": 23,
+        "state": "INPLAY_ET_2ND_HALF",
+        "name": "ET - 2nd Half",
+        "short_name": "2et",
+        "developer_name": "INPLAY_ET_SECOND_HALF"
+      },
+      {
+        "id": 25,
+        "state": "PEN_BREAK",
+        "name": "Penalties - Break",
+        "short_name": "PENB",
+        "developer_name": "PEN_BREAK"
+      },
+      {
+        "id": 26,
+        "state": "PENDING",
+        "name": "Pending",
+        "short_name": "PEN",
+        "developer_name": "PENDING"
+      }
+    ],
+    "pagination": {
+      "count": 25,
+      "per_page": 50,
+      "has_more": false,
+      "current_page": 1,
+      "next_page": null,
+      "next_cursor": null
+    },
+    "rate_limit": {
+      "resets_in_seconds": 3414,
+      "remaining": 2498,
+      "requested_entity": "State"
+    },
+    "timezone": "UTC"
+  }
+}
