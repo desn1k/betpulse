@@ -297,6 +297,11 @@ allow commercial use and storage and forbid direct resale, but say nothing about
 - **Odds history** lasts only ≈ 7 days after kickoff, so Sportmonks cannot backfill odds.
   ([historical odds](https://docs.sportmonks.com/v3/endpoints-and-entities/endpoints/premium-odds-feed/premium-pre-match-odds/get-all-historical-odds))
 
+**Checked with real calls on 2026-10-05** — answers, evidence and what is still open:
+[`provider-evaluation-2026-10-05.md`](./provider-evaluation-2026-10-05.md) (trial history starts at
+2024/25; xG and premium odds are refused; includes do not count against other entities' limits).
+The original list:
+
 **To confirm with a real call** (during the trial):
 - the season name format (mapped to our canonical `YYYY-YYYY`) and the league ids;
 - `participants[].meta.location`;
@@ -383,6 +388,11 @@ The historical odds endpoint returns the closest snapshot **at or before** `date
   re-run from paying twice.
 - **Estimate.** h2h only, ≈ 1,000–1,300 kickoff instants per season for 5 leagues gives about
   65–80k credits for 2019-20..2025-26. Totals double that; adding the `uk` region doubles it again.
+
+**Checked with real calls on 2026-10-05** (demo key) — see
+[`provider-evaluation-2026-10-05.md`](./provider-evaluation-2026-10-05.md): historical endpoints are
+refused with `401 HISTORICAL_UNAVAILABLE_ON_FREE_USAGE_PLAN` at 0 credits; error bodies are
+`{message, error_code, details_url}`; RPL `eu` h2h has 3–4 bookmakers. The original list:
 
 **To confirm with a real call:**
 - the error body format (401/422/429);

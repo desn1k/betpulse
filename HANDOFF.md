@@ -1388,6 +1388,33 @@ ends about **2026-10-17**, and its saved responses must be recorded before then)
 | 6 | Dev-only Pinnacle check against football-data (nothing stored) |
 | later | RPL; live on Sportmonks |
 
+**Provider PR 1 — status (2026-10-05).** Shipped on `feat/provider-http-foundation`:
+- `app/providers/http.py`: a minimal GET client on `outbound_client` (key registered with the
+  scrubber), bounded retries (429 with `Retry-After` / Sportmonks' `rate_limit` reset, 5xx,
+  transport errors), one log line per call with the quota (The Odds API credits, Sportmonks'
+  per-entity `rate_limit`). `TheOddsApiClient`, `SportmonksClient`; no adapters yet.
+- `python -m app.cli provider-record --provider P --manifest FILE [--env-file ../.env]
+  [--execute] [--max-credits N]`: replays a committed manifest; dry run by default; credit cap and
+  expected statuses checked per call; keys only from the env file; fixtures keep only the provider
+  key replaced with `REDACTED` and drop account blocks.
+- Real responses under `tests/fixtures/{the_odds_api/free,sportmonks/trial}/`, pinned by
+  `tests/providers/test_recorded_contracts.py`. The fixture guard has two owner-approved,
+  file-scoped exceptions for The Odds API `"key"` fields (exact values in `odds_epl_h2h_eu.json`;
+  snake_case ids in `sports.json` only).
+- Findings and verdicts: [`docs/provider-evaluation-2026-10-05.md`](./docs/provider-evaluation-2026-10-05.md).
+  The Odds API spent 3 credits of the demo key's 500.
+
+**Deferred from PR 1 (owner decision: keep the HTTP base minimal):**
+- Key lookup: the key from Admin → Providers (encrypted `provider_accounts`) first, `.env` as the
+  fallback, registered with the scrubber. Today `provider-record` reads keys only from the env file.
+- Moving the API-Football live poller to that lookup (it still reads `API_FOOTBALL_KEY`).
+- Storing the latest quota in `provider_accounts.quota_state` (with the PR 4 budget guard).
+
+**Known dev-only side effect.** The default `DATABASE_URL` password is `football`, and the log
+scrubber registers settings secrets of 8+ characters, so in dev every log line shows `football` as
+`***` (e.g. `/v3/***/leagues`). Production passwords are long and random, so it does not occur
+there. Left as is (owner decision); `provider-record` does not use that registry for fixtures.
+
 **Trial-month checklist (owner)**
 - [ ] Pinnacle closing data quality after 2025-07-23, measured against the decision rule above.
 - [ ] League coverage at both providers, including RPL.
