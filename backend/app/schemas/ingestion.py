@@ -8,6 +8,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.ingestion_run import IngestionStatus
+from app.schemas.base import RequestModel
 
 
 class IngestionRunOut(BaseModel):
@@ -34,7 +35,7 @@ class IngestionRunsOut(BaseModel):
     per_page: int
 
 
-class RescanRequest(BaseModel):
+class RescanRequest(RequestModel):
     leagues: list[str] = Field(min_length=1)
     seasons: list[str] = Field(min_length=1)
 

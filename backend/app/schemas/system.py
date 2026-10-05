@@ -8,6 +8,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.base import RequestModel
+
 HealthStatus = Literal["ok", "degraded", "error", "not_configured"]
 
 
@@ -46,7 +48,7 @@ class AuditLogList(BaseModel):
     per_page: int
 
 
-class OpsAlertRequest(BaseModel):
+class OpsAlertRequest(RequestModel):
     message: str = Field(default="BetPulse admin test alert", min_length=1, max_length=500)
 
 
