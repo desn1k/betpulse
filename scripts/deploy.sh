@@ -12,7 +12,7 @@ health_attempts="${DEPLOY_HEALTHCHECK_ATTEMPTS:-30}"
 probe_timeout="${DEPLOY_READY_TIMEOUT_SECONDS:-5}"
 # Application services built from release images. Keep in sync with
 # infra/docker-compose*.yml (one ARQ worker per queue, app/workers/queues.py).
-app_services=(api worker-realtime worker-batch worker-ml web)
+app_services=(api worker-realtime worker-batch worker-ml web mlflow)
 
 if [[ ! -f "$env_file" ]]; then
   echo "Missing $env_file. Copy .env.example and configure production secrets first." >&2
@@ -24,6 +24,18 @@ if [[ -z "$image_tag" || "$image_tag" == "latest" || ! "$image_tag" =~ ^[0-9A-Za
   echo "Set IMAGE_TAG to an immutable published release tag (for example v1.2.3)." >&2
   exit 1
 fi
+
+# Every app image is deployed by the digest release.yml published, never by
+# its tag alone (a GHCR tag can be re-pushed): the release-<tag>.digests asset
+# of the GitHub Release, or the copy kept from an earlier deploy of this tag.
+# shellcheck source=scripts/release-digests.sh
+. "$root_dir/scripts/release-digests.sh"
+digests_file="${RELEASE_DIGESTS:-$state_dir/$image_tag.digests}"
+if [[ ! -f "$digests_file" ]]; then
+  echo "Set RELEASE_DIGESTS to release-$image_tag.digests, the asset of the GitHub Release $image_tag (HANDOFF section 9i)." >&2
+  exit 1
+fi
+load_release_digests "$digests_file" "$image_tag" || exit 1
 
 compose() {
   IMAGE_TAG="$image_tag" docker compose --env-file "$env_file" \
@@ -123,7 +135,11 @@ fi
 rollback_on_failure() {
   local exit_code="$?"
   if [[ -n "$previous_tag" && "$previous_tag" != "$image_tag" ]]; then
-    echo "Deployment failed; restoring application images tagged $previous_tag." >&2
+    if ! load_release_digests "$state_dir/$previous_tag.digests" "$previous_tag"; then
+      echo "No stored digests for $previous_tag: not rolling back automatically. Run scripts/rollback.sh with IMAGE_TAG=$previous_tag and RELEASE_DIGESTS=release-$previous_tag.digests." >&2
+      exit "$exit_code"
+    fi
+    echo "Deployment failed; restoring application images of $previous_tag." >&2
     image_tag="$previous_tag"
     compose pull "${app_services[@]}" || true
     compose up -d --no-deps --remove-orphans "${app_services[@]}" || true
@@ -148,5 +164,8 @@ wait_for_bff_ready
 
 mkdir -p "$state_dir"
 umask 077
+if [[ "$digests_file" != "$state_dir/$image_tag.digests" ]]; then
+  cp "$digests_file" "$state_dir/$image_tag.digests"
+fi
 printf '%s\n' "$image_tag" > "$last_successful_tag_file"
 echo "Deployment of $image_tag completed successfully."

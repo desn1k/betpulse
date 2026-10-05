@@ -4,8 +4,10 @@
 # the API, the web app) must stay on the internal network. It also
 # checks that the web container reaches the API at http://api:8000 whatever
 # API_BASE_URL says in .env (its example value is for local dev), that caddy
-# gets PUBLIC_DOMAIN (else the Caddyfile serves only `localhost`), and that no
-# environment value is a comment: Compose reads `KEY=  # note` as `# note`.
+# gets PUBLIC_DOMAIN (else the Caddyfile serves only `localhost`), that no
+# environment value is a comment (Compose reads `KEY=  # note` as `# note`), and
+# that every image is pinned by digest (`@sha256:...`) and none is built on the
+# server: a tag alone can be re-pushed (ER-H-09).
 #
 # Why a rendered check: in an override file `ports: []` is *appended* to the
 # base file's list, so it does not remove anything; only `ports: !reset []`
@@ -14,6 +16,8 @@
 # real exposure of the host.
 #
 # Usage: scripts/check-compose-ports.sh [ENV_FILE]   (default: ./.env)
+# CHECK_EXTRA_COMPOSE_FILE adds one more -f file (CI uses it to prove the
+# checks fail on a bad override).
 # Run in CI and on the server after installing or upgrading Docker. Needs
 # python3 (preinstalled on Ubuntu); PYTHON overrides the interpreter. The
 # services' `env_file: ../.env` means the repo-root .env must exist as well,
@@ -33,13 +37,15 @@ done
 
 rendered="$(mktemp)"
 trap 'rm -f "$rendered"' EXIT
-docker compose --env-file "$env_file" \
-  -f "$root_dir/infra/docker-compose.yml" \
-  -f "$root_dir/infra/docker-compose.prod.yml" \
-  config --format json >"$rendered"
+compose_files=(-f "$root_dir/infra/docker-compose.yml" -f "$root_dir/infra/docker-compose.prod.yml")
+if [[ -n "${CHECK_EXTRA_COMPOSE_FILE:-}" ]]; then
+  compose_files+=(-f "$CHECK_EXTRA_COMPOSE_FILE")
+fi
+docker compose --env-file "$env_file" "${compose_files[@]}" config --format json >"$rendered"
 
 "$python_bin" - "$rendered" <<'PY'
 import json
+import re
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as fh:
@@ -85,6 +91,14 @@ for name, service in sorted(config.get("services", {}).items()):
             # The key only: the value may be a secret.
             problems.append(f"{name}: {key} is a comment, not a value (inline comment in .env?)")
 
+digest_pinned = re.compile(r"@sha256:[0-9a-f]{64}$")
+for name, service in sorted(config.get("services", {}).items()):
+    image = service.get("image") or ""
+    if not digest_pinned.search(image):
+        problems.append(f"{name}: image {image!r} is not pinned by digest (@sha256:...)")
+    if service.get("build"):
+        problems.append(f"{name}: is built on the server; production runs published images only")
+
 if problems:
     print("Production Compose config is unsafe or miswired:", file=sys.stderr)
     for line in problems:
@@ -92,6 +106,7 @@ if problems:
     sys.exit(1)
 print(
     "OK: only caddy 80/tcp and 443/tcp are published; web reaches the API at "
-    "http://api:8000; caddy gets PUBLIC_DOMAIN; no environment value is a comment."
+    "http://api:8000; caddy gets PUBLIC_DOMAIN; no environment value is a comment; "
+    "every image is pinned by digest and none is built on the server."
 )
 PY

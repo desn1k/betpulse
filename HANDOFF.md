@@ -1036,6 +1036,49 @@ implemented.
       and rebuilds the MLflow image, so a vanished upstream image is caught before a deploy needs
       it.
 
+### Release images and digests (F2 + ER-H-09, 2026-10-05)
+
+- **Three images per release.** `release.yml` publishes `ghcr.io/<owner>/betpulse-api`,
+  `betpulse-web` and `betpulse-mlflow` under the same version tag.
+  - **`latest`** moves only for a stable version (`vX.Y.Z`); a pre-release (`-rc1` …) never
+    gets it (`scripts/release-version.sh`).
+  - **A version is published once.** The run fails if the GitHub Release or any of the three
+    tags already exists (GHCR tags are mutable). A failed or repeated pre-release gets a new rc
+    number.
+- **Digests.** The run writes `release-<version>.digests` from the top-level (index) digest of
+  each push:
+  ```
+  RELEASE_VERSION=v1.2.3
+  API_IMAGE_DIGEST=sha256:…
+  WEB_IMAGE_DIGEST=sha256:…
+  MLFLOW_IMAGE_DIGEST=sha256:…
+  ```
+  It is attached to the **GitHub Release** of that version (pre-releases are marked as such),
+  shown in the job summary, and uploaded as a workflow artifact. The repository is public, so the
+  server fetches it without credentials:
+  `curl -fLO https://github.com/desn1k/betpulse/releases/download/<version>/release-<version>.digests`
+  (or `gh release download <version>` / `scp` from a workstation).
+- **Deploy and rollback by digest.**
+  - `IMAGE_TAG=<version> RELEASE_DIGESTS=release-<version>.digests scripts/deploy.sh`. The script
+    checks that the file is for that version and that every digest is `sha256:<64 hex>`, pulls
+    and restarts `api`, the three workers, `web` **and `mlflow`**, and keeps a copy as
+    `.release/<version>.digests`.
+  - The automatic rollback restores the previous release by its stored digests; without them it
+    does not roll back blindly by tag and says how to run `scripts/rollback.sh`.
+  - `IMAGE_TAG=<version> scripts/rollback.sh` uses `.release/<version>.digests`, or
+    `RELEASE_DIGESTS` for a release never deployed on this server.
+- **Prod compose requires both.** Each app image is `…:${IMAGE_TAG:?}@${<X>_IMAGE_DIGEST:?}`;
+  without a tag or a digest `docker compose config` fails. `build: !reset null` removes the base
+  file's `build` (a plain `build: null` is ignored by the merge, like `ports: []`).
+  `scripts/check-compose-ports.sh` fails on any image without `@sha256:` and on any service built
+  on the server; CI proves both checks fail on a bad override.
+- **GHCR access on the server.** A new package such as `betpulse-mlflow` is **private by
+  default**. The server's read-only GHCR token (`read:packages`) must have access to **all three
+  packages** (package settings → manage access), or the pull of the missing one fails.
+- **Not verified until the first published release with this workflow** (v0.0.1-rc4, the owner
+  runs it): the GitHub Release asset, `docker pull <image>@<digest>` for all three images, no
+  `latest` on an rc, and a deploy and a rollback by digest on the local stack.
+
 ### Pre-deploy manual checklist
 
 Run before **every** deploy, including the first one:
@@ -1087,8 +1130,8 @@ secrets.
   - the database was unchanged afterwards (Alembic head, admin login), and `rollback.sh` passed.
 - **Findings, each its own PR:**
   - F1: caddy got no `PUBLIC_DOMAIN` (fixed above);
-  - F2: the MLflow image is built on the server and never rebuilt by `deploy.sh` (lands with
-    **ER-H-09**, deploy by digest, §9m);
+  - F2: the MLflow image is built on the server and never rebuilt by `deploy.sh` — fixed
+    together with **ER-H-09** (see "Release images and digests" below);
   - F3: without `API_FOOTBALL_KEY` the live poll calls the API every minute and fails with 403;
   - F4: `deploy.sh`'s automatic rollback does not wait for health or `/api/ready`.
 
@@ -1470,7 +1513,7 @@ ignored. Line numbers are as of `5eedb0b` and will drift.
   the LLM spend dashboard sums those rows, so every regeneration (language switch, cache expiry)
   drops the earlier generation's tokens and cost. The fix must correct the spend figures as well
   as the cache key.
-- **ER-H-09 — required tag.** `infra/docker-compose.prod.yml` falls back to `${IMAGE_TAG:-latest}`
+- **ER-H-09 — required tag** (fixed with F2, see §9i "Release images and digests"). `infra/docker-compose.prod.yml` falls back to `${IMAGE_TAG:-latest}`
   (lines 21, 46, 89); `deploy.sh` refuses `latest`, but a manual `docker compose up` does not. The
   fix must make it `${IMAGE_TAG:?}` (no fallback).
 
