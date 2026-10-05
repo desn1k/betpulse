@@ -1,0 +1,3487 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v3/football/fixtures/between/2026-10-05/2026-10-12",
+    "params": {
+      "filters": "fixtureLeagues:8,564,384,82,301,486",
+      "include": "participants;state",
+      "per_page": 50
+    }
+  },
+  "auth": "valid",
+  "status": 200,
+  "quota": {
+    "remaining": 2490,
+    "resets_in_seconds": 3593,
+    "entity": "Fixture"
+  },
+  "recorded_at": "2026-10-05T12:23:20+00:00",
+  "body": {
+    "data": [
+      {
+        "id": 19726781,
+        "sport_id": 1,
+        "league_id": 486,
+        "season_id": 27990,
+        "stage_id": 77482621,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 408452,
+        "state_id": 1,
+        "venue_id": 219227,
+        "name": "Rostov vs Akron",
+        "starting_at": "2026-10-09 16:30:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791563400,
+        "participants": [
+          {
+            "id": 237670,
+            "sport_id": 1,
+            "country_id": 227,
+            "venue_id": 219226,
+            "gender": "male",
+            "name": "Akron",
+            "short_code": null,
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/6/237670.png",
+            "founded": null,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-17 15:30:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 12
+            }
+          },
+          {
+            "id": 6564,
+            "sport_id": 1,
+            "country_id": 227,
+            "venue_id": 219227,
+            "gender": "male",
+            "name": "Rostov",
+            "short_code": "FCR",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/4/6564.png",
+            "founded": 1930,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-17 15:30:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 13
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19735161,
+        "sport_id": 1,
+        "league_id": 82,
+        "season_id": 28321,
+        "stage_id": 77482714,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 409206,
+        "state_id": 1,
+        "venue_id": 2166,
+        "name": "Borussia Dortmund vs Werder Bremen",
+        "starting_at": "2026-10-09 18:30:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791570600,
+        "participants": [
+          {
+            "id": 82,
+            "sport_id": 1,
+            "country_id": 11,
+            "venue_id": 339831,
+            "gender": "male",
+            "name": "Werder Bremen",
+            "short_code": "SVW",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/18/82.png",
+            "founded": 1899,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 13:30:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 8
+            }
+          },
+          {
+            "id": 68,
+            "sport_id": 1,
+            "country_id": 11,
+            "venue_id": 2166,
+            "gender": "male",
+            "name": "Borussia Dortmund",
+            "short_code": "BVB",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/4/68.png",
+            "founded": 1909,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 16:30:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 1
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19715591,
+        "sport_id": 1,
+        "league_id": 301,
+        "season_id": 28082,
+        "stage_id": 77482474,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 407270,
+        "state_id": 1,
+        "venue_id": 6240,
+        "name": "Lens vs Olympique Lyonnais",
+        "starting_at": "2026-10-09 18:45:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791571500,
+        "participants": [
+          {
+            "id": 79,
+            "sport_id": 1,
+            "country_id": 17,
+            "venue_id": 6161,
+            "gender": "male",
+            "name": "Olympique Lyonnais",
+            "short_code": "LYO",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/15/79.png",
+            "founded": 1950,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 18:45:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 2
+            }
+          },
+          {
+            "id": 271,
+            "sport_id": 1,
+            "country_id": 17,
+            "venue_id": 6240,
+            "gender": "male",
+            "name": "Lens",
+            "short_code": "LEN",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/15/271.png",
+            "founded": 1906,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-18 18:45:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 15
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19732667,
+        "sport_id": 1,
+        "league_id": 564,
+        "season_id": 27965,
+        "stage_id": 77482690,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 408953,
+        "state_id": 1,
+        "venue_id": 9233,
+        "name": "Málaga vs Espanyol",
+        "starting_at": "2026-10-09 19:00:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791572400,
+        "participants": [
+          {
+            "id": 528,
+            "sport_id": 1,
+            "country_id": 32,
+            "venue_id": 89,
+            "gender": "male",
+            "name": "Espanyol",
+            "short_code": "ESY",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/16/528.png",
+            "founded": 1900,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-18 19:00:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 15
+            }
+          },
+          {
+            "id": 126,
+            "sport_id": 1,
+            "country_id": 32,
+            "venue_id": 9233,
+            "gender": "male",
+            "name": "Málaga",
+            "short_code": "MLA",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/30/126.png",
+            "founded": 1948,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 12:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 20
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19726780,
+        "sport_id": 1,
+        "league_id": 486,
+        "season_id": 27990,
+        "stage_id": 77482621,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 408452,
+        "state_id": 1,
+        "venue_id": 2012,
+        "name": "Orenburg vs Dynamo Makhachkala",
+        "starting_at": "2026-10-10 10:00:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791626400,
+        "participants": [
+          {
+            "id": 237672,
+            "sport_id": 1,
+            "country_id": 227,
+            "venue_id": 2412,
+            "gender": "male",
+            "name": "Dynamo Makhachkala",
+            "short_code": null,
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/8/237672.png",
+            "founded": null,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-17 17:45:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 7
+            }
+          },
+          {
+            "id": 3452,
+            "sport_id": 1,
+            "country_id": 227,
+            "venue_id": 2012,
+            "gender": "male",
+            "name": "Orenburg",
+            "short_code": null,
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/28/3452.png",
+            "founded": 0,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-03 14:30:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 11
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19722153,
+        "sport_id": 1,
+        "league_id": 8,
+        "season_id": 28083,
+        "stage_id": 77482558,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 407869,
+        "state_id": 1,
+        "venue_id": 204,
+        "name": "Arsenal vs Leeds United",
+        "starting_at": "2026-10-10 11:30:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791631800,
+        "participants": [
+          {
+            "id": 71,
+            "sport_id": 1,
+            "country_id": 462,
+            "venue_id": 488,
+            "gender": "male",
+            "name": "Leeds United",
+            "short_code": "LEE",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/7/71.png",
+            "founded": 1919,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 13:00:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 5
+            }
+          },
+          {
+            "id": 19,
+            "sport_id": 1,
+            "country_id": 462,
+            "venue_id": 204,
+            "gender": "male",
+            "name": "Arsenal",
+            "short_code": "ARS",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/19/19.png",
+            "founded": 1886,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 14:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 2
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19732665,
+        "sport_id": 1,
+        "league_id": 564,
+        "season_id": 27965,
+        "stage_id": 77482690,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 408953,
+        "state_id": 1,
+        "venue_id": 304396,
+        "name": "Rayo Vallecano vs Athletic Club",
+        "starting_at": "2026-10-10 12:00:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791633600,
+        "participants": [
+          {
+            "id": 13258,
+            "sport_id": 1,
+            "country_id": 32,
+            "venue_id": 9162,
+            "gender": "male",
+            "name": "Athletic Club",
+            "short_code": "ATH",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/10/13258.png",
+            "founded": 1898,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 14:15:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 10
+            }
+          },
+          {
+            "id": 377,
+            "sport_id": 1,
+            "country_id": 32,
+            "venue_id": 304396,
+            "gender": "male",
+            "name": "Rayo Vallecano",
+            "short_code": "RAY",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/25/377.png",
+            "founded": 1924,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 12:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 12
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19726775,
+        "sport_id": 1,
+        "league_id": 486,
+        "season_id": 27990,
+        "stage_id": 77482621,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 408452,
+        "state_id": 1,
+        "venue_id": 5980,
+        "name": "Fakel vs Lokomotiv Moskva",
+        "starting_at": "2026-10-10 12:15:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791634500,
+        "participants": [
+          {
+            "id": 490,
+            "sport_id": 1,
+            "country_id": 227,
+            "venue_id": 177923,
+            "gender": "male",
+            "name": "Lokomotiv Moskva",
+            "short_code": "LOK",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/10/490.png",
+            "founded": 1923,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-03 08:30:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 14
+            }
+          },
+          {
+            "id": 9189,
+            "sport_id": 1,
+            "country_id": 227,
+            "venue_id": 5980,
+            "gender": "male",
+            "name": "Fakel",
+            "short_code": null,
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/5/9189.png",
+            "founded": 1947,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-03 11:30:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 16
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19713564,
+        "sport_id": 1,
+        "league_id": 384,
+        "season_id": 27895,
+        "stage_id": 77482399,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 406995,
+        "state_id": 1,
+        "venue_id": 86,
+        "name": "Genoa vs Fiorentina",
+        "starting_at": "2026-10-10 13:00:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791637200,
+        "participants": [
+          {
+            "id": 109,
+            "sport_id": 1,
+            "country_id": 251,
+            "venue_id": 7223,
+            "gender": "male",
+            "name": "Fiorentina",
+            "short_code": "FIO",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/13/109.png",
+            "founded": 1926,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 10:30:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 17
+            }
+          },
+          {
+            "id": 102,
+            "sport_id": 1,
+            "country_id": 251,
+            "venue_id": 86,
+            "gender": "male",
+            "name": "Genoa",
+            "short_code": "GEN",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/6/102.png",
+            "founded": 1893,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-02 16:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 19
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19735153,
+        "sport_id": 1,
+        "league_id": 82,
+        "season_id": 28321,
+        "stage_id": 77482714,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 409206,
+        "state_id": 1,
+        "venue_id": 1571,
+        "name": "Paderborn vs VfB Stuttgart",
+        "starting_at": "2026-10-10 13:30:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791639000,
+        "participants": [
+          {
+            "id": 3319,
+            "sport_id": 1,
+            "country_id": 11,
+            "venue_id": 1945,
+            "gender": "male",
+            "name": "VfB Stuttgart",
+            "short_code": "VFB",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/23/3319.png",
+            "founded": 1893,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-01 15:30:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 15
+            }
+          },
+          {
+            "id": 2642,
+            "sport_id": 1,
+            "country_id": 11,
+            "venue_id": 1571,
+            "gender": "male",
+            "name": "Paderborn",
+            "short_code": "PAD",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/18/2642.png",
+            "founded": 1907,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-30 23:30:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 12
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19735155,
+        "sport_id": 1,
+        "league_id": 82,
+        "season_id": 28321,
+        "stage_id": 77482714,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 409206,
+        "state_id": 1,
+        "venue_id": 420,
+        "name": "FC Union Berlin vs Elversberg",
+        "starting_at": "2026-10-10 13:30:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791639000,
+        "participants": [
+          {
+            "id": 3588,
+            "sport_id": 1,
+            "country_id": 11,
+            "venue_id": 2101,
+            "gender": "male",
+            "name": "Elversberg",
+            "short_code": "ELV",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/4/3588.png",
+            "founded": 1907,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 15:30:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 7
+            }
+          },
+          {
+            "id": 1079,
+            "sport_id": 1,
+            "country_id": 11,
+            "venue_id": 420,
+            "gender": "male",
+            "name": "FC Union Berlin",
+            "short_code": "FCU",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/23/1079.png",
+            "founded": 1966,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-26 17:15:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 17
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19735156,
+        "sport_id": 1,
+        "league_id": 82,
+        "season_id": 28321,
+        "stage_id": 77482714,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 409206,
+        "state_id": 1,
+        "venue_id": 2103,
+        "name": "FSV Mainz 05 vs Bayer 04 Leverkusen",
+        "starting_at": "2026-10-10 13:30:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791639000,
+        "participants": [
+          {
+            "id": 3321,
+            "sport_id": 1,
+            "country_id": 11,
+            "venue_id": 1947,
+            "gender": "male",
+            "name": "Bayer 04 Leverkusen",
+            "short_code": "B04",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/25/3321.png",
+            "founded": 1904,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 13:30:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 5
+            }
+          },
+          {
+            "id": 794,
+            "sport_id": 1,
+            "country_id": 11,
+            "venue_id": 2103,
+            "gender": "male",
+            "name": "FSV Mainz 05",
+            "short_code": "M05",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/26/794.png",
+            "founded": 1905,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-03 11:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 6
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19735157,
+        "sport_id": 1,
+        "league_id": 82,
+        "season_id": 28321,
+        "stage_id": 77482714,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 409206,
+        "state_id": 1,
+        "venue_id": 2165,
+        "name": "FC Augsburg vs FC Bayern München",
+        "starting_at": "2026-10-10 13:30:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791639000,
+        "participants": [
+          {
+            "id": 503,
+            "sport_id": 1,
+            "country_id": 11,
+            "venue_id": 53,
+            "gender": "male",
+            "name": "FC Bayern München",
+            "short_code": "FCB",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/23/503.png",
+            "founded": 1900,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-18 18:30:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 2
+            }
+          },
+          {
+            "id": 90,
+            "sport_id": 1,
+            "country_id": 11,
+            "venue_id": 2165,
+            "gender": "male",
+            "name": "FC Augsburg",
+            "short_code": "FCA",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/26/90.png",
+            "founded": 1907,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-02 11:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 4
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19735159,
+        "sport_id": 1,
+        "league_id": 82,
+        "season_id": 28321,
+        "stage_id": 77482714,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 409206,
+        "state_id": 1,
+        "venue_id": 1618,
+        "name": "TSG Hoffenheim vs Hamburger SV",
+        "starting_at": "2026-10-10 13:30:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791639000,
+        "participants": [
+          {
+            "id": 2708,
+            "sport_id": 1,
+            "country_id": 11,
+            "venue_id": 1610,
+            "gender": "male",
+            "name": "Hamburger SV",
+            "short_code": "HSV",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/20/2708.png",
+            "founded": 1887,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-04 13:30:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 16
+            }
+          },
+          {
+            "id": 2726,
+            "sport_id": 1,
+            "country_id": 11,
+            "venue_id": 1618,
+            "gender": "male",
+            "name": "TSG Hoffenheim",
+            "short_code": "TSG",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/6/2726.png",
+            "founded": 1899,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 17:30:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 14
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19722144,
+        "sport_id": 1,
+        "league_id": 8,
+        "season_id": 28083,
+        "stage_id": 77482558,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 407869,
+        "state_id": 1,
+        "venue_id": 212,
+        "name": "Sunderland vs Brighton & Hove Albion",
+        "starting_at": "2026-10-10 14:00:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791640800,
+        "participants": [
+          {
+            "id": 78,
+            "sport_id": 1,
+            "country_id": 462,
+            "venue_id": 480,
+            "gender": "male",
+            "name": "Brighton & Hove Albion",
+            "short_code": "BHA",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/14/78.png",
+            "founded": 1901,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 14:00:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 3
+            }
+          },
+          {
+            "id": 3,
+            "sport_id": 1,
+            "country_id": 462,
+            "venue_id": 212,
+            "gender": "male",
+            "name": "Sunderland",
+            "short_code": "SUN",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/3/3.png",
+            "founded": 1879,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 13:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 14
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19722147,
+        "sport_id": 1,
+        "league_id": 8,
+        "season_id": 28083,
+        "stage_id": 77482558,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 407869,
+        "state_id": 1,
+        "venue_id": 504,
+        "name": "Ipswich Town vs Fulham",
+        "starting_at": "2026-10-10 14:00:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791640800,
+        "participants": [
+          {
+            "id": 11,
+            "sport_id": 1,
+            "country_id": 462,
+            "venue_id": 485,
+            "gender": "male",
+            "name": "Fulham",
+            "short_code": "FUL",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/11/11.png",
+            "founded": 1879,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 15:30:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 19
+            }
+          },
+          {
+            "id": 116,
+            "sport_id": 1,
+            "country_id": 462,
+            "venue_id": 504,
+            "gender": "male",
+            "name": "Ipswich Town",
+            "short_code": "IPS",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/20/116.png",
+            "founded": 1878,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 14:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 11
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19722151,
+        "sport_id": 1,
+        "league_id": 8,
+        "season_id": 28083,
+        "stage_id": 77482558,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 407869,
+        "state_id": 1,
+        "venue_id": 321614,
+        "name": "Chelsea vs AFC Bournemouth",
+        "starting_at": "2026-10-10 14:00:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791640800,
+        "participants": [
+          {
+            "id": 52,
+            "sport_id": 1,
+            "country_id": 462,
+            "venue_id": 146,
+            "gender": "male",
+            "name": "AFC Bournemouth",
+            "short_code": "BOU",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/20/52.png",
+            "founded": 1899,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 13:00:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 17
+            }
+          },
+          {
+            "id": 18,
+            "sport_id": 1,
+            "country_id": 462,
+            "venue_id": 321614,
+            "gender": "male",
+            "name": "Chelsea",
+            "short_code": "CHE",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/18/18.png",
+            "founded": 1905,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-18 19:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 10
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19722152,
+        "sport_id": 1,
+        "league_id": 8,
+        "season_id": 28083,
+        "stage_id": 77482558,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 407869,
+        "state_id": 1,
+        "venue_id": 5,
+        "name": "Aston Villa vs Brentford",
+        "starting_at": "2026-10-10 14:00:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791640800,
+        "participants": [
+          {
+            "id": 236,
+            "sport_id": 1,
+            "country_id": 462,
+            "venue_id": 338817,
+            "gender": "male",
+            "name": "Brentford",
+            "short_code": "BRE",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/12/236.png",
+            "founded": 1889,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-18 19:00:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 4
+            }
+          },
+          {
+            "id": 15,
+            "sport_id": 1,
+            "country_id": 462,
+            "venue_id": 5,
+            "gender": "male",
+            "name": "Aston Villa",
+            "short_code": "AVL",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/15/15.png",
+            "founded": 1874,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-02 18:30:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 16
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19732672,
+        "sport_id": 1,
+        "league_id": 564,
+        "season_id": 27965,
+        "stage_id": 77482690,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 408953,
+        "state_id": 1,
+        "venue_id": 1747,
+        "name": "Deportivo Alavés vs Atlético de Madrid",
+        "starting_at": "2026-10-10 14:15:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791641700,
+        "participants": [
+          {
+            "id": 7980,
+            "sport_id": 1,
+            "country_id": 32,
+            "venue_id": 140808,
+            "gender": "male",
+            "name": "Atlético de Madrid",
+            "short_code": "ATM",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/12/7980.png",
+            "founded": 1903,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 14:15:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 2
+            }
+          },
+          {
+            "id": 2975,
+            "sport_id": 1,
+            "country_id": 32,
+            "venue_id": 1747,
+            "gender": "male",
+            "name": "Deportivo Alavés",
+            "short_code": "ALA",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/31/2975.png",
+            "founded": 1921,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 14:15:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 6
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19726782,
+        "sport_id": 1,
+        "league_id": 486,
+        "season_id": 27990,
+        "stage_id": 77482621,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 408452,
+        "state_id": 1,
+        "venue_id": 219226,
+        "name": "Krylya Sovetov vs Spartak Moskva",
+        "starting_at": "2026-10-10 14:30:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791642600,
+        "participants": [
+          {
+            "id": 2712,
+            "sport_id": 1,
+            "country_id": 227,
+            "venue_id": null,
+            "gender": "male",
+            "name": "Spartak Moskva",
+            "short_code": "SPM",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/24/2712.png",
+            "founded": 1922,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-16 15:30:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 2
+            }
+          },
+          {
+            "id": 452,
+            "sport_id": 1,
+            "country_id": 227,
+            "venue_id": 219226,
+            "gender": "male",
+            "name": "Krylya Sovetov",
+            "short_code": "KRY",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/4/452.png",
+            "founded": 1942,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-16 17:45:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 9
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19715590,
+        "sport_id": 1,
+        "league_id": 301,
+        "season_id": 28082,
+        "stage_id": 77482474,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 407270,
+        "state_id": 1,
+        "venue_id": 184,
+        "name": "LOSC Lille vs Le Havre",
+        "starting_at": "2026-10-10 15:15:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791645300,
+        "participants": [
+          {
+            "id": 1055,
+            "sport_id": 1,
+            "country_id": 17,
+            "venue_id": 408,
+            "gender": "male",
+            "name": "Le Havre",
+            "short_code": "LEH",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/31/1055.png",
+            "founded": 1872,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-02 10:00:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 18
+            }
+          },
+          {
+            "id": 690,
+            "sport_id": 1,
+            "country_id": 17,
+            "venue_id": 184,
+            "gender": "male",
+            "name": "LOSC Lille",
+            "short_code": "LOSC",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/18/690.png",
+            "founded": 1944,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-02 12:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 4
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19713563,
+        "sport_id": 1,
+        "league_id": 384,
+        "season_id": 27895,
+        "stage_id": 77482399,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 406995,
+        "state_id": 1,
+        "venue_id": 1721,
+        "name": "Inter vs Parma",
+        "starting_at": "2026-10-10 16:00:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791648000,
+        "participants": [
+          {
+            "id": 398,
+            "sport_id": 1,
+            "country_id": 251,
+            "venue_id": 7175,
+            "gender": "male",
+            "name": "Parma",
+            "short_code": "PRM",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/14/398.png",
+            "founded": 1913,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 13:00:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 15
+            }
+          },
+          {
+            "id": 2930,
+            "sport_id": 1,
+            "country_id": 251,
+            "venue_id": 1721,
+            "gender": "male",
+            "name": "Inter",
+            "short_code": "INT",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/18/2930.png",
+            "founded": 1908,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-03 09:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 2
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19722145,
+        "sport_id": 1,
+        "league_id": 8,
+        "season_id": 28083,
+        "stage_id": 77482558,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 407869,
+        "state_id": 1,
+        "venue_id": 206,
+        "name": "Manchester United vs Tottenham Hotspur",
+        "starting_at": "2026-10-10 16:30:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791649800,
+        "participants": [
+          {
+            "id": 6,
+            "sport_id": 1,
+            "country_id": 462,
+            "venue_id": 281313,
+            "gender": "male",
+            "name": "Tottenham Hotspur",
+            "short_code": "TOT",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/6/6.png",
+            "founded": 1882,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 11:30:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 20
+            }
+          },
+          {
+            "id": 14,
+            "sport_id": 1,
+            "country_id": 462,
+            "venue_id": 206,
+            "gender": "male",
+            "name": "Manchester United",
+            "short_code": "MUN",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/14/14.png",
+            "founded": 1878,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 15:30:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 12
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19726779,
+        "sport_id": 1,
+        "league_id": 486,
+        "season_id": 27990,
+        "stage_id": 77482621,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 408452,
+        "state_id": 1,
+        "venue_id": 1573,
+        "name": "Krasnodar vs Zenit",
+        "starting_at": "2026-10-10 16:30:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791649800,
+        "participants": [
+          {
+            "id": 2963,
+            "sport_id": 1,
+            "country_id": 227,
+            "venue_id": 8895,
+            "gender": "male",
+            "name": "Zenit",
+            "short_code": "ZSP",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/19/2963.png",
+            "founded": 1925,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-04 16:00:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 5
+            }
+          },
+          {
+            "id": 2645,
+            "sport_id": 1,
+            "country_id": 227,
+            "venue_id": 1573,
+            "gender": "male",
+            "name": "Krasnodar",
+            "short_code": "KRA",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/21/2645.png",
+            "founded": 2007,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-17 13:15:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 1
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19732669,
+        "sport_id": 1,
+        "league_id": 564,
+        "season_id": 27965,
+        "stage_id": 77482690,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 408953,
+        "state_id": 1,
+        "venue_id": 9236,
+        "name": "FC Barcelona vs Getafe",
+        "starting_at": "2026-10-10 16:30:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791649800,
+        "participants": [
+          {
+            "id": 106,
+            "sport_id": 1,
+            "country_id": 32,
+            "venue_id": 9351,
+            "gender": "male",
+            "name": "Getafe",
+            "short_code": "GET",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/10/106.png",
+            "founded": 1983,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 12:00:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 11
+            }
+          },
+          {
+            "id": 83,
+            "sport_id": 1,
+            "country_id": 32,
+            "venue_id": 9236,
+            "gender": "male",
+            "name": "FC Barcelona",
+            "short_code": "BAR",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/19/83.png",
+            "founded": 1899,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 19:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 1
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19735160,
+        "sport_id": 1,
+        "league_id": 82,
+        "season_id": 28321,
+        "stage_id": 77482714,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 409206,
+        "state_id": 1,
+        "venue_id": 2171,
+        "name": "RB Leipzig vs Eintracht Frankfurt",
+        "starting_at": "2026-10-10 16:30:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791649800,
+        "participants": [
+          {
+            "id": 366,
+            "sport_id": 1,
+            "country_id": 11,
+            "venue_id": 339832,
+            "gender": "male",
+            "name": "Eintracht Frankfurt",
+            "short_code": "SGE",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/14/366.png",
+            "founded": 1899,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-02 14:00:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 10
+            }
+          },
+          {
+            "id": 277,
+            "sport_id": 1,
+            "country_id": 11,
+            "venue_id": 2171,
+            "gender": "male",
+            "name": "RB Leipzig",
+            "short_code": "RBL",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/21/277.png",
+            "founded": 2009,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 13:30:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 9
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19713560,
+        "sport_id": 1,
+        "league_id": 384,
+        "season_id": 27895,
+        "stage_id": 77482399,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 406995,
+        "state_id": 1,
+        "venue_id": 134,
+        "name": "Napoli vs Frosinone",
+        "starting_at": "2026-10-10 18:45:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791657900,
+        "participants": [
+          {
+            "id": 4070,
+            "sport_id": 1,
+            "country_id": 251,
+            "venue_id": 145449,
+            "gender": "male",
+            "name": "Frosinone",
+            "short_code": "FRO",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/6/4070.png",
+            "founded": 1928,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-02 13:00:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 6
+            }
+          },
+          {
+            "id": 597,
+            "sport_id": 1,
+            "country_id": 251,
+            "venue_id": 134,
+            "gender": "male",
+            "name": "Napoli",
+            "short_code": "NAP",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/21/597.png",
+            "founded": 1926,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 10:30:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 9
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19715586,
+        "sport_id": 1,
+        "league_id": 301,
+        "season_id": 28082,
+        "stage_id": 77482474,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 407270,
+        "state_id": 1,
+        "venue_id": 131,
+        "name": "Paris Saint Germain vs Le Mans",
+        "starting_at": "2026-10-10 18:45:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791657900,
+        "participants": [
+          {
+            "id": 7758,
+            "sport_id": 1,
+            "country_id": 17,
+            "venue_id": 343980,
+            "gender": "male",
+            "name": "Le Mans",
+            "short_code": "MAN",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/14/7758.png",
+            "founded": 1985,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-02 16:00:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 9
+            }
+          },
+          {
+            "id": 591,
+            "sport_id": 1,
+            "country_id": 17,
+            "venue_id": 131,
+            "gender": "male",
+            "name": "Paris Saint Germain",
+            "short_code": "PSG",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/15/591.png",
+            "founded": 1970,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 18:45:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 6
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19715588,
+        "sport_id": 1,
+        "league_id": 301,
+        "season_id": 28082,
+        "stage_id": 77482474,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 407270,
+        "state_id": 1,
+        "venue_id": 4451,
+        "name": "Monaco vs Toulouse",
+        "starting_at": "2026-10-10 18:45:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791657900,
+        "participants": [
+          {
+            "id": 289,
+            "sport_id": 1,
+            "country_id": 17,
+            "venue_id": 339996,
+            "gender": "male",
+            "name": "Toulouse",
+            "short_code": "TOU",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/1/289.png",
+            "founded": 1937,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 18:45:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 13
+            }
+          },
+          {
+            "id": 6789,
+            "sport_id": 1,
+            "country_id": 75285,
+            "venue_id": 4451,
+            "gender": "male",
+            "name": "Monaco",
+            "short_code": "ASM",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/5/6789.png",
+            "founded": 1919,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-18 18:45:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 1
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19715589,
+        "sport_id": 1,
+        "league_id": 301,
+        "season_id": 28082,
+        "stage_id": 77482474,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 407270,
+        "state_id": 1,
+        "venue_id": 6032,
+        "name": "Lorient vs Paris",
+        "starting_at": "2026-10-10 18:45:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791657900,
+        "participants": [
+          {
+            "id": 4508,
+            "sport_id": 1,
+            "country_id": 17,
+            "venue_id": 422,
+            "gender": "male",
+            "name": "Paris",
+            "short_code": "PFC",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/28/4508.png",
+            "founded": 1969,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 15:15:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 3
+            }
+          },
+          {
+            "id": 9257,
+            "sport_id": 1,
+            "country_id": 17,
+            "venue_id": 6032,
+            "gender": "male",
+            "name": "Lorient",
+            "short_code": "LOR",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/9/9257.png",
+            "founded": 1926,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 18:45:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 12
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19715592,
+        "sport_id": 1,
+        "league_id": 301,
+        "season_id": 28082,
+        "stage_id": 77482474,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 407270,
+        "state_id": 1,
+        "venue_id": 323206,
+        "name": "Brest vs Angers SCO",
+        "starting_at": "2026-10-10 18:45:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791657900,
+        "participants": [
+          {
+            "id": 776,
+            "sport_id": 1,
+            "country_id": 17,
+            "venue_id": 251,
+            "gender": "male",
+            "name": "Angers SCO",
+            "short_code": "ANG",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/8/776.png",
+            "founded": 1919,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 18:45:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 7
+            }
+          },
+          {
+            "id": 266,
+            "sport_id": 1,
+            "country_id": 17,
+            "venue_id": 323206,
+            "gender": "male",
+            "name": "Brest",
+            "short_code": "B29",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/10/266.png",
+            "founded": 1950,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-03 16:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 11
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19732664,
+        "sport_id": 1,
+        "league_id": 564,
+        "season_id": 27965,
+        "stage_id": 77482690,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 408953,
+        "state_id": 1,
+        "venue_id": 2020,
+        "name": "Real Madrid vs Villarreal",
+        "starting_at": "2026-10-10 19:00:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791658800,
+        "participants": [
+          {
+            "id": 3477,
+            "sport_id": 1,
+            "country_id": 32,
+            "venue_id": 2028,
+            "gender": "male",
+            "name": "Villarreal",
+            "short_code": "VIL",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/21/3477.png",
+            "founded": 1923,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 16:30:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": 9
+            }
+          },
+          {
+            "id": 3468,
+            "sport_id": 1,
+            "country_id": 32,
+            "venue_id": 2020,
+            "gender": "male",
+            "name": "Real Madrid",
+            "short_code": "RMA",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/12/3468.png",
+            "founded": 1902,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 14:15:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": 4
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19713565,
+        "sport_id": 1,
+        "league_id": 384,
+        "season_id": 27895,
+        "stage_id": 77482399,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 406995,
+        "state_id": 1,
+        "venue_id": 23058,
+        "name": "Como vs Roma",
+        "starting_at": "2026-10-11 10:30:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791714600,
+        "participants": [
+          {
+            "id": 37,
+            "sport_id": 1,
+            "country_id": 251,
+            "venue_id": 7189,
+            "gender": "male",
+            "name": "Roma",
+            "short_code": "ROM",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/5/37.png",
+            "founded": 1927,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 16:00:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": null
+            }
+          },
+          {
+            "id": 268,
+            "sport_id": 1,
+            "country_id": 251,
+            "venue_id": 23058,
+            "gender": "male",
+            "name": "Como",
+            "short_code": "COM",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/12/268.png",
+            "founded": 1907,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 13:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": null
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19726778,
+        "sport_id": 1,
+        "league_id": 486,
+        "season_id": 27990,
+        "stage_id": 77482621,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 408452,
+        "state_id": 1,
+        "venue_id": 2097,
+        "name": "Akhmat Grozny vs Baltika Kaliningrad",
+        "starting_at": "2026-10-11 11:00:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791716400,
+        "participants": [
+          {
+            "id": 6067,
+            "sport_id": 1,
+            "country_id": 227,
+            "venue_id": 280887,
+            "gender": "male",
+            "name": "Baltika Kaliningrad",
+            "short_code": null,
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/19/6067.png",
+            "founded": 1954,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-16 17:45:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": null
+            }
+          },
+          {
+            "id": 3578,
+            "sport_id": 1,
+            "country_id": 227,
+            "venue_id": 2097,
+            "gender": "male",
+            "name": "Akhmat Grozny",
+            "short_code": "AKH",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/26/3578.png",
+            "founded": 1958,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-17 15:30:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": null
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19732670,
+        "sport_id": 1,
+        "league_id": 564,
+        "season_id": 27965,
+        "stage_id": 77482690,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 408953,
+        "state_id": 1,
+        "venue_id": 430,
+        "name": "Elche vs Celta de Vigo",
+        "starting_at": "2026-10-11 12:00:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791720000,
+        "participants": [
+          {
+            "id": 36,
+            "sport_id": 1,
+            "country_id": 32,
+            "venue_id": 9239,
+            "gender": "male",
+            "name": "Celta de Vigo",
+            "short_code": "CEL",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/4/36.png",
+            "founded": 1923,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 16:30:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": null
+            }
+          },
+          {
+            "id": 1099,
+            "sport_id": 1,
+            "country_id": 32,
+            "venue_id": 430,
+            "gender": "male",
+            "name": "Elche",
+            "short_code": "ELC",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/11/1099.png",
+            "founded": 1923,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-18 19:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": null
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19713561,
+        "sport_id": 1,
+        "league_id": 384,
+        "season_id": 27895,
+        "stage_id": 77482399,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 406995,
+        "state_id": 1,
+        "venue_id": 5047,
+        "name": "Lecce vs Bologna",
+        "starting_at": "2026-10-11 13:00:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791723600,
+        "participants": [
+          {
+            "id": 8513,
+            "sport_id": 1,
+            "country_id": 251,
+            "venue_id": 5515,
+            "gender": "male",
+            "name": "Bologna",
+            "short_code": "BOL",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/1/8513.png",
+            "founded": 1909,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 13:00:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": null
+            }
+          },
+          {
+            "id": 7790,
+            "sport_id": 1,
+            "country_id": 251,
+            "venue_id": 5047,
+            "gender": "male",
+            "name": "Lecce",
+            "short_code": "LEC",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/14/7790.png",
+            "founded": 1908,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 18:45:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": null
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19713562,
+        "sport_id": 1,
+        "league_id": 384,
+        "season_id": 27895,
+        "stage_id": 77482399,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 406995,
+        "state_id": 1,
+        "venue_id": 7189,
+        "name": "Lazio vs Monza",
+        "starting_at": "2026-10-11 13:00:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791723600,
+        "participants": [
+          {
+            "id": 1628,
+            "sport_id": 1,
+            "country_id": 251,
+            "venue_id": 787,
+            "gender": "male",
+            "name": "Monza",
+            "short_code": "MON",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/28/1628.png",
+            "founded": 1912,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-03 16:00:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": null
+            }
+          },
+          {
+            "id": 43,
+            "sport_id": 1,
+            "country_id": 251,
+            "venue_id": 7189,
+            "gender": "male",
+            "name": "Lazio",
+            "short_code": "LAZ",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/11/43.png",
+            "founded": 1900,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-03 13:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": null
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19715587,
+        "sport_id": 1,
+        "league_id": 301,
+        "season_id": 28082,
+        "stage_id": 77482474,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 407270,
+        "state_id": 1,
+        "venue_id": 51,
+        "name": "Nice vs Strasbourg",
+        "starting_at": "2026-10-11 13:00:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791723600,
+        "participants": [
+          {
+            "id": 686,
+            "sport_id": 1,
+            "country_id": 17,
+            "venue_id": 182,
+            "gender": "male",
+            "name": "Strasbourg",
+            "short_code": "STR",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/14/686.png",
+            "founded": 1906,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 15:15:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": null
+            }
+          },
+          {
+            "id": 450,
+            "sport_id": 1,
+            "country_id": 17,
+            "venue_id": 51,
+            "gender": "male",
+            "name": "Nice",
+            "short_code": "NCE",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/2/450.png",
+            "founded": 1904,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 15:15:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": null
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19722148,
+        "sport_id": 1,
+        "league_id": 8,
+        "season_id": 28083,
+        "stage_id": 77482558,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 407869,
+        "state_id": 1,
+        "venue_id": 199,
+        "name": "Hull City vs Everton",
+        "starting_at": "2026-10-11 13:00:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791723600,
+        "participants": [
+          {
+            "id": 13,
+            "sport_id": 1,
+            "country_id": 462,
+            "venue_id": 343762,
+            "gender": "male",
+            "name": "Everton",
+            "short_code": "EVE",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/13/13.png",
+            "founded": 1878,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 14:00:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": null
+            }
+          },
+          {
+            "id": 22,
+            "sport_id": 1,
+            "country_id": 462,
+            "venue_id": 199,
+            "gender": "male",
+            "name": "Hull City",
+            "short_code": "HUL",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/22/22.png",
+            "founded": 1904,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 14:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": null
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19722149,
+        "sport_id": 1,
+        "league_id": 8,
+        "season_id": 28083,
+        "stage_id": 77482558,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 407869,
+        "state_id": 1,
+        "venue_id": 201,
+        "name": "Crystal Palace vs Nottingham Forest",
+        "starting_at": "2026-10-11 13:00:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791723600,
+        "participants": [
+          {
+            "id": 63,
+            "sport_id": 1,
+            "country_id": 462,
+            "venue_id": 542,
+            "gender": "male",
+            "name": "Nottingham Forest",
+            "short_code": "NFO",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/31/63.png",
+            "founded": 1865,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 16:30:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": null
+            }
+          },
+          {
+            "id": 51,
+            "sport_id": 1,
+            "country_id": 462,
+            "venue_id": 201,
+            "gender": "male",
+            "name": "Crystal Palace",
+            "short_code": "CRY",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/19/51.png",
+            "founded": 1905,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-03 11:30:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": null
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19726777,
+        "sport_id": 1,
+        "league_id": 486,
+        "season_id": 27990,
+        "stage_id": 77482621,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 408452,
+        "state_id": 1,
+        "venue_id": 73093,
+        "name": "CSKA Moskva vs Rodina Moskva",
+        "starting_at": "2026-10-11 13:30:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791725400,
+        "participants": [
+          {
+            "id": 237570,
+            "sport_id": 1,
+            "country_id": 227,
+            "venue_id": null,
+            "gender": "male",
+            "name": "Rodina Moskva",
+            "short_code": null,
+            "image_path": "https://cdn.sportmonks.com/images/soccer/team_placeholder.png",
+            "founded": null,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-04 10:00:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": null
+            }
+          },
+          {
+            "id": 543,
+            "sport_id": 1,
+            "country_id": 227,
+            "venue_id": 73093,
+            "gender": "male",
+            "name": "CSKA Moskva",
+            "short_code": "CSK",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/31/543.png",
+            "founded": 1911,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-04 12:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": null
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19735154,
+        "sport_id": 1,
+        "league_id": 82,
+        "season_id": 28321,
+        "stage_id": 77482714,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 409206,
+        "state_id": 1,
+        "venue_id": 1946,
+        "name": "FC Köln vs Borussia Mönchengladbach",
+        "starting_at": "2026-10-11 13:30:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791725400,
+        "participants": [
+          {
+            "id": 683,
+            "sport_id": 1,
+            "country_id": 11,
+            "venue_id": 180,
+            "gender": "male",
+            "name": "Borussia Mönchengladbach",
+            "short_code": "BMG",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/11/683.png",
+            "founded": 1900,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-03 13:30:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": null
+            }
+          },
+          {
+            "id": 3320,
+            "sport_id": 1,
+            "country_id": 11,
+            "venue_id": 1946,
+            "gender": "male",
+            "name": "FC Köln",
+            "short_code": "KOE",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/24/3320.png",
+            "founded": 1948,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-03 12:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": null
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19732663,
+        "sport_id": 1,
+        "league_id": 564,
+        "season_id": 27965,
+        "stage_id": 77482690,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 408953,
+        "state_id": 1,
+        "venue_id": 133,
+        "name": "Real Sociedad vs Deportivo A Coruña",
+        "starting_at": "2026-10-11 14:15:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791728100,
+        "participants": [
+          {
+            "id": 429,
+            "sport_id": 1,
+            "country_id": 32,
+            "venue_id": 39,
+            "gender": "male",
+            "name": "Deportivo A Coruña",
+            "short_code": "COR",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/13/429.png",
+            "founded": 1906,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 16:30:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": null
+            }
+          },
+          {
+            "id": 594,
+            "sport_id": 1,
+            "country_id": 32,
+            "venue_id": 133,
+            "gender": "male",
+            "name": "Real Sociedad",
+            "short_code": "RSO",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/18/594.png",
+            "founded": 1909,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 19:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": null
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19715585,
+        "sport_id": 1,
+        "league_id": 301,
+        "season_id": 28082,
+        "stage_id": 77482474,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 407270,
+        "state_id": 1,
+        "venue_id": 135,
+        "name": "Rennes vs Auxerre",
+        "starting_at": "2026-10-11 15:15:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791731700,
+        "participants": [
+          {
+            "id": 3682,
+            "sport_id": 1,
+            "country_id": 17,
+            "venue_id": 2155,
+            "gender": "male",
+            "name": "Auxerre",
+            "short_code": "AUX",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/2/3682.png",
+            "founded": 1905,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-02 13:00:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": null
+            }
+          },
+          {
+            "id": 598,
+            "sport_id": 1,
+            "country_id": 17,
+            "venue_id": 135,
+            "gender": "male",
+            "name": "Rennes",
+            "short_code": "REN",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/22/598.png",
+            "founded": 1901,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-02 17:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": null
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19722146,
+        "sport_id": 1,
+        "league_id": 8,
+        "season_id": 28083,
+        "stage_id": 77482558,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 407869,
+        "state_id": 1,
+        "venue_id": 230,
+        "name": "Liverpool vs Manchester City",
+        "starting_at": "2026-10-11 15:30:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791732600,
+        "participants": [
+          {
+            "id": 9,
+            "sport_id": 1,
+            "country_id": 462,
+            "venue_id": 151,
+            "gender": "male",
+            "name": "Manchester City",
+            "short_code": "MCI",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/9/9.png",
+            "founded": 1880,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 13:00:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": null
+            }
+          },
+          {
+            "id": 8,
+            "sport_id": 1,
+            "country_id": 462,
+            "venue_id": 230,
+            "gender": "male",
+            "name": "Liverpool",
+            "short_code": "LIV",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/8/8.png",
+            "founded": 1892,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 13:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": null
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19735158,
+        "sport_id": 1,
+        "league_id": 82,
+        "season_id": 28321,
+        "stage_id": 77482714,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 409206,
+        "state_id": 1,
+        "venue_id": 2063,
+        "name": "SC Freiburg vs Schalke 04",
+        "starting_at": "2026-10-11 15:30:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791732600,
+        "participants": [
+          {
+            "id": 67,
+            "sport_id": 1,
+            "country_id": 11,
+            "venue_id": 2138,
+            "gender": "male",
+            "name": "Schalke 04",
+            "short_code": "S04",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/3/67.png",
+            "founded": 1904,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-03 13:00:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": null
+            }
+          },
+          {
+            "id": 3543,
+            "sport_id": 1,
+            "country_id": 11,
+            "venue_id": 2063,
+            "gender": "male",
+            "name": "SC Freiburg",
+            "short_code": "SCF",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/23/3543.png",
+            "founded": 1904,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-03 11:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": null
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19713559,
+        "sport_id": 1,
+        "league_id": 384,
+        "season_id": 27895,
+        "stage_id": 77482399,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 406995,
+        "state_id": 1,
+        "venue_id": 1613,
+        "name": "Sassuolo vs AC Milan",
+        "starting_at": "2026-10-11 16:00:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791734400,
+        "participants": [
+          {
+            "id": 113,
+            "sport_id": 1,
+            "country_id": 251,
+            "venue_id": 1721,
+            "gender": "male",
+            "name": "AC Milan",
+            "short_code": "MIL",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/17/113.png",
+            "founded": 1899,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 18:45:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": null
+            }
+          },
+          {
+            "id": 2714,
+            "sport_id": 1,
+            "country_id": 251,
+            "venue_id": 1613,
+            "gender": "male",
+            "name": "Sassuolo",
+            "short_code": "SAS",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/26/2714.png",
+            "founded": 1922,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-18 18:45:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": null
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19726776,
+        "sport_id": 1,
+        "league_id": 486,
+        "season_id": 27990,
+        "stage_id": 77482621,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 408452,
+        "state_id": 1,
+        "venue_id": 8869,
+        "name": "Rubin Kazan vs Dinamo Moskva",
+        "starting_at": "2026-10-11 16:30:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791736200,
+        "participants": [
+          {
+            "id": 2468,
+            "sport_id": 1,
+            "country_id": 227,
+            "venue_id": 340093,
+            "gender": "male",
+            "name": "Dinamo Moskva",
+            "short_code": "DMO",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/4/2468.png",
+            "founded": 1923,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-04 10:00:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": null
+            }
+          },
+          {
+            "id": 35,
+            "sport_id": 1,
+            "country_id": 227,
+            "venue_id": 8869,
+            "gender": "male",
+            "name": "Rubin Kazan",
+            "short_code": "RKA",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/3/35.png",
+            "founded": 1958,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-16 15:30:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": null
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19732671,
+        "sport_id": 1,
+        "league_id": 564,
+        "season_id": 27965,
+        "stage_id": 77482690,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 408953,
+        "state_id": 1,
+        "venue_id": 276481,
+        "name": "Real Betis vs Osasuna",
+        "starting_at": "2026-10-11 16:30:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791736200,
+        "participants": [
+          {
+            "id": 459,
+            "sport_id": 1,
+            "country_id": 32,
+            "venue_id": 56,
+            "gender": "male",
+            "name": "Osasuna",
+            "short_code": "OSA",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/11/459.png",
+            "founded": 1920,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 12:00:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": null
+            }
+          },
+          {
+            "id": 485,
+            "sport_id": 1,
+            "country_id": 32,
+            "venue_id": 276481,
+            "gender": "male",
+            "name": "Real Betis",
+            "short_code": "BET",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/5/485.png",
+            "founded": 1907,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-20 16:30:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": null
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      },
+      {
+        "id": 19713566,
+        "sport_id": 1,
+        "league_id": 384,
+        "season_id": 27895,
+        "stage_id": 77482399,
+        "group_id": null,
+        "aggregate_id": null,
+        "round_id": 406995,
+        "state_id": 1,
+        "venue_id": 160319,
+        "name": "Cagliari vs Juventus",
+        "starting_at": "2026-10-11 18:45:00",
+        "result_info": null,
+        "leg": "1/1",
+        "details": null,
+        "length": 90,
+        "placeholder": false,
+        "has_odds": true,
+        "has_premium_odds": true,
+        "starting_at_timestamp": 1791744300,
+        "participants": [
+          {
+            "id": 625,
+            "sport_id": 1,
+            "country_id": 251,
+            "venue_id": 152,
+            "gender": "male",
+            "name": "Juventus",
+            "short_code": "JUV",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/17/625.png",
+            "founded": 1897,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-10-02 10:30:00",
+            "meta": {
+              "location": "away",
+              "winner": null,
+              "position": null
+            }
+          },
+          {
+            "id": 585,
+            "sport_id": 1,
+            "country_id": 251,
+            "venue_id": 160319,
+            "gender": "male",
+            "name": "Cagliari",
+            "short_code": "CAG",
+            "image_path": "https://cdn.sportmonks.com/images/soccer/teams/9/585.png",
+            "founded": 1920,
+            "type": "domestic",
+            "placeholder": false,
+            "last_played_at": "2026-09-19 13:00:00",
+            "meta": {
+              "location": "home",
+              "winner": null,
+              "position": null
+            }
+          }
+        ],
+        "state": {
+          "id": 1,
+          "state": "NS",
+          "name": "Not Started",
+          "short_name": "NS",
+          "developer_name": "NS"
+        }
+      }
+    ],
+    "pagination": {
+      "count": 50,
+      "per_page": 50,
+      "has_more": true,
+      "current_page": 1,
+      "next_page": "https://api.sportmonks.com/v3/football/fixtures/between/2026-10-05/2026-10-12?filters=fixtureLeagues%3A8%2C564%2C384%2C82%2C301%2C486&include=participants%3Bstate&per_page=50&page=2",
+      "next_cursor": "https://api.sportmonks.com/v3/football/fixtures/between/2026-10-05/2026-10-12?filters=fixtureLeagues%3A8%2C564%2C384%2C82%2C301%2C486&include=participants%3Bstate&cursor=WzEsNTAsWyIyMDI2LTEwLTExIDE4OjQ1OjAwIiwxOTcxMzU2Nl0sW1sic3BvcnRzLmZpeHR1cmVzLnN0YXJ0aW5nX2F0IiwwXSxbInNwb3J0cy5maXh0dXJlcy5pZCIsMF1dXQ"
+    },
+    "rate_limit": {
+      "resets_in_seconds": 3593,
+      "remaining": 2490,
+      "requested_entity": "Fixture"
+    },
+    "timezone": "UTC"
+  }
+}

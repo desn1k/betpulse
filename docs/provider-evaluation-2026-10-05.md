@@ -9,7 +9,7 @@ the fixtures list every call. No secrets are in this file.
 | Provider | Account | Calls | Spent |
 |---|---|---|---|
 | The Odds API | demo key (500 credits/month) | 10 + 1 zero-cost re-record | **3 credits** (497 left) |
-| Sportmonks | Growth trial (ends about 2026-10-17), 30 leagues | 3 + 20 + 13 (+ 3 zero-cost re-record) | no credits; hourly per-entity limit, lowest `remaining` seen 2478 of 2500 |
+| Sportmonks | Growth trial (ends about 2026-10-17), 30 leagues | 3 + 20 + 13 + 11 (stage 2c) (+ 3 zero-cost re-record) | no credits; hourly per-entity limit, lowest `remaining` seen 2478 of 2500 |
 
 ## Verdicts
 
@@ -19,11 +19,13 @@ the fixtures list every call. No secrets are in this file.
   (provider PR 4) cannot be checked on the demo key: history is refused. Buying the 20K plan is
   needed before PR 4, and the coverage rule in HANDOFF §9l (Pinnacle ≈ 90 % after 2025-07-23)
   is still unmeasured.
-- **Sportmonks — fits as the fixtures/results/stats source for 2024-25 onward; history before
-  2024-25 is unconfirmed, and that decides whether it can be the backfill source.**
+- **Sportmonks — fits as the fixtures/results/stats source for 2024-25 onward, including the
+  current season and upcoming fixtures; history before 2024-25 is unconfirmed, and that decides
+  whether it can be the backfill source.**
   All six of our leagues are on the plan; finished 2025-26 and 2024-25 fixtures come back with
-  kickoff times, home/away, half-time and full-time scores, 37–39 statistic types per match and
-  lineups.
+  kickoff times, home/away, half-time and full-time scores, 37–43 statistic types per match and
+  lineups in **all six leagues** (stage 2c). The current season 2026/27 and the next 7 days of
+  scheduled fixtures are served with kickoff times (stage 2c).
   xG is refused on this plan. On the trial, `/seasons` lists only 2024/25–2026/27 for every one
   of our leagues and 2019-20/2015-16 fixture calls are empty, so the 2019-20..2023-24 backfill
   (HANDOFF §9l) is **not possible on what we saw**; whether paid Growth goes deeper needs a
@@ -67,6 +69,9 @@ the fixtures list every call. No secrets are in this file.
 
 ## Sportmonks (Growth trial)
 
+**Scope.** The trial includes 30 leagues; only our six target leagues were tested. The other 24
+are out of scope for this evaluation.
+
 **Leagues on the plan** (`/v3/football/leagues`, 30 in total). Ours, all covered:
 
 | Our league | Sportmonks id | Current season |
@@ -89,10 +94,10 @@ Allsvenskan, Süper Lig, Brazilian Série A, Saudi Pro League, and play-off stag
 | History depth per league | `/seasons` lists **only 2024/2025, 2025/2026, 2026/2027** for each of the six leagues; 2019-20 opening rounds (all six) and EPL 2015-16 return no fixtures | `seasons_*.json`, `fixtures_2019_*.json`, `fixtures_2015_epl.json` |
 | Finished fixtures served | Yes: EPL 2025-26 opening (10 fixtures, with and without the league filter), the full 2025/26 season by id (380 fixtures, all FT), EPL 2024-25 opening with all includes | `b_fixtures_2025_*.json`, `b_season_2526_epl_with_fixtures.json`, `b_fixtures_2024_epl_opening_full.json` |
 | Kickoff time | Present: `starting_at` `YYYY-MM-DD HH:MM:SS` (UTC) and `starting_at_timestamp` (unix), e.g. 2024-08-16 19:00:00 | same |
-| Per-match statistics | Yes (checked on EPL 2024-25): 37–39 types per match, one entry per team (74–78 entries), incl. `SHOTS_TOTAL`, `SHOTS_ON_TARGET`, `CORNERS`, `BALL_POSSESSION`; **no `EXPECTED_GOALS`** | `b_fixtures_2024_epl_opening_full.json` |
+| Per-match statistics | Yes, in all six leagues: EPL 2024-25 opening 37–39 types per match (one entry per team); La Liga, Serie A, Bundesliga, Ligue 1 and RPL, three finished 2025-26 matches each (2025-10-17…20), 39–43 types; all include `SHOTS_TOTAL`, `SHOTS_ON_TARGET`, `CORNERS`, `BALL_POSSESSION`; **no `EXPECTED_GOALS`** anywhere | `b_fixtures_2024_epl_opening_full.json`, `c_fixtures_2526_*_full.json` |
 | xG on this plan | **No**: `include=xGFixture` → 403, code 5002 "You do not have access to the 'xgfixture' include" | `fixtures_recent_xg_epl.json` |
-| Lineups | Yes: 40 entries per match (player, team, position, formation slot, jersey) | `b_fixtures_2024_epl_opening_full.json` |
-| `participants[].meta.location` | Yes: `home`/`away`, plus `winner` and table `position` | same |
+| Lineups | Yes, in all six leagues: 39–50 entries per match (player, team, position, formation slot, jersey) | `b_fixtures_2024_epl_opening_full.json`, `c_fixtures_2526_*_full.json` |
+| `participants[].meta.location` | Yes, all six leagues: `home`/`away`, plus `winner` and table `position` | same |
 | Scores | `1ST_HALF` (HT), `2ND_HALF` (FT after 90'), `2ND_HALF_ONLY`, `CURRENT`, each per `participant` home/away | same |
 | States | 25 states; FT 5, AET 7, FT_PEN 8, POSTPONED 10, CANCELLED 12, ABANDONED 15, AWARDED 17, DELETED 20 (the ids taken from the docs Q&A are right) | `states.json` |
 | Season name format | `2026/2027` (calendar-year leagues: `2026`) | `leagues_p1.json`, `seasons_*.json` |
@@ -100,22 +105,42 @@ Allsvenskan, Süper Lig, Brazilian Série A, Saudi Pro League, and play-off stag
 | Do includes count toward the limit? | **No, on what we measured.** Each call takes 1 from its own entity. The Team bucket stayed at 2499→2498 (its own two probes) across fixture calls that included `participants`; the Fixture bucket did not move for a Season call that included 380 fixtures | `teams_probe_after_includes.json`, `b_teams_probe_after_includes.json`, quota fields |
 | Premium odds | Refused: `include=premiumOdds` → 403, code 5002 | `error_premium_include.json` |
 | Empty vs no access vs missing | All look the same: **200** with `data: []` (or no `data`) and "No result(s) found … or you don't have access to it via your current subscription" — even for a nonexistent fixture id (no 404) | `error_not_found.json`, empty fixture files |
-| Live format | **Not observed**: `/livescores/inplay` and `/livescores` returned no fixtures at call time | `livescores_inplay.json`, `b_livescores_today.json` |
+| Live format | **Not observed**: `/livescores` and `/livescores/inplay` returned no fixtures each time (latest 2026-10-05 ~12:25 UTC, a Monday with no match in our leagues) | `livescores_inplay.json`, `b_livescores_today.json`, `c_livescores*.json` |
 | Errors | 401 `{"message": "Invalid token provided"}`; 403 `{message, link, code}` | `error_invalid_token.json` |
+
+## Current season and upcoming fixtures (stage 2c)
+
+**Conclusion: yes — Sportmonks serves current-season and upcoming fixtures on this plan, with
+kickoff times.** What pre-match predictions need is there.
+
+- **Why the earlier windows were empty.** Season 2026/27 by id (28083, EPL) with
+  `include=fixtures` returns 380 fixtures: 50 finished (state 5) and 330 not started (state 1).
+  **None is dated 2026-09-21…2026-10-09**: the last played round is 2026-09-20, the next starts
+  2026-10-10. The stage 2/2b windows (2026-09-25…10-05 and 2026-10-02…10-05) fell entirely inside
+  that gap. It was a gap in the schedule, not a filter problem and not a plan restriction:
+  - the same league filter returns all 50 finished EPL fixtures for 2026-08-21…2026-10-05
+    (`c_fixtures_2627_epl_filtered.json`);
+  - the unfiltered window returns fixtures from 12 leagues, ours included
+    (`c_fixtures_2627_unfiltered.json`).
+- **Scope of that evidence.** The season-by-id check covers EPL only. For the other five
+  leagues it rests on the empty 6-league windows plus the upcoming call, whose first fixture is
+  2026-10-09; their season lists were not fetched by id.
+- **Upcoming 7 days** (2026-10-05…10-12, six leagues, `participants;state`): the first page holds
+  50 fixtures, all `NS`, from 2026-10-09 16:30 to 2026-10-11 18:45 UTC; more pages exist
+  (`has_more`). Per league on that page: EPL 9, Bundesliga 9, La Liga 8, Serie A 8, Ligue 1 8,
+  RPL 8. Each has `starting_at` (UTC), `starting_at_timestamp` and home/away participants
+  (`c_upcoming_7d.json`).
+- **Live retry windows** (before the trial ends; each needs the owner's ok, then two calls,
+  `/livescores` and `/livescores/inplay`):
+  - RPL, Friday 2026-10-09, from about **16:45 UTC** (first kickoff 16:30);
+  - EPL, Saturday 2026-10-10, from about **11:45 UTC** (first kickoff 11:30).
 
 ## What we cannot conclude yet
 
 - **Sportmonks history on paid Growth.** The trial shows 2024/25 onward only. Whether the paid
   plan serves 2019-20..2023-24 (our backfill range) needs a written answer from Sportmonks.
   Without it, Sportmonks cannot be the source for those seasons.
-- **Sportmonks current season (2026/27).** Fixture windows 2026-09-25…10-05 came back empty for
-  all six leagues, although the season started 2026-08-21. Cause not determined (trial
-  restriction, an international-break window, or a data gap); a call for season 28083 with
-  `include=fixtures` would show it. Not guessed here.
-- **Statistics and lineups for the other five leagues.** Checked on EPL only (2024-25 opening);
-  the per-league calls hit the empty current-season window. One 2025-26 round per league would
-  answer it.
-- **Sportmonks live format.** No live fixture at call time.
+- **Sportmonks live format.** No live fixture at any call time; retry windows are listed above.
 - **The Odds API history:** Pinnacle closing coverage after 2025-07-23 (the §9l decision rule),
   snapshot timestamps, the cost of historical event-odds — all need the paid plan.
 - **Licences (written ToS answers, HANDOFF §9l):** Sportmonks on ML training; API-Football on
