@@ -296,7 +296,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck
 
       - name: Validate deployment scripts
-        run: shellcheck -x scripts/deploy.sh scripts/rollback.sh scripts/release-digests.sh scripts/release-version.sh scripts/caddy-smoke.sh scripts/check-compose-ports.sh scripts/caddy-domain-smoke.sh scripts/tests/deploy-scripts-test.sh
+        run: shellcheck -x scripts/deploy.sh scripts/rollback.sh scripts/prod-compose.sh scripts/release-digests.sh scripts/release-version.sh scripts/caddy-smoke.sh scripts/check-compose-ports.sh scripts/caddy-domain-smoke.sh scripts/tests/deploy-scripts-test.sh
 
       - name: Deploy/rollback readiness behaviour (stubbed docker)
         run: bash scripts/tests/deploy-scripts-test.sh

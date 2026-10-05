@@ -1067,6 +1067,9 @@ implemented.
     does not roll back blindly by tag and says how to run `scripts/rollback.sh`.
   - `IMAGE_TAG=<version> scripts/rollback.sh` uses `.release/<version>.digests`, or
     `RELEASE_DIGESTS` for a release never deployed on this server.
+- **Day-to-day compose commands.** `scripts/prod-compose.sh <args>` (and `make ps-prod`,
+  `logs-prod`, `config-prod`) runs `docker compose` on the prod config with the tag and digests
+  of the release deployed here (`.release/`); `make deploy`/`rollback` pass `RELEASE_DIGESTS`.
 - **Prod compose requires both.** Each app image is `…:${IMAGE_TAG:?}@${<X>_IMAGE_DIGEST:?}`;
   without a tag or a digest `docker compose config` fails. `build: !reset null` removes the base
   file's `build` (a plain `build: null` is ignored by the merge, like `ports: []`).

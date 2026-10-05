@@ -80,7 +80,7 @@ setup_root() {
   local root="$work/root-$1"
   mkdir -p "$root/scripts" "$root/.release"
   cp "$repo_dir/scripts/deploy.sh" "$repo_dir/scripts/rollback.sh" \
-    "$repo_dir/scripts/release-digests.sh" "$root/scripts/"
+    "$repo_dir/scripts/prod-compose.sh" "$repo_dir/scripts/release-digests.sh" "$root/scripts/"
   : >"$root/.env"
   echo "v1.0.0" >"$root/.release/last-successful-image-tag"
   write_digests "$root/.release/v1.0.0.digests" v1.0.0 1
@@ -234,7 +234,27 @@ code="$(run "$root" ok rollback.sh v0.9.0)"
 grep -q "release-v0.9.0.digests" "$root/out.txt" || fail "rollback no digests: no clear message"
 [[ ! -s "$root/docker.log" ]] || fail "rollback no digests: docker was called"
 
-# 12. release-version.sh: only vX.Y.Z is stable (and gets `latest`).
+# 12. prod-compose.sh: plain compose commands get the deployed release's digests.
+root="$(setup_root prod-compose)"
+: >"$root/docker.log"
+PATH="$work/bin:$PATH" STUB_LOG="$root/docker.log" bash "$root/scripts/prod-compose.sh" ps >/dev/null 2>&1 ||
+  fail "prod-compose: exit non-zero"
+grep -q "^IMAGE_TAG=v1.0.0 API=$DIGEST1 WEB=$DIGEST1 MLFLOW=$DIGEST1 compose .* ps\$" "$root/docker.log" ||
+  fail "prod-compose: not run with the deployed release's tag and digests"
+
+# 13. prod-compose.sh with nothing deployed: refused before any docker call.
+root="$(setup_root prod-compose-empty)"
+rm "$root/.release/last-successful-image-tag"
+: >"$root/docker.log"
+set +e
+PATH="$work/bin:$PATH" STUB_LOG="$root/docker.log" bash "$root/scripts/prod-compose.sh" ps >"$root/out.txt" 2>&1
+code=$?
+set -e
+[[ "$code" != "0" ]] || fail "prod-compose empty: exit 0, expected failure"
+grep -q "No release deployed here yet" "$root/out.txt" || fail "prod-compose empty: no clear message"
+[[ ! -s "$root/docker.log" ]] || fail "prod-compose empty: docker was called"
+
+# 14. release-version.sh: only vX.Y.Z is stable (and gets `latest`).
 check_version() {
   local version="$1" expected="$2" out code
   set +e
@@ -262,4 +282,4 @@ if ((failures > 0)); then
   echo "$failures deploy-script test(s) failed." >&2
   exit 1
 fi
-echo "OK: deploy, rollback and release-version checks behave as expected (14 scenarios)."
+echo "OK: deploy, rollback, prod-compose and release-version checks behave as expected (16 scenarios)."

@@ -21,6 +21,10 @@ jobs:
       PUBLIC_DOMAIN: betpulse.example.test
       GHCR_OWNER: desn1k
       IMAGE_TAG: v0.0.0-ci
+      # Required to render the prod config; our own images are filtered out below.
+      API_IMAGE_DIGEST: sha256:1111111111111111111111111111111111111111111111111111111111111111
+      WEB_IMAGE_DIGEST: sha256:2222222222222222222222222222222222222222222222222222222222222222
+      MLFLOW_IMAGE_DIGEST: sha256:3333333333333333333333333333333333333333333333333333333333333333
     steps:
       - uses: actions/checkout@v4
 
@@ -28,8 +32,8 @@ jobs:
         run: |
           cp .env.example .env
           compose=(docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.prod.yml)
-          # Our own images (GHCR app images, the locally built MLflow image) are
-          # not upstream: release.yml publishes the former, the last step builds the latter.
+          # Our own images (betpulse-api, -web, -mlflow in GHCR) are not upstream:
+          # release.yml publishes them; the last step rebuilds MLflow from its base.
           mapfile -t images < <("${compose[@]}" config --images | grep -v -E '(^|/)betpulse-' | sort -u)
           echo "Third-party images: ${images[*]}"
           ((${#images[@]} > 0)) || { echo "no images rendered" >&2; exit 1; }
