@@ -21,7 +21,7 @@ from app.providers.football_data_couk import FootballDataCoUkProvider
 from app.services.ingestion.runner import network_csv_source, run_recorded_ingestion
 from app.services.live.events import publish_live_update
 from app.services.live.ingestion import poll_live
-from app.services.live.provider import build_live_provider
+from app.services.live.provider import build_live_provider, live_provider_configured
 from app.services.live.push import dispatch_push
 from app.services.live.recompute import (
     LIVE_BASELINE_NOTE,
@@ -91,6 +91,11 @@ async def poll_live_task(ctx: dict[str, Any]) -> int:
     changed fixture, then re-schedule itself. A Redis single-flight lock stops a
     slow poll from overlapping the next tick."""
     settings = get_settings()
+    if not live_provider_configured(settings):
+        # Not rescheduled, so a poll left in Redis by an older release stops
+        # here; the worker start-up already warned once (_bootstrap_live_loop).
+        logger.debug("live poll skipped: no live provider key")
+        return 0
     redis = get_redis()
     token = secrets.token_hex(16)
     ttl = 2 * settings.live_poll_interval_seconds

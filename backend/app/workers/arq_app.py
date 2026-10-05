@@ -13,6 +13,7 @@ cron tasks still make extra replicas of that worker safe hot standbys.
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from typing import Any, Protocol
 
@@ -23,6 +24,7 @@ from arq.worker import Function, func
 
 from app.core.config import get_settings
 from app.core.outbound import install_log_safety
+from app.services.live.provider import live_provider_configured
 from app.workers.queues import Queue, enqueue, queue_for
 from app.workers.tasks import (
     ingest_history_task,
@@ -42,6 +44,7 @@ REDIS_SETTINGS = RedisSettings.from_dsn(get_settings().redis_url)
 # Every worker process imports this module: scrub its logs (ARQ logs a failed
 # job's exception text and traceback, which may carry a provider URL).
 install_log_safety()
+logger = logging.getLogger(__name__)
 
 
 def _parse_cron_hour_minute(expr: str) -> tuple[int, int]:
@@ -81,7 +84,14 @@ def _cron(coroutine: WorkerCoroutine, queue: Queue, **schedule: Any) -> CronJob:
 async def _bootstrap_live_loop(ctx: dict[str, Any]) -> None:
     """Kick off the self-rescheduling live poll when a realtime worker starts.
     Overlapping chains are kept from polling concurrently by the poll's Redis
-    single-flight lock (``LIVE_POLL_LOCK_KEY``)."""
+    single-flight lock (``LIVE_POLL_LOCK_KEY``). Without a live provider key the
+    loop is not started, and this is the one place that says so."""
+    if not live_provider_configured(get_settings()):
+        logger.warning(
+            "Live polling is disabled: API_FOOTBALL_KEY is not set. "
+            "Set it and restart worker-realtime to enable it."
+        )
+        return
     await enqueue(ctx["redis"], "poll_live_task")
 
 

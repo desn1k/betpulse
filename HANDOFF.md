@@ -1135,7 +1135,12 @@ secrets.
   - F1: caddy got no `PUBLIC_DOMAIN` (fixed above);
   - F2: the MLflow image is built on the server and never rebuilt by `deploy.sh` — fixed
     together with **ER-H-09** (see "Release images and digests" below);
-  - F3: without `API_FOOTBALL_KEY` the live poll calls the API every minute and fails with 403;
+  - F3: without `API_FOOTBALL_KEY` the live poll calls the API every minute and fails with 403 —
+    fixed 2026-10-05: `live_provider_configured()` (`app/services/live/provider.py`) is the one
+    check; without a key `worker-realtime` logs one warning at start-up and starts no poll, and a
+    poll left in Redis by an older release returns without a request and without rescheduling.
+    To enable live: set the key, restart `worker-realtime`. Not yet seen on a live stack (needs
+    the next rc image);
   - F4: `deploy.sh`'s automatic rollback does not wait for health or `/api/ready`.
 
 ### First VPS launch: items no rehearsal could verify
@@ -1157,6 +1162,14 @@ Check these on the server during the first launch (runbook: `docs/DEPLOY_VPS.md`
   match, and confirm a push arrives (or the worker logs a 2xx). FCM and Apple answered through
   the pinned address from the dev network; `updates.push.services.mozilla.com` was unreachable
   from there even with plain curl.
+- [ ] **Automatic rollback, provoked once.** On the live stack, deploy a release that is known to
+  fail its checks (or make `/api/ready` fail on purpose) and confirm `deploy.sh` restores the
+  previous release by its stored digests, then that the site and `/api/ready` are back. The
+  rehearsals covered it only with the stubbed docker in `scripts/tests/deploy-scripts-test.sh`.
+- [ ] **Rollback to a previous release by digest.** As soon as a second release with a digests
+  file exists (rc5 or v0.0.1 after rc4), deploy it, then `IMAGE_TAG=<previous> scripts/rollback.sh`
+  and check every app container runs the previous release's digests. The rc4 rehearsal could
+  only restore rc4 itself (rc3 has no digests file and is refused, as designed).
 
 ## 9j. Legal & compliance (Russian Federation)
 
@@ -1466,7 +1479,8 @@ ends about **2026-10-17**, and its saved responses must be recorded before then)
 **Deferred from PR 1 (owner decision: keep the HTTP base minimal):**
 - Key lookup: the key from Admin → Providers (encrypted `provider_accounts`) first, `.env` as the
   fallback, registered with the scrubber. Today `provider-record` reads keys only from the env file.
-- Moving the API-Football live poller to that lookup (it still reads `API_FOOTBALL_KEY`).
+- Moving the API-Football live poller to that lookup (it still reads `API_FOOTBALL_KEY`): replace
+  `live_provider_configured()` and `build_live_provider()` in `app/services/live/provider.py`.
 - Storing the latest quota in `provider_accounts.quota_state` (with the PR 4 budget guard).
 
 **Waiting on the owner (do not act without an ok):**

@@ -3,22 +3,37 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
+from app.core.config import get_settings
 from app.core.redis import get_redis
 from app.models.fixture import Fixture, FixtureStatus
 from app.models.reference import League, ProviderLeagueAlias, ProviderTeamAlias, Team
 from app.providers.api_football import ApiFootballProvider
 from app.providers.dtos import LiveFixtureDTO, QuotaDTO
+from app.services.live.provider import live_provider_configured
 from app.workers import tasks as live_tasks
+from app.workers.arq_app import _bootstrap_live_loop
 from app.workers.queues import Queue
 from sqlalchemy.ext.asyncio import AsyncSession
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "api_football"
+
+
+@pytest.fixture
+def live_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A live provider key, so the poll runs (the default test env has none)."""
+    monkeypatch.setattr(get_settings(), "api_football_key", "test-live-key-0123456789")
+
+
+@pytest.fixture
+def no_live_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(get_settings(), "api_football_key", "")
 
 
 class _FakeArq:
@@ -67,6 +82,7 @@ async def _seed_epl(session: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("live_key")
 async def test_poll_live_task_enqueues_recompute_and_reschedules(
     session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -90,6 +106,7 @@ async def test_poll_live_task_enqueues_recompute_and_reschedules(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("live_key")
 async def test_poll_live_task_skips_when_lock_held(
     session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -101,6 +118,61 @@ async def test_poll_live_task_skips_when_lock_held(
 
     ingested = await live_tasks.poll_live_task({"redis": _FakeArq()})
     assert ingested == 0
+
+
+# --- no live provider key (F3) ------------------------------------------------------
+
+
+@pytest.mark.parametrize(("key", "configured"), [("", False), ("   ", False), ("k" * 20, True)])
+def test_live_provider_configured(
+    monkeypatch: pytest.MonkeyPatch, key: str, configured: bool
+) -> None:
+    monkeypatch.setattr(get_settings(), "api_football_key", key)
+    assert live_provider_configured(get_settings()) is configured
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("no_live_key")
+async def test_poll_live_task_without_a_key_calls_nothing_and_stops(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def no_provider(_settings: object) -> None:
+        raise AssertionError("no provider may be built without a key")
+
+    monkeypatch.setattr(live_tasks, "build_live_provider", no_provider)
+    arq = _FakeArq()
+
+    assert await live_tasks.poll_live_task({"redis": arq}) == 0
+    assert arq.jobs == []  # not rescheduled: a leftover deferred poll dies here
+    assert await get_redis().get(live_tasks.LIVE_POLL_LOCK_KEY) is None
+
+
+@pytest.fixture
+def arq_app_logger_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Alembic's fileConfig (migration tests) disables existing loggers."""
+    monkeypatch.setattr(logging.getLogger("app.workers.arq_app"), "disabled", False)
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("no_live_key", "arq_app_logger_enabled")
+async def test_worker_start_without_a_key_warns_once_and_starts_no_poll(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    arq = _FakeArq()
+    with caplog.at_level(logging.WARNING, logger="app.workers.arq_app"):
+        await _bootstrap_live_loop({"redis": arq})
+    assert arq.jobs == []
+    warnings = [r for r in caplog.records if r.name == "app.workers.arq_app"]
+    assert len(warnings) == 1
+    assert "API_FOOTBALL_KEY is not set" in warnings[0].getMessage()
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("live_key")
+async def test_worker_start_with_a_key_starts_the_poll() -> None:
+    arq = _FakeArq()
+    await _bootstrap_live_loop({"redis": arq})
+    assert arq.names() == ["poll_live_task"]
 
 
 async def _seed_live_fixture(session: AsyncSession) -> uuid.UUID:
