@@ -255,7 +255,7 @@ async def test_record_writes_sanitised_fixtures_and_counts_credits(tmp_path: Pat
         Call("odds_h2h", "/v4/sports/soccer_epl/odds", {"regions": "eu"}, credits=1),
         Call("error_401", "/v4/sports", {}, invalid_key=True, expect=(401,)),
     ]
-    spent = await record(
+    spent, completed = await record(
         "the_odds_api",
         calls,
         key=ODDS_KEY,
@@ -264,7 +264,7 @@ async def test_record_writes_sanitised_fixtures_and_counts_credits(tmp_path: Pat
         client_kwargs={"transport": _record_transport(seen)},
         echo=lines.append,
     )
-    assert spent == 1
+    assert spent == 1 and completed
     _check_recorded_files(tmp_path)
     assert all(ODDS_KEY not in line for line in lines)
     assert lines[-1] == "the_odds_api: credits spent 1"
@@ -278,7 +278,7 @@ async def test_record_stops_before_exceeding_the_credit_cap(tmp_path: Path) -> N
         Call("odds_a", "/v4/sports/soccer_epl/odds", {}, credits=1),
         Call("odds_b", "/v4/sports/soccer_epl/odds", {}, credits=1),
     ]
-    spent = await record(
+    spent, completed = await record(
         "the_odds_api",
         calls,
         key=ODDS_KEY,
@@ -287,7 +287,7 @@ async def test_record_stops_before_exceeding_the_credit_cap(tmp_path: Path) -> N
         client_kwargs={"transport": _record_transport(seen)},
         echo=lines.append,
     )
-    assert spent == 1 and len(seen) == 1
+    assert spent == 1 and len(seen) == 1 and not completed
     assert any(line.startswith("STOP before odds_b") for line in lines)
 
 
@@ -318,7 +318,7 @@ async def test_record_stops_on_an_unexpected_status(tmp_path: Path) -> None:
         Call("error_401", "/v4/sports", {}, invalid_key=True),  # expects 200 by default
         Call("sports", "/v4/sports", {}),
     ]
-    await record(
+    _, completed = await record(
         "the_odds_api",
         calls,
         key=ODDS_KEY,
@@ -329,3 +329,22 @@ async def test_record_stops_on_an_unexpected_status(tmp_path: Path) -> None:
     )
     assert len(seen) == 1
     assert "STOP after error_401: status 401, expected [200]" in lines
+    assert not completed
+
+
+@pytest.mark.parametrize(("completed", "code"), [(True, 0), (False, 1)])
+def test_cli_exit_code_reports_an_incomplete_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, completed: bool, code: int
+) -> None:
+    from app import cli
+
+    async def fake_record(*args: Any, **kwargs: Any) -> tuple[int, bool]:
+        return 0, completed
+
+    monkeypatch.setattr("app.providers.recording.record", fake_record)
+    manifest = tmp_path / "m.json"
+    manifest.write_text(json.dumps({"calls": [{"name": "a", "path": "/x"}]}), encoding="utf-8")
+    env = tmp_path / ".env"
+    env.write_text("THE_ODDS_API_KEY=k" + chr(10), encoding="utf-8")
+    argv = ["provider-record", "--provider", "the_odds_api", "--manifest", str(manifest)]
+    assert cli.main([*argv, "--env-file", str(env), "--execute"]) == code

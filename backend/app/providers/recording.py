@@ -135,27 +135,32 @@ async def record(
     max_credits: int,
     client_kwargs: dict[str, Any] | None = None,
     echo: Callable[[str], None] = print,
-) -> int:
+) -> tuple[int, bool]:
     """Make the calls and write one fixture per call. Returns the credits the
-    provider reported as spent (``credits_last`` summed; 0 when it reports none)."""
+    provider reported as spent (``credits_last`` summed; 0 when it reports none)
+    and whether every call ran (False when the run stopped early)."""
     if not key:
         raise ValueError(f"{provider}: no key in the env file")
     register_secret(key)
     client_cls = CLIENTS[provider]
     spent = 0
+    completed = True
     remaining: int | None = None
     for call in calls:
         if spent + call.credits > max_credits:
             echo(f"STOP before {call.name}: {spent} + {call.credits} > max {max_credits}")
+            completed = False
             break
         if remaining is not None and call.credits > remaining:
             echo(f"STOP before {call.name}: needs {call.credits}, {remaining} remaining")
+            completed = False
             break
         client = client_cls(INVALID_KEY if call.invalid_key else key, **(client_kwargs or {}))
         try:
             response = await client.get(call.path, call.params, raise_on_error=False)
         except httpx.HTTPError as exc:
             echo(f"STOP at {call.name}: {type(exc).__name__}: {redact_text(str(exc))}")
+            completed = False
             break
         last = response.quota.get("credits_last")
         spent += last if isinstance(last, int) else 0
@@ -176,6 +181,7 @@ async def record(
         echo(f"{call.name}: {response.status} quota {response.quota}")
         if response.status not in call.expect:
             echo(f"STOP after {call.name}: status {response.status}, expected {list(call.expect)}")
+            completed = False
             break
-    echo(f"{provider}: credits spent {spent}")
-    return spent
+    echo(f"{provider}: credits spent {spent}" + ("" if completed else " (stopped early)"))
+    return spent, completed

@@ -211,7 +211,7 @@ def _provider_record(args: argparse.Namespace) -> int:
         print("dry run: no request made (add --execute)")
         return 0
     keys = ProviderKeys(_env_file=args.env_file)
-    asyncio.run(
+    _, completed = asyncio.run(
         record(
             args.provider,
             calls,
@@ -222,7 +222,7 @@ def _provider_record(args: argparse.Namespace) -> int:
             ),
         )
     )
-    return 0
+    return 0 if completed else 1
 
 
 def main(argv: list[str] | None = None) -> int:
