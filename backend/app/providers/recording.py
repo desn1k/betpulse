@@ -4,7 +4,8 @@
 
 - The **manifest** (JSON, committed next to the fixtures) lists the calls: a
   name, a path, query parameters, the expected credit cost and, for error
-  samples, ``"auth": "invalid"`` (a deliberately wrong key).
+  samples, ``"auth": "invalid"`` (a deliberately wrong key), and the statuses
+  it may answer (``expect``, default ``[200]``). Any other status stops the run.
 - **Dry run by default**: it prints each call and the expected credits and makes
   no request. ``--execute`` makes them, one by one, and prints the quota after
   each call. It stops before a call whose expected credits would exceed
@@ -13,9 +14,10 @@
 - **Keys** come only from the env file (``--env-file``, default ``.env``); they
   are registered with the scrubber and never printed.
 - **Sanitising**: account blocks (``subscription``, ``plans``) are dropped, and
-  every registered secret is replaced with ``REDACTED`` before a file is
-  written. ``tests/test_outbound_guard.py`` scans the result again for key-like
-  strings and for the env file's secret values.
+  the provider key is replaced with ``REDACTED`` before a file is written (not
+  every registered secret: see :func:`sanitize`). ``tests/test_outbound_guard.py``
+  scans the result again for key-like strings and for the env file's secret
+  values.
 """
 
 from __future__ import annotations
@@ -26,11 +28,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.core.outbound import redact_text, register_secret
+from app.core.outbound import REDACTED, redact_text, register_secret
 from app.providers.http import ProviderHttpClient, SportmonksClient, TheOddsApiClient
 
 # A wrong key used on purpose to record the provider's 401 body.
@@ -67,6 +70,7 @@ class Call:
     params: dict[str, Any]
     credits: int = 0
     invalid_key: bool = False
+    expect: tuple[int, ...] = (200,)
 
 
 def load_manifest(path: Path) -> list[Call]:
@@ -78,6 +82,7 @@ def load_manifest(path: Path) -> list[Call]:
             params=dict(item.get("params", {})),
             credits=int(item.get("credits", 0)),
             invalid_key=item.get("auth") == "invalid",
+            expect=tuple(item.get("expect", [200])),
         )
         for item in raw["calls"]
     ]
@@ -87,14 +92,24 @@ def load_manifest(path: Path) -> list[Call]:
     return calls
 
 
-def sanitize(value: Any) -> Any:
-    """Drop account fields (recursively) and redact registered secrets."""
+def _redact_key(text: str, key: str) -> str:
+    for form in sorted({key, quote(key, safe="")}, key=len, reverse=True):
+        text = text.replace(form, REDACTED)
+    return text
+
+
+def sanitize(value: Any, key: str) -> Any:
+    """Drop account fields (recursively) and replace the provider key with
+    ``REDACTED``. Only the key: the log scrubber's registry also holds weak dev
+    values (the default DB password ``football``) that would rewrite real data
+    (``americanfootball_nfl``, ``/v3/football``). The fixture guard scans the
+    result for any other secret."""
     if isinstance(value, dict):
-        return {k: sanitize(v) for k, v in value.items() if k not in ACCOUNT_FIELDS}
+        return {k: sanitize(v, key) for k, v in value.items() if k not in ACCOUNT_FIELDS}
     if isinstance(value, list):
-        return [sanitize(v) for v in value]
+        return [sanitize(v, key) for v in value]
     if isinstance(value, str):
-        return redact_text(value)
+        return _redact_key(value, key)
     return value
 
 
@@ -140,8 +155,8 @@ async def record(
         try:
             response = await client.get(call.path, call.params, raise_on_error=False)
         except httpx.HTTPError as exc:
-            echo(f"{call.name}: {type(exc).__name__}: {redact_text(str(exc))}")
-            continue
+            echo(f"STOP at {call.name}: {type(exc).__name__}: {redact_text(str(exc))}")
+            break
         last = response.quota.get("credits_last")
         spent += last if isinstance(last, int) else 0
         if isinstance(response.quota.get("credits_remaining"), int):
@@ -152,12 +167,15 @@ async def record(
             "status": response.status,
             "quota": response.quota,
             "recorded_at": datetime.now(UTC).isoformat(timespec="seconds"),
-            "body": sanitize(response.data),
+            "body": sanitize(response.data, key),
         }
-        text = redact_text(json.dumps(fixture, ensure_ascii=False, indent=2)) + "\n"
-        if key in text:  # belt and braces: the scrubber must have caught it
+        text = _redact_key(json.dumps(fixture, ensure_ascii=False, indent=2), key) + "\n"
+        if key in text:  # belt and braces: sanitising must have caught it
             raise RuntimeError(f"{call.name}: key survived sanitising; nothing written")
         _write(out_dir / f"{call.name}.json", text)
         echo(f"{call.name}: {response.status} quota {response.quota}")
+        if response.status not in call.expect:
+            echo(f"STOP after {call.name}: status {response.status}, expected {list(call.expect)}")
+            break
     echo(f"{provider}: credits spent {spent}")
     return spent

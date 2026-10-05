@@ -172,18 +172,27 @@ def test_a_missing_key_fails_before_any_call() -> None:
 # --- recording -----------------------------------------------------------------
 
 
-def test_sanitize_drops_account_blocks_and_redacts_secrets() -> None:
-    from app.core.outbound import register_secret
-
-    register_secret(SM_KEY)
+def test_sanitize_drops_account_blocks_and_redacts_the_key() -> None:
     body = {
         "data": [{"name": "Premier League", "url": f"https://x/?t={SM_KEY}"}],
         "subscription": [{"plans": [{"plan": "Growth"}]}],
     }
-    clean = sanitize(body)
+    clean = sanitize(body, SM_KEY)
     assert "subscription" not in clean
     assert SM_KEY not in json.dumps(clean)
+    assert clean["data"][0]["url"] == "https://x/?t=REDACTED"
     assert clean["data"][0]["name"] == "Premier League"
+
+
+def test_sanitize_leaves_other_registered_secrets_alone() -> None:
+    """A weak dev secret (the default DB password ``football``) is registered
+    with the log scrubber; it must not rewrite real data such as
+    ``americanfootball_nfl`` or ``/v3/football/leagues``."""
+    from app.core.outbound import register_secret
+
+    register_secret("football")
+    body = {"key": "americanfootball_nfl", "path": "/v3/football/leagues"}
+    assert sanitize(body, SM_KEY) == body
 
 
 def test_manifest_names_must_be_unique(tmp_path: Path) -> None:
@@ -237,7 +246,7 @@ async def test_record_writes_sanitised_fixtures_and_counts_credits(tmp_path: Pat
     calls = [
         Call("sports", "/v4/sports", {}),
         Call("odds_h2h", "/v4/sports/soccer_epl/odds", {"regions": "eu"}, credits=1),
-        Call("error_401", "/v4/sports", {}, invalid_key=True),
+        Call("error_401", "/v4/sports", {}, invalid_key=True, expect=(401,)),
     ]
     spent = await record(
         "the_odds_api",
@@ -292,3 +301,24 @@ def test_cli_dry_run_makes_no_request(
     assert cli.main(argv) == 0
     out = capsys.readouterr().out
     assert "expected credits 2" in out and "dry run" in out
+
+
+@pytest.mark.asyncio
+async def test_record_stops_on_an_unexpected_status(tmp_path: Path) -> None:
+    seen: list[httpx.Request] = []
+    lines: list[str] = []
+    calls = [
+        Call("error_401", "/v4/sports", {}, invalid_key=True),  # expects 200 by default
+        Call("sports", "/v4/sports", {}),
+    ]
+    await record(
+        "the_odds_api",
+        calls,
+        key=ODDS_KEY,
+        out_dir=tmp_path,
+        max_credits=0,
+        client_kwargs={"transport": _record_transport(seen)},
+        echo=lines.append,
+    )
+    assert len(seen) == 1
+    assert "STOP after error_401: status 401, expected [200]" in lines
