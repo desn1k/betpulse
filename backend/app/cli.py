@@ -201,6 +201,30 @@ async def _train() -> int:
     return 0
 
 
+def _provider_record(args: argparse.Namespace) -> int:
+    from app.providers.recording import ProviderKeys, load_manifest, plan_text, record
+
+    manifest = Path(args.manifest)
+    calls = load_manifest(manifest)
+    print(plan_text(args.provider, calls))
+    if not args.execute:
+        print("dry run: no request made (add --execute)")
+        return 0
+    keys = ProviderKeys(_env_file=args.env_file)
+    asyncio.run(
+        record(
+            args.provider,
+            calls,
+            key=keys.for_provider(args.provider),
+            out_dir=Path(args.out_dir) if args.out_dir else manifest.parent,
+            max_credits=(
+                args.max_credits if args.max_credits is not None else sum(c.credits for c in calls)
+            ),
+        )
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     install_log_safety()
     parser = argparse.ArgumentParser(prog="app.cli")
@@ -229,6 +253,13 @@ def main(argv: list[str] | None = None) -> int:
     mapping.add_argument("--country", default=None)
     mapping.add_argument("--external-id", default=None, help="the provider's stable team id")
     sub.add_parser("train")
+    rec = sub.add_parser("provider-record", help="record real provider responses as fixtures")
+    rec.add_argument("--provider", required=True, choices=["sportmonks", "the_odds_api"])
+    rec.add_argument("--manifest", required=True, help="JSON list of calls")
+    rec.add_argument("--out-dir", default=None, help="default: the manifest's directory")
+    rec.add_argument("--env-file", default=".env", help="where the provider keys are read from")
+    rec.add_argument("--max-credits", type=int, default=None, help="default: manifest total")
+    rec.add_argument("--execute", action="store_true", help="make the calls (default: dry run)")
 
     args = parser.parse_args(argv)
     if args.command == "bootstrap-history":
@@ -247,6 +278,8 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.command == "train":
         return asyncio.run(_train())
+    if args.command == "provider-record":
+        return _provider_record(args)
     parser.error(f"unknown command: {args.command}")
     return 2
 
