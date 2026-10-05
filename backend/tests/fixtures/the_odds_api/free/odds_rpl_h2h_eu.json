@@ -1,0 +1,752 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v4/sports/soccer_russia_premier_league/odds",
+    "params": {
+      "regions": "eu",
+      "markets": "h2h",
+      "oddsFormat": "decimal",
+      "dateFormat": "iso"
+    }
+  },
+  "auth": "valid",
+  "status": 200,
+  "quota": {
+    "credits_last": 1,
+    "credits_used": 3,
+    "credits_remaining": 497
+  },
+  "recorded_at": "2026-10-05T10:57:03+00:00",
+  "body": [
+    {
+      "id": "90e899cfb956af472e1df8fd6f648221",
+      "sport_key": "soccer_russia_premier_league",
+      "sport_title": "Premier League - Russia",
+      "commence_time": "2026-10-09T16:30:00Z",
+      "home_team": "FK Rostov",
+      "away_team": "FC Akron Tolyatti",
+      "bookmakers": [
+        {
+          "key": "pinnacle",
+          "title": "Pinnacle",
+          "last_update": "2026-10-05T10:56:51Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:56:51Z",
+              "outcomes": [
+                {
+                  "name": "FC Akron Tolyatti",
+                  "price": 4.32
+                },
+                {
+                  "name": "FK Rostov",
+                  "price": 1.81
+                },
+                {
+                  "name": "Draw",
+                  "price": 3.73
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "onexbet",
+          "title": "1xBet",
+          "last_update": "2026-10-05T10:56:37Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:56:37Z",
+              "outcomes": [
+                {
+                  "name": "FC Akron Tolyatti",
+                  "price": 4.57
+                },
+                {
+                  "name": "FK Rostov",
+                  "price": 1.86
+                },
+                {
+                  "name": "Draw",
+                  "price": 3.88
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "codere_it",
+          "title": "Codere (IT)",
+          "last_update": "2026-10-05T10:55:57Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:55:57Z",
+              "outcomes": [
+                {
+                  "name": "FC Akron Tolyatti",
+                  "price": 4.0
+                },
+                {
+                  "name": "FK Rostov",
+                  "price": 1.76
+                },
+                {
+                  "name": "Draw",
+                  "price": 3.45
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "0447f55fe0f4a8e6aaf6ad883d91bc88",
+      "sport_key": "soccer_russia_premier_league",
+      "sport_title": "Premier League - Russia",
+      "commence_time": "2026-10-10T10:00:00Z",
+      "home_team": "Gazovik Orenburg",
+      "away_team": "FC Dynamo Makhachkala",
+      "bookmakers": [
+        {
+          "key": "pinnacle",
+          "title": "Pinnacle",
+          "last_update": "2026-10-05T10:56:51Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:56:51Z",
+              "outcomes": [
+                {
+                  "name": "FC Dynamo Makhachkala",
+                  "price": 3.17
+                },
+                {
+                  "name": "Gazovik Orenburg",
+                  "price": 2.32
+                },
+                {
+                  "name": "Draw",
+                  "price": 3.31
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "onexbet",
+          "title": "1xBet",
+          "last_update": "2026-10-05T10:56:37Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:56:37Z",
+              "outcomes": [
+                {
+                  "name": "FC Dynamo Makhachkala",
+                  "price": 3.3
+                },
+                {
+                  "name": "Gazovik Orenburg",
+                  "price": 2.38
+                },
+                {
+                  "name": "Draw",
+                  "price": 3.42
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "marathonbet",
+          "title": "Marathon Bet",
+          "last_update": "2026-10-05T10:55:58Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:55:58Z",
+              "outcomes": [
+                {
+                  "name": "FC Dynamo Makhachkala",
+                  "price": 3.22
+                },
+                {
+                  "name": "Gazovik Orenburg",
+                  "price": 2.32
+                },
+                {
+                  "name": "Draw",
+                  "price": 3.34
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "codere_it",
+          "title": "Codere (IT)",
+          "last_update": "2026-10-05T10:55:57Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:55:57Z",
+              "outcomes": [
+                {
+                  "name": "FC Dynamo Makhachkala",
+                  "price": 2.9
+                },
+                {
+                  "name": "Gazovik Orenburg",
+                  "price": 2.23
+                },
+                {
+                  "name": "Draw",
+                  "price": 3.15
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "eb40cd16074320e8d1525b31271e1bc2",
+      "sport_key": "soccer_russia_premier_league",
+      "sport_title": "Premier League - Russia",
+      "commence_time": "2026-10-10T12:15:00Z",
+      "home_team": "FC Fakel Voronezh",
+      "away_team": "Lokomotiv Moscow",
+      "bookmakers": [
+        {
+          "key": "pinnacle",
+          "title": "Pinnacle",
+          "last_update": "2026-10-05T10:56:51Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:56:51Z",
+              "outcomes": [
+                {
+                  "name": "FC Fakel Voronezh",
+                  "price": 2.9
+                },
+                {
+                  "name": "Lokomotiv Moscow",
+                  "price": 2.52
+                },
+                {
+                  "name": "Draw",
+                  "price": 3.25
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "onexbet",
+          "title": "1xBet",
+          "last_update": "2026-10-05T10:56:37Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:56:37Z",
+              "outcomes": [
+                {
+                  "name": "FC Fakel Voronezh",
+                  "price": 3.0
+                },
+                {
+                  "name": "Lokomotiv Moscow",
+                  "price": 2.61
+                },
+                {
+                  "name": "Draw",
+                  "price": 3.35
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "marathonbet",
+          "title": "Marathon Bet",
+          "last_update": "2026-10-05T10:55:58Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:55:58Z",
+              "outcomes": [
+                {
+                  "name": "FC Fakel Voronezh",
+                  "price": 2.93
+                },
+                {
+                  "name": "Lokomotiv Moscow",
+                  "price": 2.54
+                },
+                {
+                  "name": "Draw",
+                  "price": 3.26
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "986afb1df9d3eda313ab1c69b6dbac74",
+      "sport_key": "soccer_russia_premier_league",
+      "sport_title": "Premier League - Russia",
+      "commence_time": "2026-10-10T14:30:00Z",
+      "home_team": "Kryliya Sovetov",
+      "away_team": "Spartak Moscow",
+      "bookmakers": [
+        {
+          "key": "pinnacle",
+          "title": "Pinnacle",
+          "last_update": "2026-10-05T10:56:51Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:56:51Z",
+              "outcomes": [
+                {
+                  "name": "Kryliya Sovetov",
+                  "price": 4.98
+                },
+                {
+                  "name": "Spartak Moscow",
+                  "price": 1.63
+                },
+                {
+                  "name": "Draw",
+                  "price": 4.14
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "onexbet",
+          "title": "1xBet",
+          "last_update": "2026-10-05T10:56:37Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:56:37Z",
+              "outcomes": [
+                {
+                  "name": "Kryliya Sovetov",
+                  "price": 5.18
+                },
+                {
+                  "name": "Spartak Moscow",
+                  "price": 1.69
+                },
+                {
+                  "name": "Draw",
+                  "price": 4.31
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "marathonbet",
+          "title": "Marathon Bet",
+          "last_update": "2026-10-05T10:55:58Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:55:58Z",
+              "outcomes": [
+                {
+                  "name": "Kryliya Sovetov",
+                  "price": 5.05
+                },
+                {
+                  "name": "Spartak Moscow",
+                  "price": 1.65
+                },
+                {
+                  "name": "Draw",
+                  "price": 4.2
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "bd446b0eb0eb24fcc70092f877ace9ad",
+      "sport_key": "soccer_russia_premier_league",
+      "sport_title": "Premier League - Russia",
+      "commence_time": "2026-10-10T16:30:00Z",
+      "home_team": "FC Krasnodar",
+      "away_team": "Zenit St Petersburg",
+      "bookmakers": [
+        {
+          "key": "pinnacle",
+          "title": "Pinnacle",
+          "last_update": "2026-10-05T10:56:51Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:56:51Z",
+              "outcomes": [
+                {
+                  "name": "FC Krasnodar",
+                  "price": 2.86
+                },
+                {
+                  "name": "Zenit St Petersburg",
+                  "price": 2.53
+                },
+                {
+                  "name": "Draw",
+                  "price": 3.29
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "onexbet",
+          "title": "1xBet",
+          "last_update": "2026-10-05T10:56:37Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:56:37Z",
+              "outcomes": [
+                {
+                  "name": "FC Krasnodar",
+                  "price": 3.04
+                },
+                {
+                  "name": "Zenit St Petersburg",
+                  "price": 2.52
+                },
+                {
+                  "name": "Draw",
+                  "price": 3.44
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "marathonbet",
+          "title": "Marathon Bet",
+          "last_update": "2026-10-05T10:55:58Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:55:58Z",
+              "outcomes": [
+                {
+                  "name": "FC Krasnodar",
+                  "price": 2.97
+                },
+                {
+                  "name": "Zenit St Petersburg",
+                  "price": 2.46
+                },
+                {
+                  "name": "Draw",
+                  "price": 3.35
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "betonlineag",
+          "title": "BetOnline.ag",
+          "last_update": "2026-10-05T10:56:37Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:56:37Z",
+              "outcomes": [
+                {
+                  "name": "FC Krasnodar",
+                  "price": 2.86
+                },
+                {
+                  "name": "Zenit St Petersburg",
+                  "price": 2.42
+                },
+                {
+                  "name": "Draw",
+                  "price": 3.2
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cb4ca9d6697966580e7508a14c9c2676",
+      "sport_key": "soccer_russia_premier_league",
+      "sport_title": "Premier League - Russia",
+      "commence_time": "2026-10-11T11:00:00Z",
+      "home_team": "FC Akhmat Grozny",
+      "away_team": "FC Baltika Kaliningrad",
+      "bookmakers": [
+        {
+          "key": "pinnacle",
+          "title": "Pinnacle",
+          "last_update": "2026-10-05T10:56:51Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:56:51Z",
+              "outcomes": [
+                {
+                  "name": "FC Akhmat Grozny",
+                  "price": 2.59
+                },
+                {
+                  "name": "FC Baltika Kaliningrad",
+                  "price": 2.89
+                },
+                {
+                  "name": "Draw",
+                  "price": 3.16
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "onexbet",
+          "title": "1xBet",
+          "last_update": "2026-10-05T10:56:37Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:56:37Z",
+              "outcomes": [
+                {
+                  "name": "FC Akhmat Grozny",
+                  "price": 2.69
+                },
+                {
+                  "name": "FC Baltika Kaliningrad",
+                  "price": 2.94
+                },
+                {
+                  "name": "Draw",
+                  "price": 3.31
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "marathonbet",
+          "title": "Marathon Bet",
+          "last_update": "2026-10-05T10:55:58Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:55:58Z",
+              "outcomes": [
+                {
+                  "name": "FC Akhmat Grozny",
+                  "price": 2.62
+                },
+                {
+                  "name": "FC Baltika Kaliningrad",
+                  "price": 2.86
+                },
+                {
+                  "name": "Draw",
+                  "price": 3.22
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "52c55cedacbcf9e481f4e47363ad3913",
+      "sport_key": "soccer_russia_premier_league",
+      "sport_title": "Premier League - Russia",
+      "commence_time": "2026-10-11T13:30:00Z",
+      "home_team": "CSKA Moscow",
+      "away_team": "Rodina Moscow",
+      "bookmakers": [
+        {
+          "key": "pinnacle",
+          "title": "Pinnacle",
+          "last_update": "2026-10-05T10:56:51Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:56:51Z",
+              "outcomes": [
+                {
+                  "name": "CSKA Moscow",
+                  "price": 1.41
+                },
+                {
+                  "name": "Rodina Moscow",
+                  "price": 6.49
+                },
+                {
+                  "name": "Draw",
+                  "price": 5.16
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "onexbet",
+          "title": "1xBet",
+          "last_update": "2026-10-05T10:56:37Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:56:37Z",
+              "outcomes": [
+                {
+                  "name": "CSKA Moscow",
+                  "price": 1.45
+                },
+                {
+                  "name": "Rodina Moscow",
+                  "price": 7.48
+                },
+                {
+                  "name": "Draw",
+                  "price": 5.27
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "marathonbet",
+          "title": "Marathon Bet",
+          "last_update": "2026-10-05T10:55:58Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:55:58Z",
+              "outcomes": [
+                {
+                  "name": "CSKA Moscow",
+                  "price": 1.41
+                },
+                {
+                  "name": "Rodina Moscow",
+                  "price": 7.3
+                },
+                {
+                  "name": "Draw",
+                  "price": 5.15
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "6586b7090b1b8899908dae96cd97c1d8",
+      "sport_key": "soccer_russia_premier_league",
+      "sport_title": "Premier League - Russia",
+      "commence_time": "2026-10-11T16:30:00Z",
+      "home_team": "Rubin Kazan",
+      "away_team": "Dinamo Moscow",
+      "bookmakers": [
+        {
+          "key": "pinnacle",
+          "title": "Pinnacle",
+          "last_update": "2026-10-05T10:56:51Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:56:51Z",
+              "outcomes": [
+                {
+                  "name": "Dinamo Moscow",
+                  "price": 1.92
+                },
+                {
+                  "name": "Rubin Kazan",
+                  "price": 3.93
+                },
+                {
+                  "name": "Draw",
+                  "price": 3.61
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "onexbet",
+          "title": "1xBet",
+          "last_update": "2026-10-05T10:56:37Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:56:37Z",
+              "outcomes": [
+                {
+                  "name": "Dinamo Moscow",
+                  "price": 1.99
+                },
+                {
+                  "name": "Rubin Kazan",
+                  "price": 4.16
+                },
+                {
+                  "name": "Draw",
+                  "price": 3.67
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "marathonbet",
+          "title": "Marathon Bet",
+          "last_update": "2026-10-05T10:55:58Z",
+          "markets": [
+            {
+              "key": "h2h",
+              "last_update": "2026-10-05T10:55:58Z",
+              "outcomes": [
+                {
+                  "name": "Dinamo Moscow",
+                  "price": 1.94
+                },
+                {
+                  "name": "Rubin Kazan",
+                  "price": 4.05
+                },
+                {
+                  "name": "Draw",
+                  "price": 3.58
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

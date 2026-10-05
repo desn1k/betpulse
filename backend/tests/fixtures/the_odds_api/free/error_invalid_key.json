@@ -1,0 +1,20 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v4/sports",
+    "params": {}
+  },
+  "auth": "invalid",
+  "status": 401,
+  "quota": {
+    "credits_last": null,
+    "credits_used": null,
+    "credits_remaining": null
+  },
+  "recorded_at": "2026-10-05T10:57:04+00:00",
+  "body": {
+    "message": "API key is not valid. Get an API key at https://the-odds-api.com",
+    "error_code": "INVALID_KEY",
+    "details_url": "https://the-odds-api.com/liveapi/guides/v4/api-error-codes.html#invalid-key"
+  }
+}

@@ -1,0 +1,126 @@
+{
+  "comment": "Set (a): the free/demo key. Credits per the v4 guide: sports/events 0, odds = markets x regions, historical odds 10 x markets x regions, historical events 1. Historical endpoints are documented as paid-only; the two historical calls are budgeted at their paid cost in case this key is not refused.",
+  "calls": [
+    {
+      "name": "sports",
+      "path": "/v4/sports",
+      "params": {},
+      "credits": 0
+    },
+    {
+      "name": "events_epl",
+      "path": "/v4/sports/soccer_epl/events",
+      "params": {
+        "dateFormat": "iso"
+      },
+      "credits": 0
+    },
+    {
+      "name": "events_rpl",
+      "path": "/v4/sports/soccer_russia_premier_league/events",
+      "params": {
+        "dateFormat": "iso"
+      },
+      "credits": 0,
+      "expect": [
+        200,
+        404,
+        422
+      ]
+    },
+    {
+      "name": "odds_epl_h2h_eu",
+      "path": "/v4/sports/soccer_epl/odds",
+      "params": {
+        "regions": "eu",
+        "markets": "h2h",
+        "oddsFormat": "decimal",
+        "dateFormat": "iso"
+      },
+      "credits": 1
+    },
+    {
+      "name": "odds_epl_totals_eu",
+      "path": "/v4/sports/soccer_epl/odds",
+      "params": {
+        "regions": "eu",
+        "markets": "totals",
+        "oddsFormat": "decimal",
+        "dateFormat": "iso"
+      },
+      "credits": 1
+    },
+    {
+      "name": "odds_rpl_h2h_eu",
+      "path": "/v4/sports/soccer_russia_premier_league/odds",
+      "params": {
+        "regions": "eu",
+        "markets": "h2h",
+        "oddsFormat": "decimal",
+        "dateFormat": "iso"
+      },
+      "credits": 1,
+      "expect": [
+        200,
+        404,
+        422
+      ]
+    },
+    {
+      "name": "historical_odds_epl",
+      "path": "/v4/historical/sports/soccer_epl/odds",
+      "params": {
+        "regions": "eu",
+        "markets": "h2h",
+        "oddsFormat": "decimal",
+        "date": "2025-08-16T13:55:00Z"
+      },
+      "credits": 10,
+      "expect": [
+        200,
+        401,
+        402,
+        403,
+        422
+      ]
+    },
+    {
+      "name": "historical_events_epl",
+      "path": "/v4/historical/sports/soccer_epl/events",
+      "params": {
+        "date": "2025-08-16T13:55:00Z"
+      },
+      "credits": 1,
+      "expect": [
+        200,
+        401,
+        402,
+        403,
+        422
+      ]
+    },
+    {
+      "name": "error_invalid_key",
+      "path": "/v4/sports",
+      "params": {},
+      "credits": 0,
+      "auth": "invalid",
+      "expect": [
+        401
+      ]
+    },
+    {
+      "name": "error_bad_market",
+      "path": "/v4/sports/soccer_epl/odds",
+      "params": {
+        "regions": "eu",
+        "markets": "not_a_market"
+      },
+      "credits": 0,
+      "expect": [
+        400,
+        422
+      ]
+    }
+  ]
+}

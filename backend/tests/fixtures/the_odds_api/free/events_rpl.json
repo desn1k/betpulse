@@ -1,0 +1,83 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v4/sports/soccer_russia_premier_league/events",
+    "params": {
+      "dateFormat": "iso"
+    }
+  },
+  "auth": "valid",
+  "status": 200,
+  "quota": {
+    "credits_last": 0,
+    "credits_used": 0,
+    "credits_remaining": 500
+  },
+  "recorded_at": "2026-10-05T10:57:01+00:00",
+  "body": [
+    {
+      "id": "90e899cfb956af472e1df8fd6f648221",
+      "sport_key": "soccer_russia_premier_league",
+      "sport_title": "Premier League - Russia",
+      "commence_time": "2026-10-09T16:30:00Z",
+      "home_team": "FK Rostov",
+      "away_team": "FC Akron Tolyatti"
+    },
+    {
+      "id": "0447f55fe0f4a8e6aaf6ad883d91bc88",
+      "sport_key": "soccer_russia_premier_league",
+      "sport_title": "Premier League - Russia",
+      "commence_time": "2026-10-10T10:00:00Z",
+      "home_team": "Gazovik Orenburg",
+      "away_team": "FC Dynamo Makhachkala"
+    },
+    {
+      "id": "eb40cd16074320e8d1525b31271e1bc2",
+      "sport_key": "soccer_russia_premier_league",
+      "sport_title": "Premier League - Russia",
+      "commence_time": "2026-10-10T12:15:00Z",
+      "home_team": "FC Fakel Voronezh",
+      "away_team": "Lokomotiv Moscow"
+    },
+    {
+      "id": "986afb1df9d3eda313ab1c69b6dbac74",
+      "sport_key": "soccer_russia_premier_league",
+      "sport_title": "Premier League - Russia",
+      "commence_time": "2026-10-10T14:30:00Z",
+      "home_team": "Kryliya Sovetov",
+      "away_team": "Spartak Moscow"
+    },
+    {
+      "id": "bd446b0eb0eb24fcc70092f877ace9ad",
+      "sport_key": "soccer_russia_premier_league",
+      "sport_title": "Premier League - Russia",
+      "commence_time": "2026-10-10T16:30:00Z",
+      "home_team": "FC Krasnodar",
+      "away_team": "Zenit St Petersburg"
+    },
+    {
+      "id": "cb4ca9d6697966580e7508a14c9c2676",
+      "sport_key": "soccer_russia_premier_league",
+      "sport_title": "Premier League - Russia",
+      "commence_time": "2026-10-11T11:00:00Z",
+      "home_team": "FC Akhmat Grozny",
+      "away_team": "FC Baltika Kaliningrad"
+    },
+    {
+      "id": "52c55cedacbcf9e481f4e47363ad3913",
+      "sport_key": "soccer_russia_premier_league",
+      "sport_title": "Premier League - Russia",
+      "commence_time": "2026-10-11T13:30:00Z",
+      "home_team": "CSKA Moscow",
+      "away_team": "Rodina Moscow"
+    },
+    {
+      "id": "6586b7090b1b8899908dae96cd97c1d8",
+      "sport_key": "soccer_russia_premier_league",
+      "sport_title": "Premier League - Russia",
+      "commence_time": "2026-10-11T16:30:00Z",
+      "home_team": "Rubin Kazan",
+      "away_team": "Dinamo Moscow"
+    }
+  ]
+}

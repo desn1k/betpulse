@@ -1,0 +1,25 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v4/historical/sports/soccer_epl/odds",
+    "params": {
+      "regions": "eu",
+      "markets": "h2h",
+      "oddsFormat": "decimal",
+      "date": "2025-08-16T13:55:00Z"
+    }
+  },
+  "auth": "valid",
+  "status": 401,
+  "quota": {
+    "credits_last": 0,
+    "credits_used": 3,
+    "credits_remaining": 497
+  },
+  "recorded_at": "2026-10-05T10:57:03+00:00",
+  "body": {
+    "message": "Historical odds are only available on paid usage plans. See usage plans at https://the-odds-api.com",
+    "error_code": "HISTORICAL_UNAVAILABLE_ON_FREE_USAGE_PLAN",
+    "details_url": "https://the-odds-api.com/liveapi/guides/v4/api-error-codes.html#historical-unavailable-on-free-usage-plan"
+  }
+}
