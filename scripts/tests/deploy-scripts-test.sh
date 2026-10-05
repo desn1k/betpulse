@@ -206,18 +206,25 @@ if grep -q "alembic upgrade head" "$root/docker.log"; then
 fi
 grep -q "no migration ran" "$root/out.txt" || fail "deploy before migrations: schema state not reported"
 
-# 3. deploy of an image without /api/ready: fails fast with its own message.
+# 3. deploy of an image without /api/ready: fails fast with its own message; the
+# previous image (the stub answers 404 for every release) has none either, so
+# its readiness cannot be verified: the rollback counts as failed, exit 3.
 root="$(setup_root old-image)"
 code="$(run "$root" 404 deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
-[[ "$code" == "2" ]] || fail "deploy 404: exit $code, expected 2 (failed, rolled back)"
+[[ "$code" == "3" ]] || fail "deploy 404: exit $code, expected 3 (rollback not verified)"
+if grep -q "healthy and ready" "$root/out.txt"; then
+  fail "deploy 404: reported ready without a readiness check"
+fi
 grep -q "has no /api/ready" "$root/out.txt" || fail "deploy 404: no clear message"
 [[ "$(grep -c "^IMAGE_TAG=v2.0.0 .* exec -T web wget" "$root/docker.log")" == "1" ]] || fail "deploy 404: probe of the new release retried"
 
-# 4. rollback to an image without /api/ready: warns, succeeds.
+# 4. rollback to an image without /api/ready: its readiness cannot be verified,
+# so the rollback fails (every release with a digests file has /api/ready).
 root="$(setup_root rollback-old)"
 code="$(run "$root" 404 rollback.sh v1.0.0)"
-[[ "$code" == "0" ]] || fail "rollback 404: exit $code, expected 0"
-grep -q "predates /api/ready" "$root/out.txt" || fail "rollback 404: no warning"
+[[ "$code" == "1" ]] || fail "rollback 404: exit $code, expected 1"
+grep -q "has no /api/ready, so its readiness cannot be verified" "$root/out.txt" ||
+  fail "rollback 404: no clear message"
 
 # 5. rollback, backend unreachable: fails with a clear message.
 root="$(setup_root rollback-unreachable)"

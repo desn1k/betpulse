@@ -839,8 +839,9 @@ implemented.
     - A failure triggers the existing automatic rollback, with a message naming
       `API_BASE_URL` / the api service.
     - An image without the route (404) fails at once.
-  - **`rollback.sh`.** It runs the same probe after the rollback. A restored image that predates
-    the route only gets a warning.
+  - **`rollback.sh`.** It runs the same probe after the rollback. A restored image without the
+    route (404) is a failure since F4: its readiness cannot be verified, and every release with a
+    digests file has the route (until then it only got a warning).
   - **Tests.** `scripts/tests/deploy-scripts-test.sh` (stubbed `docker`/`sleep`, run in CI) covers
     6 scenarios: deploy ok, unreachable → rollback to the previous tag, old image; rollback ok,
     unreachable, old image.
