@@ -9,11 +9,12 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.promo import PromoBatchStatus, PromoCodeType, PromoRedemptionStatus
+from app.schemas.base import RequestModel
 
 # --- admin: generation ------------------------------------------------------
 
 
-class BatchCreate(BaseModel):
+class BatchCreate(RequestModel):
     name: str = Field(min_length=1, max_length=128)
     code_type: PromoCodeType
     # Multiple of 500 (validated server-side for a clear error message).
@@ -58,7 +59,7 @@ class KillOut(BaseModel):
 # --- user: redemption -------------------------------------------------------
 
 
-class RedeemRequest(BaseModel):
+class RedeemRequest(RequestModel):
     code: str = Field(min_length=1, max_length=64)
 
 

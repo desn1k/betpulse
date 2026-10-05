@@ -16,6 +16,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.base import RequestModel
+
 Language = Literal["ru", "en"]
 
 
@@ -52,7 +54,7 @@ class LlmConfigOut(BaseModel):
     is_enabled: bool
 
 
-class LlmConfigUpdate(BaseModel):
+class LlmConfigUpdate(RequestModel):
     """Partial edit of the singleton config. ``api_key`` is write-only: it is
     encrypted at rest and only its masked suffix is ever returned."""
 

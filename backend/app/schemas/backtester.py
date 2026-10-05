@@ -14,6 +14,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.schemas.base import RequestModel
+
 
 class BetType(enum.StrEnum):
     x12 = "1x2"
@@ -38,7 +40,7 @@ _RANGES = (
 )
 
 
-class StrategyFilter(BaseModel):
+class StrategyFilter(RequestModel):
     # Reject unknown filter fields, and NaN/inf in every numeric filter.
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
@@ -62,7 +64,7 @@ class StrategyFilter(BaseModel):
         return self
 
 
-class RunRequest(BaseModel):
+class RunRequest(RequestModel):
     bet_type: BetType
     pick: str
     filters: StrategyFilter = Field(default_factory=StrategyFilter)
@@ -122,7 +124,7 @@ class BacktestResult(BaseModel):
     season_splits: list[SeasonSplit] = Field(default_factory=list)
 
 
-class StrategyIn(BaseModel):
+class StrategyIn(RequestModel):
     name: str = Field(min_length=1, max_length=128)
     bet_type: BetType
     pick: str

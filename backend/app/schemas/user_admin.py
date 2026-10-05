@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.promo import PromoCodeType, PromoRedemptionStatus
 from app.models.user import UserRole, UserTier
+from app.schemas.base import RequestModel
 
 
 class UserRow(BaseModel):
@@ -34,7 +35,7 @@ class UserList(BaseModel):
     per_page: int
 
 
-class TierAssign(BaseModel):
+class TierAssign(RequestModel):
     """Grant a tier manually. Creates a ``source=manual`` subscription; a null
     ``expires_at`` is a perpetual grant."""
 

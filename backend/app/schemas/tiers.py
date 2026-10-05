@@ -8,6 +8,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.base import RequestModel
+
 
 class TierOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -22,7 +24,7 @@ class TierOut(BaseModel):
     sort_order: int
 
 
-class TierUpdate(BaseModel):
+class TierUpdate(RequestModel):
     """Partial edit of a tier. Only the provided fields are changed."""
 
     price: Decimal | None = Field(default=None, ge=0)

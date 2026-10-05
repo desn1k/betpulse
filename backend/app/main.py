@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, Request, Response, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import RequestResponseEndpoint
@@ -30,6 +31,7 @@ from app.core.deps import get_client_ip
 from app.core.outbound import install_log_safety
 from app.core.redis import get_redis
 from app.core.security_headers import SECURITY_HEADERS
+from app.core.validation import request_validation_handler
 from app.services.rate_limit import RateLimitExceeded, enforce_admin_mutation_ip_limit
 
 _ADMIN_MUTATION_METHODS = frozenset({"DELETE", "PATCH", "POST", "PUT"})
@@ -56,6 +58,8 @@ def create_app() -> FastAPI:
         redoc_url=None,
         debug=settings.debug,
     )
+    # 422 bodies carry type/loc/msg only, never the submitted value.
+    app.add_exception_handler(RequestValidationError, request_validation_handler)
 
     @app.middleware("http")
     async def enforce_admin_mutation_rate_limit(

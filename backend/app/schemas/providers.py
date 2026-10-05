@@ -12,6 +12,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.reference import ProviderRole
+from app.schemas.base import RequestModel
 
 
 class ProviderOut(BaseModel):
@@ -28,7 +29,7 @@ class ProviderOut(BaseModel):
     is_enabled: bool
 
 
-class ProviderCreate(BaseModel):
+class ProviderCreate(RequestModel):
     name: str = Field(min_length=1, max_length=64)
     roles: list[ProviderRole] = Field(default_factory=list)
     priority: int = Field(default=100, ge=0)
@@ -38,7 +39,7 @@ class ProviderCreate(BaseModel):
     is_enabled: bool = True
 
 
-class ProviderUpdate(BaseModel):
+class ProviderUpdate(RequestModel):
     name: str | None = Field(default=None, min_length=1, max_length=64)
     roles: list[ProviderRole] | None = None
     priority: int | None = Field(default=None, ge=0)

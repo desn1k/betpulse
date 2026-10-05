@@ -118,6 +118,17 @@ covered by Vitest + React Testing Library.
 - **Secrets** (TOTP, provider/LLM keys) are Fernet-encrypted at rest with `DATA_ENCRYPTION_KEY`;
   never returned to the client (masked suffix only). Provider keys are entered in the Admin UI;
   `.env` values are a dev/CI fallback only.
+- **Request bodies forbid unknown fields; a 422 never echoes the request.** Every model FastAPI
+  parses as a body, and every model nested in one, derives from `app.schemas.base.RequestModel`
+  (`extra="forbid"`): a misspelt or smuggled field is a 422 `extra_forbidden`, never dropped.
+  Response models and provider DTOs stay lenient. `app/core/validation.py` replaces FastAPI's
+  default 422: each error keeps only `type`, `loc` (parts capped at 64 chars) and `msg` — no
+  `input` (it carried short passwords and over-long API keys back to the client) and no `ctx` —
+  and logs only method, path and `(type, loc)`. Our own validators' `ValueError` messages name
+  fields, never submitted values. `tests/api/test_request_validation.py` walks the app's routes
+  and fails on any body model without `forbid` (its allowlist is empty and stays empty) and on
+  any `*Request/*In/*Create/*Update/*Assign` schema not based on `RequestModel`. The frontend
+  reads only `detail.tier_required` from error bodies.
 - **Tests** (`backend/tests/conftest.py`) set env **before** importing the app, then an autouse
   fixture truncates **all** `Base.metadata.sorted_tables` between tests (learned the hard way — a
   partial truncate leaked domain rows between tests). Fixtures: `session`, `client` (httpx

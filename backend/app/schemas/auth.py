@@ -8,18 +8,19 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models.user import UserRole
+from app.schemas.base import RequestModel
 
 # Password policy: a reasonable minimum length; hashing (Argon2id) caps cost so
 # a generous maximum only guards against absurd inputs.
 PasswordStr = Field(min_length=12, max_length=128)
 
 
-class RegisterRequest(BaseModel):
+class RegisterRequest(RequestModel):
     email: EmailStr
     password: str = PasswordStr
 
 
-class LoginRequest(BaseModel):
+class LoginRequest(RequestModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=128)
     totp_code: str | None = Field(default=None, min_length=6, max_length=6)
@@ -50,16 +51,16 @@ class TwoFASetupResponse(BaseModel):
     provisioning_uri: str
 
 
-class TwoFACodeRequest(BaseModel):
+class TwoFACodeRequest(RequestModel):
     code: str = Field(min_length=6, max_length=6)
 
 
-class ChangePasswordRequest(BaseModel):
+class ChangePasswordRequest(RequestModel):
     current_password: str = Field(min_length=1, max_length=128)
     new_password: str = PasswordStr
 
 
-class VerifyEmailRequest(BaseModel):
+class VerifyEmailRequest(RequestModel):
     token: str = Field(min_length=16, max_length=128)
 
 

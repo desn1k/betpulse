@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.model_registry import ModelStatus
 from app.models.model_weighting import WeightingMode
+from app.schemas.base import RequestModel
 
 
 class ModelOut(BaseModel):
@@ -37,17 +38,17 @@ class ModelsOut(BaseModel):
     weighting_mode: WeightingMode
 
 
-class ModelUpdate(BaseModel):
+class ModelUpdate(RequestModel):
     is_enabled: bool | None = None
     is_visible: bool | None = None
     notes: str | None = Field(default=None, max_length=512)
 
 
-class WeightingModeIn(BaseModel):
+class WeightingModeIn(RequestModel):
     mode: WeightingMode
 
 
-class WeightsIn(BaseModel):
+class WeightsIn(RequestModel):
     weights: dict[str, float]
 
 
