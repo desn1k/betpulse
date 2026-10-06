@@ -35,6 +35,8 @@ if [[ ! -f "$digests_file" ]]; then
   exit 1
 fi
 load_release_digests "$digests_file" "$image_tag" || exit 1
+# Under deploy.sh's automatic rollback this reuses the parent's lock.
+acquire_release_lock "$state_dir" || exit 1
 
 compose() {
   IMAGE_TAG="$image_tag" docker compose --env-file "$env_file" \
@@ -110,4 +112,8 @@ for service in "${app_services[@]}" caddy; do
   wait_for_service "$service"
 done
 verify_bff_ready
+# Only a verified rollback is recorded: the restored release is now the one
+# running, so prod-compose.sh and the next deploy's automatic rollback use it
+# (not the release rolled back from). A failed rollback changes nothing here.
+record_deployed_release "$state_dir" "$image_tag" "$digests_file"
 echo "Application images rolled back to $image_tag. Database migrations are intentionally not downgraded."

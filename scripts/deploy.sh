@@ -47,6 +47,8 @@ if [[ ! -f "$digests_file" ]]; then
   exit 1
 fi
 load_release_digests "$digests_file" "$image_tag" || exit 1
+# Before the ERR trap: a refused lock is exit 1, never a rollback.
+acquire_release_lock "$state_dir" || exit 1
 
 compose() {
   IMAGE_TAG="$image_tag" docker compose --env-file "$env_file" \
@@ -200,10 +202,5 @@ done
 # Failing here triggers rollback_on_failure like any other step.
 wait_for_bff_ready
 
-mkdir -p "$state_dir"
-umask 077
-if [[ "$digests_file" != "$state_dir/$image_tag.digests" ]]; then
-  cp "$digests_file" "$state_dir/$image_tag.digests"
-fi
-printf '%s\n' "$image_tag" > "$last_successful_tag_file"
+record_deployed_release "$state_dir" "$image_tag" "$digests_file"
 echo "Deployment of $image_tag completed successfully."

@@ -1082,6 +1082,27 @@ implemented.
     even when the tag does not exist (checked 2026-10-05).
   - `IMAGE_TAG=<version> scripts/rollback.sh` uses `.release/<version>.digests`, or
     `RELEASE_DIGESTS` for a release never deployed on this server.
+  - **A successful rollback records its release as the deployed one** (fixed 2026-10-06; before,
+    `rollback.sh` wrote nothing). It stores the digests (when `RELEASE_DIGESTS` points outside
+    `.release/`) and then `last-successful-image-tag`, each through a temporary file renamed into
+    place; `deploy.sh` records a successful deploy the same way (`record_deployed_release` in
+    `scripts/release-digests.sh`). So after a manual rollback from B to A, `prod-compose.sh` runs A
+    and the next failed deploy rolls back automatically to A, not to the rejected B (and a failed
+    redeploy of B gets exit 2, not 4). A failed rollback changes nothing in `.release/`.
+  - **One deploy or rollback at a time** (2026-10-06). `deploy.sh` and `rollback.sh` hold one lock,
+    `.release/.deploy.lock` (a directory with the owner's PID; created with `.release/` itself on
+    an empty server), from before the first docker call until they exit. A second run is refused
+    with **exit 1** before any docker call: "another deploy or rollback is running (pid N)".
+    Only the process that took the lock removes it, on success, failure, Ctrl+C or SIGTERM; the
+    automatic rollback runs under `deploy.sh`'s lock (`BETPULSE_RELEASE_LOCK_PID`, accepted only
+    from that parent: set by hand, the run is refused).
+    - **Stale lock** (the owner was killed with `kill -9`, or the host crashed): the run is refused
+      with exit 1 and says the lock is stale. It is never removed automatically. Check that no
+      `deploy.sh`/`rollback.sh` is running (`pgrep -af 'scripts/(deploy|rollback)\.sh'` prints nothing), then
+      `rm -rf .release/.deploy.lock` in the repository root and run again.
+    - **Not covered:** `scripts/prod-compose.sh` (and `make ps-prod`/`logs-prod`/`config-prod`).
+      Read-only commands are harmless, but never run `prod-compose.sh up`/`down`/`pull` while a
+      deploy or rollback is running.
 - **Day-to-day compose commands.** `scripts/prod-compose.sh <args>` (and `make ps-prod`,
   `logs-prod`, `config-prod`) runs `docker compose` on the prod config with the tag and digests
   of the release deployed here (`.release/`); `make deploy`/`rollback` pass `RELEASE_DIGESTS`.
