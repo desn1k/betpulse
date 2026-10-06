@@ -35,7 +35,8 @@ from sqlalchemy import ColumnElement, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.core.deps import TierContextDep, get_db, get_redis_dep
+from app.core.config import Settings
+from app.core.deps import TierContextDep, get_db, get_redis_dep, get_settings_dep
 from app.ml.base import Method
 from app.ml.registry import current_registry_rows
 from app.models.fixture import Fixture, FixtureStatus
@@ -53,6 +54,7 @@ from app.schemas.matches import (
 )
 from app.services import tiers as tiers_service
 from app.services.limits import LimitExceeded, consume_match_view, match_views_remaining
+from app.services.rate_limit import RateLimitExceeded, enforce_match_detail_limit
 
 router = APIRouter(tags=["matches"])
 
@@ -323,8 +325,26 @@ async def get_match(
     session: Annotated[AsyncSession, Depends(get_db)],
     tier_ctx: TierContextDep,
     redis: Annotated[Redis, Depends(get_redis_dep)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
 ) -> MatchDetail:
     now = datetime.now(UTC)
+
+    # Per-caller request limit before any database work: unknown ids do not
+    # spend the daily view quota (below), so this is what bounds them. Same
+    # identity as the quota; a Redis error propagates, as on /analysis.
+    try:
+        await enforce_match_detail_limit(
+            redis,
+            identity=tier_ctx.identity,
+            limit=settings.rate_limit_match_detail_per_window,
+            window_seconds=settings.rate_limit_match_detail_window_seconds,
+        )
+    except RateLimitExceeded as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many match requests",
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from exc
 
     home_team = aliased(Team)
     away_team = aliased(Team)
