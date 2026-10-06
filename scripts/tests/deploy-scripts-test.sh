@@ -120,6 +120,11 @@ run() {
 
 app="api worker-realtime worker-batch worker-ml web mlflow"
 
+# Every file in ROOT/.release, hidden ones included, sorted, space-separated.
+state_files() {
+  find "$1/.release" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' '
+}
+
 # 1. deploy, backend reachable: success, new tag and its digests recorded,
 # every app image (mlflow included) pulled by the release digests.
 root="$(setup_root ok)"
@@ -184,6 +189,11 @@ grep -q "database schema is NOT rolled back" "$root/out.txt" ||
 [[ "$(<"$root/.release/last-successful-image-tag")" == "v1.0.0" ]] ||
   fail "deploy rolled back: last successful tag overwritten"
 [[ ! -f "$root/.release/v2.0.0.digests" ]] || fail "deploy rolled back: failed release stored"
+[[ "$(state_files "$root")" == "last-successful-image-tag v1.0.0.digests " ]] ||
+  fail "deploy rolled back: .release/ holds more than the previous release's state"
+write_digests "$root/expected-v1.digests" v1.0.0 1
+cmp -s "$root/expected-v1.digests" "$root/.release/v1.0.0.digests" ||
+  fail "deploy rolled back: stored digests of the previous release changed"
 
 # 2b. the previous release cannot reach the API either: the rollback fails, exit 3.
 root="$(setup_root rollback-fails)"
@@ -357,8 +367,77 @@ check_version v1.2 invalid
 check_version "v1.2.3 latest" invalid
 check_version "" invalid
 
+# 15. a manual rollback records the restored release as the deployed one:
+# deploy v2.0.0, roll back to v1.0.0 by hand; .release/ then names v1.0.0 (its
+# digests unchanged, no temporary file left), and prod-compose.sh runs it.
+root="$(setup_root manual-rollback)"
+code="$(run "$root" ok deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
+[[ "$code" == "0" ]] || fail "manual rollback: deploy v2.0.0 exit $code, expected 0"
+code="$(run "$root" ok rollback.sh v1.0.0)"
+[[ "$code" == "0" ]] || fail "manual rollback: exit $code, expected 0"
+[[ "$(<"$root/.release/last-successful-image-tag")" == "v1.0.0" ]] ||
+  fail "manual rollback: last successful tag still names the release rolled back from"
+write_digests "$root/expected-v1.digests" v1.0.0 1
+cmp -s "$root/expected-v1.digests" "$root/.release/v1.0.0.digests" ||
+  fail "manual rollback: stored digests of the restored release changed"
+[[ "$(state_files "$root")" == "last-successful-image-tag v1.0.0.digests v2.0.0.digests " ]] ||
+  fail "manual rollback: unexpected files in .release/ (temporary file left?)"
+: >"$root/docker.log"
+PATH="$work/bin:$PATH" STUB_LOG="$root/docker.log" bash "$root/scripts/prod-compose.sh" ps >/dev/null 2>&1 ||
+  fail "manual rollback: prod-compose exit non-zero"
+grep -q "^IMAGE_TAG=v1.0.0 API=$DIGEST1 WEB=$DIGEST1 MLFLOW=$DIGEST1 compose .* ps\$" "$root/docker.log" ||
+  fail "manual rollback: prod-compose does not run the restored release"
+
+# 15b. after that manual rollback, a failed deploy of v3.0.0 rolls back
+# automatically to v1.0.0 (what runs), never to the rejected v2.0.0.
+write_digests "$root/release-v3.0.0.digests" v3.0.0 3
+code="$(READY_FAIL_TAG=v3.0.0 run "$root" ok deploy.sh v3.0.0 "$root/release-v3.0.0.digests")"
+[[ "$code" == "2" ]] || fail "deploy after manual rollback: exit $code, expected 2"
+grep -q "rolled back to v1.0.0, which is healthy and ready" "$root/out.txt" ||
+  fail "deploy after manual rollback: not rolled back to v1.0.0"
+grep -q "^IMAGE_TAG=v1.0.0 API=$DIGEST1 WEB=$DIGEST1 MLFLOW=$DIGEST1 .* up -d --no-deps" "$root/docker.log" ||
+  fail "deploy after manual rollback: v1.0.0 not restarted by its digests"
+if grep -q "^IMAGE_TAG=v2.0.0 " "$root/docker.log"; then
+  fail "deploy after manual rollback: the rejected v2.0.0 was started again"
+fi
+
+# 15c. a failed manual rollback changes nothing in .release/.
+root="$(setup_root manual-rollback-fails)"
+code="$(run "$root" ok deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
+[[ "$code" == "0" ]] || fail "failed manual rollback: deploy v2.0.0 exit $code, expected 0"
+code="$(READY_FAIL_TAG=v1.0.0 run "$root" ok rollback.sh v1.0.0)"
+[[ "$code" == "1" ]] || fail "failed manual rollback: exit $code, expected 1"
+[[ "$(<"$root/.release/last-successful-image-tag")" == "v2.0.0" ]] ||
+  fail "failed manual rollback: last successful tag changed"
+
+# 15d. a manual rollback to a release never deployed here (RELEASE_DIGESTS
+# given) stores its digests, so a later automatic rollback can use them.
+root="$(setup_root manual-rollback-new)"
+write_digests "$root/release-v0.9.0.digests" v0.9.0 9
+code="$(run "$root" ok rollback.sh v0.9.0 "$root/release-v0.9.0.digests")"
+[[ "$code" == "0" ]] || fail "manual rollback new release: exit $code, expected 0"
+cmp -s "$root/release-v0.9.0.digests" "$root/.release/v0.9.0.digests" ||
+  fail "manual rollback new release: digests not stored"
+[[ "$(<"$root/.release/last-successful-image-tag")" == "v0.9.0" ]] ||
+  fail "manual rollback new release: tag not recorded"
+
+# 15e. deploy v2.0.0, roll back to v1.0.0 by hand, then redeploy v2.0.0 and it
+# fails readiness: rolled back automatically to v1.0.0 (exit 2), not "no
+# earlier release" (exit 4).
+root="$(setup_root redeploy-after-rollback)"
+code="$(run "$root" ok deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
+[[ "$code" == "0" ]] || fail "redeploy after rollback: deploy v2.0.0 exit $code, expected 0"
+code="$(run "$root" ok rollback.sh v1.0.0)"
+[[ "$code" == "0" ]] || fail "redeploy after rollback: rollback exit $code, expected 0"
+code="$(READY_FAIL_TAG=v2.0.0 run "$root" ok deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
+[[ "$code" == "2" ]] || fail "redeploy after rollback: exit $code, expected 2"
+grep -q "rolled back to v1.0.0, which is healthy and ready" "$root/out.txt" ||
+  fail "redeploy after rollback: not rolled back to v1.0.0"
+[[ "$(<"$root/.release/last-successful-image-tag")" == "v1.0.0" ]] ||
+  fail "redeploy after rollback: last successful tag is not v1.0.0"
+
 if ((failures > 0)); then
   echo "$failures deploy-script test(s) failed." >&2
   exit 1
 fi
-echo "OK: deploy, rollback, prod-compose and release-version checks behave as expected (22 scenarios)."
+echo "OK: deploy, rollback, prod-compose and release-version checks behave as expected (27 scenarios)."

@@ -47,3 +47,21 @@ load_release_digests() {
   done
   export API_IMAGE_DIGEST="$api" WEB_IMAGE_DIGEST="$web" MLFLOW_IMAGE_DIGEST="$mlflow"
 }
+
+# record_deployed_release STATE_DIR TAG DIGESTS_FILE: record TAG as the release
+# running here (after a successful deploy or rollback). The digests are stored
+# first and the tag last, each through a temporary file renamed into place, so
+# an interrupted run never leaves a tag without its digests or a torn file.
+record_deployed_release() {
+  local state_dir="$1" tag="$2" digests="$3" old_umask
+  old_umask="$(umask)"
+  umask 077
+  mkdir -p "$state_dir"
+  if [[ "$digests" != "$state_dir/$tag.digests" ]]; then
+    cp "$digests" "$state_dir/.$tag.digests.tmp"
+    mv -f "$state_dir/.$tag.digests.tmp" "$state_dir/$tag.digests"
+  fi
+  printf '%s\n' "$tag" >"$state_dir/.last-successful-image-tag.tmp"
+  mv -f "$state_dir/.last-successful-image-tag.tmp" "$state_dir/last-successful-image-tag"
+  umask "$old_umask"
+}

@@ -1082,6 +1082,13 @@ implemented.
     even when the tag does not exist (checked 2026-10-05).
   - `IMAGE_TAG=<version> scripts/rollback.sh` uses `.release/<version>.digests`, or
     `RELEASE_DIGESTS` for a release never deployed on this server.
+  - **A successful rollback records its release as the deployed one** (fixed 2026-10-06; before,
+    `rollback.sh` wrote nothing). It stores the digests (when `RELEASE_DIGESTS` points outside
+    `.release/`) and then `last-successful-image-tag`, each through a temporary file renamed into
+    place; `deploy.sh` records a successful deploy the same way (`record_deployed_release` in
+    `scripts/release-digests.sh`). So after a manual rollback from B to A, `prod-compose.sh` runs A
+    and the next failed deploy rolls back automatically to A, not to the rejected B (and a failed
+    redeploy of B gets exit 2, not 4). A failed rollback changes nothing in `.release/`.
 - **Day-to-day compose commands.** `scripts/prod-compose.sh <args>` (and `make ps-prod`,
   `logs-prod`, `config-prod`) runs `docker compose` on the prod config with the tag and digests
   of the release deployed here (`.release/`); `make deploy`/`rollback` pass `RELEASE_DIGESTS`.
