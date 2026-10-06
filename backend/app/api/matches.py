@@ -326,18 +326,6 @@ async def get_match(
 ) -> MatchDetail:
     now = datetime.now(UTC)
 
-    # Enforce the per-day match-view budget before doing any work. Guests are
-    # counted per client IP, authenticated callers per user id (see get_tier_context).
-    try:
-        await consume_match_view(
-            redis, identity=tier_ctx.identity, limit=tier_ctx.tier.matches_per_day(), now=now
-        )
-    except LimitExceeded as exc:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"tier_required": _next_tier_for_limit(tier_ctx.tier.name)},
-        ) from exc
-
     home_team = aliased(Team)
     away_team = aliased(Team)
 
@@ -353,6 +341,21 @@ async def get_match(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Match not found")
     fx, lg, home_name, away_name = row
+
+    # Count the view against the per-day budget only once the match exists, so
+    # an unknown id never spends it (ER-M-05). Deliberately after the 404: an
+    # exhausted caller can tell a real id from a made-up one, which is accepted
+    # because /matches lists them publicly. Guests are counted per client IP,
+    # authenticated callers per user id (see get_tier_context).
+    try:
+        await consume_match_view(
+            redis, identity=tier_ctx.identity, limit=tier_ctx.tier.matches_per_day(), now=now
+        )
+    except LimitExceeded as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"tier_required": _next_tier_for_limit(tier_ctx.tier.name)},
+        ) from exc
 
     latest_by_fixture, versions = await _latest_1x2(session, [fixture_id])
     latest = latest_by_fixture.get(fixture_id, {})
