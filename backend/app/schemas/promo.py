@@ -17,8 +17,9 @@ from app.schemas.base import RequestModel
 class BatchCreate(RequestModel):
     name: str = Field(min_length=1, max_length=128)
     code_type: PromoCodeType
-    # Multiple of 500 (validated server-side for a clear error message).
-    size: int = Field(ge=500)
+    # Multiple of 500 (validated server-side for a clear error message), at
+    # most services.promo.BATCH_MAX (ER-M-03).
+    size: int = Field(ge=500, le=100_000)
     value: Decimal | None = Field(default=None, ge=0)
     tier_id: uuid.UUID | None = None
     bound_user_id: uuid.UUID | None = None
