@@ -1240,6 +1240,11 @@ Check these on the server during the first launch (runbook: `docs/DEPLOY_VPS.md`
   fail its checks (or make `/api/ready` fail on purpose) and confirm `deploy.sh` restores the
   previous release by its stored digests, then that the site and `/api/ready` are back. Drilled
   on the local stack in the rc5 rehearsal (exit 2 and exit 3); not yet on a server.
+- [ ] **Real client addresses for IPv4 and IPv6 (F5, launch blocker).** From an IPv4 and from an
+  IPv6 client, open a match page; Caddy's logs must show each client's real `remote_ip`, never
+  `172.29.89.1` (the Caddyfile has no access log today: add a `log` directive for the check, or
+  rely on the next point), and Redis must hold a quota entry under each real address (IPv6 as
+  its /64; `redis-cli --scan --pattern 'limits:*'`). Do not open the site until both pass.
 - [ ] **Rollback to a previous release by digest.** As soon as a second release with a digests
   file exists (rc5 or v0.0.1 after rc4), deploy it, then `IMAGE_TAG=<previous> scripts/rollback.sh`
   and check every app container runs the previous release's digests. Done locally in the rc5
@@ -1631,6 +1636,55 @@ ignored. Line numbers are as of `5eedb0b` and will drift.
 | ER-L-01 | Confirmed, negligible | `XgModel` built in the loop (`ml/features.py:190-194`), but its `__init__` is trivial (`ml/xg.py:35-36`) | Low (cosmetic) | Hoist out of the loop | — | Later |
 | ER-L-02 | Confirmed | O(n·k) season grouping (`services/backtester/engine.py:241-252`), k ≤ 7 | Low | `defaultdict` | — | Later |
 | ER-L-03 | Confirmed | Stale module docstring (`api/matches.py:1-7`) | Low | Docstring rewrite | — | **Fixed in this docs PR** |
+
+ER-M-05 follow-up (CodeRabbit, same PR): with a 404 no longer spending the daily quota, unknown
+ids had no limit at all, so `GET /matches/{id}` now has a per-caller request limit **before** the
+fixture lookup: `rl:match_detail:{identity}` (the quota's identity), `RATE_LIMIT_MATCH_DETAIL_PER_WINDOW`
+= 120 per `RATE_LIMIT_MATCH_DETAIL_WINDOW_SECONDS` = 60, 429 with `Retry-After`. A Redis error
+fails the request (fail-closed), as on `/analysis`.
+
+### Found later (2026-10-06): F5–F7
+
+Found while checking the ER-M-05 follow-up; the F-series continues the rehearsal findings (F1–F4,
+§9i). None is fixed yet.
+
+- **F5 — all IPv6 guests may share one identity. LAUNCH BLOCKER for the first VPS run.** Caddy
+  publishes `[::]:80`/`[::]:443`, but the `betpulse` network is IPv4-only, so Docker hands IPv6
+  connections to its userland proxy (`docker-proxy`), and Caddy then sees them coming from the
+  bridge gateway, `172.29.89.1`. Every IPv6 visitor would be one guest. The application chain
+  itself is correct (Caddy drops incoming `X-Forwarded-For`, the BFF forwards the right-most
+  address, the API trusts only `web`/`caddy`); in the rc5 rehearsal a request through Caddy and
+  the BFF was counted under the real client address, which on Docker Desktop is the gateway for
+  all host traffic, so the VPS behaviour is unverified. **Affects today** the daily guest quota
+  (3 views/day shared by every IPv6 guest) and, **after the ER-M-05 follow-up**, the new
+  match-detail rate limit (120/min shared).
+  - Candidate fixes:
+    1. **IPv6 on the compose network** (`enable_ipv6: true` with a ULA subnet, Docker ≥ 27 with
+       `ip6tables`): Docker then NATs IPv6 like IPv4 and keeps the source address. Pin
+       IPv6 addresses for `web` and `caddy` too and add them to `TRUSTED_PROXY_CIDRS`, or keep the
+       internal hops on IPv4; otherwise the API would see the BFF's IPv6 address as the client.
+    2. **Caddy with `network_mode: host`**: real addresses for both families, but Caddy leaves
+       the pinned network (its `172.29.89.11` entry in `TRUSTED_PROXY_CIDRS`, its route to `web`
+       and `api`) and binds the host directly.
+    3. **No IPv6 at the edge**: publish IPv4 only and no AAAA record. Simplest, but IPv6-only
+       clients cannot reach the site.
+  - **Recommendation:** 1; if it cannot be finished before launch, 3 as a stopgap (never launch
+    with the collapse in place).
+  - First-VPS checklist item (below).
+- **F6 — the daily view quota is spent by the page's own refetch. Defect; next PR slot, before
+  ER-H-02.** `useMatch` refetches `GET /matches/{id}` every 60 s (`frontend/lib/queries.ts`, plus
+  `retry: 1`), and every call counts a view: a guest with one match tab open spends the 3 daily
+  views in about 3 minutes without a click (a free user their tier's budget likewise).
+  - Options: (a) count **unique `(identity, fixture)` per day** (a Redis set per identity and
+    day: a fixture already viewed today is free; the quota limits distinct matches); (b) **no
+    polling for guests**.
+  - **Recommendation: (a).** It fixes every tier, not only guests, keeps live updates on the page,
+    and matches what a "match view" means to a user; (b) leaves signed-in users burning their
+    budget and drops live refresh for guests. Check the spec's wording of the quota with it.
+- **F7 — the public `/matches` list has no rate limit.** It runs the heaviest public query
+  (list, filters, consensus) and only `/matches/{id}` and `/analysis` are limited. Slot:
+  **pre-launch protection group** (before the first public release, with ER-M-04 / §11 O2 and
+  F5). Fix: the same per-caller fixed window, from settings.
 
 ## 10. How to resume
 
