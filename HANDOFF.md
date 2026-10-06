@@ -1687,6 +1687,14 @@ Found while checking the ER-M-05 follow-up; the F-series continues the rehearsal
   (list, filters, consensus) and only `/matches/{id}` and `/analysis` are limited. Slot:
   **pre-launch protection group** (before the first public release, with ER-M-04 / §11 O2 and
   F5). Fix: the same per-caller fixed window, from settings.
+  - **Same group: rate limit before tier resolution** (CodeRabbit on the ER-M-05 follow-up).
+    `/matches/{id}`, `/analysis` and (once limited) `/matches` check their limit inside the
+    handler, after `get_tier_context` has run. For a guest that is no database work (no token →
+    `get_optional_user` returns `None`; the guest tier is a constant plus a Redis-cached config);
+    for a signed-in caller with a valid signed token it is two indexed queries (the user, the
+    best active subscription) before the limit. Fix for all three together: a dependency that
+    derives the limit identity (verified token subject, or the guest IP bucket) and enforces the
+    limit before tier resolution, so `/analysis` and `/matches/{id}` stay alike.
 
 ## 10. How to resume
 
