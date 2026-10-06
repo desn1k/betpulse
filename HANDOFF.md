@@ -1241,7 +1241,8 @@ Check these on the server during the first launch (runbook: `docs/DEPLOY_VPS.md`
   previous release by its stored digests, then that the site and `/api/ready` are back. Drilled
   on the local stack in the rc5 rehearsal (exit 2 and exit 3); not yet on a server.
 - [ ] **Real client addresses for IPv4 and IPv6 (F5, launch blocker).** From an IPv4 and from an
-  IPv6 client, open a match page; Caddy's logs must show each client's real `remote_ip`, never
+  IPv6 client, **signed out** (a guest: a signed-in caller is counted by user id, not address),
+  open a match page; Caddy's logs must show each client's real `remote_ip`, never
   `172.29.89.1` (the Caddyfile has no access log today: add a `log` directive for the check, or
   rely on the next point), and Redis must hold a quota entry under each real address (IPv6 as
   its /64; `redis-cli --scan --pattern 'limits:*'`). Do not open the site until both pass.
@@ -1651,13 +1652,14 @@ Found while checking the ER-M-05 follow-up; the F-series continues the rehearsal
 - **F5 — all IPv6 guests may share one identity. LAUNCH BLOCKER for the first VPS run.** Caddy
   publishes `[::]:80`/`[::]:443`, but the `betpulse` network is IPv4-only, so Docker hands IPv6
   connections to its userland proxy (`docker-proxy`), and Caddy then sees them coming from the
-  bridge gateway, `172.29.89.1`. Every IPv6 visitor would be one guest. The application chain
+  bridge gateway, `172.29.89.1`. Every IPv6 **guest** would be one identity (signed-in callers
+  are counted by user id and are not affected). The application chain
   itself is correct (Caddy drops incoming `X-Forwarded-For`, the BFF forwards the right-most
   address, the API trusts only `web`/`caddy`); in the rc5 rehearsal a request through Caddy and
   the BFF was counted under the real client address, which on Docker Desktop is the gateway for
   all host traffic, so the VPS behaviour is unverified. **Affects today** the daily guest quota
   (3 views/day shared by every IPv6 guest) and, **after the ER-M-05 follow-up**, the new
-  match-detail rate limit (120/min shared).
+  match-detail rate limit (120/min shared by those guests).
   - Candidate fixes:
     1. **IPv6 on the compose network** (`enable_ipv6: true` with a ULA subnet, Docker ≥ 27 with
        `ip6tables`): Docker then NATs IPv6 like IPv4 and keeps the source address. Pin
