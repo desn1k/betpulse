@@ -839,8 +839,9 @@ implemented.
     - A failure triggers the existing automatic rollback, with a message naming
       `API_BASE_URL` / the api service.
     - An image without the route (404) fails at once.
-  - **`rollback.sh`.** It runs the same probe after the rollback. A restored image that predates
-    the route only gets a warning.
+  - **`rollback.sh`.** It runs the same probe after the rollback. A restored image without the
+    route (404) is a failure since F4: its readiness cannot be verified, and every release with a
+    digests file has the route (until then it only got a warning).
   - **Tests.** `scripts/tests/deploy-scripts-test.sh` (stubbed `docker`/`sleep`, run in CI) covers
     6 scenarios: deploy ok, unreachable → rollback to the previous tag, old image; rollback ok,
     unreachable, old image.
@@ -1063,8 +1064,22 @@ implemented.
     checks that the file is for that version and that every digest is `sha256:<64 hex>`, pulls
     and restarts `api`, the three workers, `web` **and `mlflow`**, and keeps a copy as
     `.release/<version>.digests`.
-  - The automatic rollback restores the previous release by its stored digests; without them it
-    does not roll back blindly by tag and says how to run `scripts/rollback.sh`.
+  - The automatic rollback (F4) runs `scripts/rollback.sh` itself, non-interactively, with the
+    previous release's stored digests: pull and up by digest, then wait for every service and
+    `/api/ready`. Manual and automatic rollback are one code path. Without stored digests it does
+    not roll back blindly by tag and says how to run `scripts/rollback.sh`.
+  - **`deploy.sh` exit codes:**
+    - `0` deployed, healthy and ready;
+    - `1` refused before anything changed (no `.env`, bad `IMAGE_TAG`, bad or missing digests
+      file);
+    - `2` deployment failed, the previous release was restored and is healthy and ready;
+    - `3` deployment failed **and the automatic rollback failed too: the site may be down**;
+    - `4` deployment failed, no automatic rollback (first deploy on this server, or no stored
+      digests for the previous release).
+    Codes 2–4 also say whether migrations ran, or only the TimescaleDB extension was updated:
+    the database schema is never rolled back (ER-H-08). Before F4 a failure exited with the failing command's own code (any number).
+  - The tag in an image reference is decorative: Docker pulls `repo:tag@digest` by the digest
+    even when the tag does not exist (checked 2026-10-05).
   - `IMAGE_TAG=<version> scripts/rollback.sh` uses `.release/<version>.digests`, or
     `RELEASE_DIGESTS` for a release never deployed on this server.
 - **Day-to-day compose commands.** `scripts/prod-compose.sh <args>` (and `make ps-prod`,
@@ -1141,7 +1156,9 @@ secrets.
     poll left in Redis by an older release returns without a request and without rescheduling.
     To enable live: set the key, restart `worker-realtime`. Not yet seen on a live stack (needs
     the next rc image);
-  - F4: `deploy.sh`'s automatic rollback does not wait for health or `/api/ready`.
+  - F4: `deploy.sh`'s automatic rollback does not wait for health or `/api/ready` — fixed
+    2026-10-05: it runs `rollback.sh` and reports the outcome by exit code (see "Release images
+    and digests"). Not yet provoked on a live stack (first-VPS checklist; drill planned on rc5).
 
 ### First VPS launch: items no rehearsal could verify
 

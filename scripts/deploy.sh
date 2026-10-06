@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+# Deploy a release by digest: IMAGE_TAG=vX.Y.Z RELEASE_DIGESTS=release-vX.Y.Z.digests
+#
+# Exit codes (HANDOFF section 9i):
+#   0  deployed, healthy and ready;
+#   1  refused before anything changed (no .env, bad IMAGE_TAG, bad or missing digests file);
+#   2  deployment failed, the previous release was restored and is healthy and ready;
+#   3  deployment failed and the automatic rollback failed too: the site may be down;
+#   4  deployment failed, no automatic rollback (first deploy here, or no stored digests
+#      for the previous release).
+# 2, 3 and 4 also say whether migrations ran or the TimescaleDB extension was
+# updated: the schema is never rolled back.
 set -Eeuo pipefail
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -123,6 +134,7 @@ update_timescale_extension() {
     installed="$(psql_in "$db" <<<"SELECT extversion FROM pg_extension WHERE extname = 'timescaledb';")"
     [[ -n "$installed" ]] || continue
     echo "TimescaleDB $installed in database $db; running ALTER EXTENSION timescaledb UPDATE."
+    extension_updated=true # set first, like migrations_ran
     psql_in "$db" <<<"ALTER EXTENSION timescaledb UPDATE;"
   done <<<"$databases"
 }
@@ -132,19 +144,44 @@ if [[ -f "$last_successful_tag_file" ]]; then
   previous_tag="$(<"$last_successful_tag_file")"
 fi
 
-rollback_on_failure() {
-  local exit_code="$?"
-  if [[ -n "$previous_tag" && "$previous_tag" != "$image_tag" ]]; then
-    if ! load_release_digests "$state_dir/$previous_tag.digests" "$previous_tag"; then
-      echo "No stored digests for $previous_tag: not rolling back automatically. Run scripts/rollback.sh with IMAGE_TAG=$previous_tag and RELEASE_DIGESTS=release-$previous_tag.digests." >&2
-      exit "$exit_code"
-    fi
-    echo "Deployment failed; restoring application images of $previous_tag." >&2
-    image_tag="$previous_tag"
-    compose pull "${app_services[@]}" || true
-    compose up -d --no-deps --remove-orphans "${app_services[@]}" || true
+migrations_ran=false
+extension_updated=false
+schema_note() {
+  if [[ "$migrations_ran" == true ]]; then
+    echo "Note: the database schema is NOT rolled back: the migrations of $image_tag already ran (HANDOFF ER-H-08)." >&2
+  elif [[ "$extension_updated" == true ]]; then
+    echo "Note: no migration ran, but a TimescaleDB extension update may have changed the database schema; it is NOT rolled back (HANDOFF ER-H-08)." >&2
+  else
+    echo "Note: no migration ran, so the database schema is unchanged." >&2
   fi
-  exit "$exit_code"
+}
+
+# Any failing step lands here. The previous release is restored by
+# scripts/rollback.sh itself (pull and up by its stored digests, then wait for
+# every service and /api/ready), so a manual and an automatic rollback are the
+# same code path and the outcome is known: exit 2 restored, exit 3 not.
+rollback_on_failure() {
+  trap - ERR
+  if [[ -z "$previous_tag" || "$previous_tag" == "$image_tag" ]]; then
+    echo "Deployment of $image_tag failed; there is no earlier release to roll back to." >&2
+    schema_note
+    exit 4
+  fi
+  if [[ ! -f "$state_dir/$previous_tag.digests" ]]; then
+    echo "Deployment of $image_tag failed. No stored digests for $previous_tag: not rolling back automatically. Run scripts/rollback.sh with IMAGE_TAG=$previous_tag and RELEASE_DIGESTS=release-$previous_tag.digests." >&2
+    schema_note
+    exit 4
+  fi
+  echo "Deployment of $image_tag failed; rolling back to $previous_tag (scripts/rollback.sh)." >&2
+  if IMAGE_TAG="$previous_tag" RELEASE_DIGESTS="$state_dir/$previous_tag.digests" \
+    bash "$root_dir/scripts/rollback.sh" </dev/null; then
+    echo "Deployment of $image_tag failed; rolled back to $previous_tag, which is healthy and ready." >&2
+    schema_note
+    exit 2
+  fi
+  echo "AUTOMATIC ROLLBACK TO $previous_tag FAILED: the site may be down. Check scripts/prod-compose.sh ps and the logs, then run IMAGE_TAG=<release> scripts/rollback.sh by hand." >&2
+  schema_note
+  exit 3
 }
 trap rollback_on_failure ERR
 
@@ -154,6 +191,7 @@ wait_for_service postgres
 wait_for_service redis
 
 update_timescale_extension
+migrations_ran=true # set first: a half-applied upgrade has changed the schema too
 compose run --rm api alembic upgrade head
 compose up -d --remove-orphans
 for service in "${app_services[@]}" caddy; do

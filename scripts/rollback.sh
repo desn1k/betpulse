@@ -89,8 +89,11 @@ verify_bff_ready() {
       return 0
     fi
     if [[ "$status" -eq 2 ]]; then
-      echo "Warning: image $image_tag predates /api/ready; the web -> API check was skipped. Verify the site by hand." >&2
-      return 0
+      # Every release with a digests file (v0.0.1-rc4 onward) has /api/ready, so
+      # an image without it cannot be confirmed ready: a failure, never a pass
+      # (deploy.sh reports exit 2 "healthy and ready" only after a real check).
+      echo "Image $image_tag has no /api/ready, so its readiness cannot be verified. Check the site by hand." >&2
+      return 1
     fi
     sleep 2
   done
