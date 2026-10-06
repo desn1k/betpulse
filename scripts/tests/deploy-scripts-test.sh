@@ -14,7 +14,22 @@ set -Eeuo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# Release every held stub (see STUB_BLOCK_DIR) and give it a moment to see
+# that, before its directory goes away.
+cleanup() {
+  local dir
+  for dir in "$work"/root-*/block; do
+    [[ -d "$dir" ]] && : >"$dir/go"
+  done
+  for dir in "$work"/root-*/block; do
+    for ((tick = 0; tick < 30; tick++)); do
+      [[ ! -f "$dir/started" || -f "$dir/done" ]] && break
+      /usr/bin/sleep 0.1
+    done
+  done
+  rm -rf "$work"
+}
+trap cleanup EXIT
 
 mkdir -p "$work/bin"
 cat >"$work/bin/docker" <<'STUB'
@@ -31,10 +46,17 @@ if [[ "${1:-}" == "inspect" ]]; then
 fi
 args=" $* "
 # STUB_BLOCK_DIR: `compose pull` writes <dir>/started, then waits for <dir>/go
-# (a deploy held mid-run, to signal it).
+# (a deploy held mid-run, to signal it) and writes <dir>/done. The wait is
+# bounded (STUB_BLOCK_TICKS x 0.1 s, default 30 s): a stub whose test is gone
+# fails instead of looping forever (seen once after the rc5 work).
 if [[ -n "${STUB_BLOCK_DIR:-}" && "$args" == *" pull "* ]]; then
   : >"$STUB_BLOCK_DIR/started"
-  while [[ ! -f "$STUB_BLOCK_DIR/go" ]]; do /usr/bin/sleep 0.1; done
+  for ((tick = 0; tick < ${STUB_BLOCK_TICKS:-300}; tick++)); do
+    [[ -f "$STUB_BLOCK_DIR/go" ]] && break
+    /usr/bin/sleep 0.1
+  done
+  : >"$STUB_BLOCK_DIR/done" 2>/dev/null || true
+  [[ -f "$STUB_BLOCK_DIR/go" ]] || exit 1
 fi
 if [[ "$args" == *" ps -q "* ]]; then
   echo "container-id"
@@ -540,6 +562,11 @@ wait "$deploy_pid"
 code=$?
 set -e
 [[ "$code" == "143" ]] || fail "sigterm: exit $code, expected 143"
+for ((i = 0; i < 300; i++)); do
+  [[ -f "$root/block/done" ]] && break
+  /usr/bin/sleep 0.1
+done
+[[ -f "$root/block/done" ]] || fail "sigterm: the held docker stub never finished"
 lock_released "$root" "sigterm"
 [[ "$(<"$root/.release/last-successful-image-tag")" == "v1.0.0" ]] ||
   fail "sigterm: release state changed"
@@ -577,8 +604,20 @@ set -e
   fail "lock pid write fails: ownership or traps left behind ($out)"
 lock_released "$root" "lock pid write fails"
 
+# 16i. the held docker stub itself: with no go file it gives up after its
+# deadline (fails, writes done) rather than waiting forever.
+root="$(setup_root stub-deadline)"
+mkdir -p "$root/block"
+set +e
+STUB_LOG="$root/docker.log" STUB_BLOCK_DIR="$root/block" STUB_BLOCK_TICKS=3 \
+  "$work/bin/docker" compose pull api >/dev/null 2>&1
+code=$?
+set -e
+[[ "$code" == "1" ]] || fail "stub deadline: exit $code, expected 1"
+[[ -f "$root/block/done" ]] || fail "stub deadline: done marker not written"
+
 if ((failures > 0)); then
   echo "$failures deploy-script test(s) failed." >&2
   exit 1
 fi
-echo "OK: deploy, rollback, prod-compose and release-version checks behave as expected (35 scenarios)."
+echo "OK: deploy, rollback, prod-compose and release-version checks behave as expected (36 scenarios)."
