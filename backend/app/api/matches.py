@@ -35,7 +35,8 @@ from sqlalchemy import ColumnElement, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.core.deps import TierContextDep, get_db, get_redis_dep
+from app.core.config import Settings
+from app.core.deps import TierContextDep, get_db, get_redis_dep, get_settings_dep
 from app.ml.base import Method
 from app.ml.registry import current_registry_rows
 from app.models.fixture import Fixture, FixtureStatus
@@ -53,6 +54,7 @@ from app.schemas.matches import (
 )
 from app.services import tiers as tiers_service
 from app.services.limits import LimitExceeded, consume_match_view, match_views_remaining
+from app.services.rate_limit import RateLimitExceeded, enforce_match_detail_limit
 
 router = APIRouter(tags=["matches"])
 
@@ -323,19 +325,25 @@ async def get_match(
     session: Annotated[AsyncSession, Depends(get_db)],
     tier_ctx: TierContextDep,
     redis: Annotated[Redis, Depends(get_redis_dep)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
 ) -> MatchDetail:
     now = datetime.now(UTC)
 
-    # Enforce the per-day match-view budget before doing any work. Guests are
-    # counted per client IP, authenticated callers per user id (see get_tier_context).
+    # Per-caller request limit before any database work: unknown ids do not
+    # spend the daily view quota (below), so this is what bounds them. Same
+    # identity as the quota; a Redis error propagates, as on /analysis.
     try:
-        await consume_match_view(
-            redis, identity=tier_ctx.identity, limit=tier_ctx.tier.matches_per_day(), now=now
+        await enforce_match_detail_limit(
+            redis,
+            identity=tier_ctx.identity,
+            limit=settings.rate_limit_match_detail_per_window,
+            window_seconds=settings.rate_limit_match_detail_window_seconds,
         )
-    except LimitExceeded as exc:
+    except RateLimitExceeded as exc:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"tier_required": _next_tier_for_limit(tier_ctx.tier.name)},
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many match requests",
+            headers={"Retry-After": str(exc.retry_after)},
         ) from exc
 
     home_team = aliased(Team)
@@ -353,6 +361,21 @@ async def get_match(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Match not found")
     fx, lg, home_name, away_name = row
+
+    # Count the view against the per-day budget only once the match exists, so
+    # an unknown id never spends it (ER-M-05). Deliberately after the 404: an
+    # exhausted caller can tell a real id from a made-up one, which is accepted
+    # because /matches lists them publicly. Guests are counted per client IP,
+    # authenticated callers per user id (see get_tier_context).
+    try:
+        await consume_match_view(
+            redis, identity=tier_ctx.identity, limit=tier_ctx.tier.matches_per_day(), now=now
+        )
+    except LimitExceeded as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"tier_required": _next_tier_for_limit(tier_ctx.tier.name)},
+        ) from exc
 
     latest_by_fixture, versions = await _latest_1x2(session, [fixture_id])
     latest = latest_by_fixture.get(fixture_id, {})

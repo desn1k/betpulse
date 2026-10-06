@@ -209,6 +209,35 @@ async def test_guest_daily_limit_then_403(client: AsyncClient, session: AsyncSes
 
 
 @pytest.mark.asyncio
+async def test_unknown_match_id_does_not_spend_the_view_quota(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    # ER-M-05: the fixture is looked up before a view is counted, so a 404
+    # leaves the guest's daily budget untouched.
+    await _seed_match(session)
+    assert (await client.get("/matches")).json()["matches_remaining"] == 3
+    for _ in range(3):
+        assert (await client.get(f"/matches/{uuid.uuid4()}")).status_code == 404
+    assert (await client.get("/matches")).json()["matches_remaining"] == 3
+
+
+@pytest.mark.asyncio
+async def test_exhausted_guest_gets_404_for_unknown_and_403_for_known(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    # Deliberate (ER-M-05): the 404 comes before the quota check, so an
+    # exhausted guest can tell a real match id from a made-up one. Matches are
+    # public in /matches anyway.
+    fixture = await _seed_match(session)
+    for _ in range(3):
+        assert (await client.get(f"/matches/{fixture.id}")).status_code == 200
+    assert (await client.get(f"/matches/{uuid.uuid4()}")).status_code == 404
+    blocked = await client.get(f"/matches/{fixture.id}")
+    assert blocked.status_code == 403
+    assert blocked.json()["detail"]["tier_required"] == "free"
+
+
+@pytest.mark.asyncio
 async def test_list_reports_matches_remaining(client: AsyncClient, session: AsyncSession) -> None:
     fixture = await _seed_match(session)
     # Guest starts with 3; after two detail views the list reports 1 remaining.

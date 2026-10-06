@@ -47,6 +47,15 @@ async def enforce_llm_analysis_limit(redis: Redis, *, identity: str, limit: int)
     )
 
 
+async def enforce_match_detail_limit(
+    redis: Redis, *, identity: str, limit: int, window_seconds: int
+) -> None:
+    """Per-caller match-detail request limit, before the fixture lookup."""
+    await enforce_fixed_window(
+        redis, key=f"rl:match_detail:{identity}", limit=limit, window_seconds=window_seconds
+    )
+
+
 async def enforce_admin_mutation_ip_limit(redis: Redis, *, ip: str, limit: int) -> None:
     """Per-IP admin mutation limit (per minute; IPv6 per /64)."""
     await enforce_fixed_window(

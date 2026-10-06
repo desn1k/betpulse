@@ -68,7 +68,10 @@ PUBLIC_ROUTES: dict[tuple[str, str], tuple[Policy, str]] = {
         "Telegram calls it; authenticated by the webhook secret header",
     ),
     ("GET", "/matches"): (Policy.PUBLIC_TIER, "match list; guests limited by tier"),
-    ("GET", "/matches/{fixture_id}"): (Policy.PUBLIC_TIER, "match card; guest quota by IP"),
+    ("GET", "/matches/{fixture_id}"): (
+        Policy.PUBLIC_TIER,
+        "match card; per-caller rate limit, then guest quota by IP",
+    ),
     ("GET", "/matches/{fixture_id}/analysis"): (
         Policy.PUBLIC_TIER,
         "LLM analysis; access by tier and the match's rank",

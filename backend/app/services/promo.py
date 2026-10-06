@@ -37,6 +37,9 @@ from app.models.tier import Subscription, SubscriptionSource, Tier
 from app.models.user import User
 
 BATCH_MULTIPLE = 500
+# Upper bound on one batch (ER-M-03): every code is generated, hashed and
+# returned in a single request. Keep in sync with schemas/promo.py.
+BATCH_MAX = 100_000
 # Unambiguous alphabet (no 0/O/1/I) for human-typable codes.
 _ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _GROUPS = 3
@@ -122,6 +125,8 @@ async def generate_batch(
 ) -> GeneratedBatch:
     if size <= 0 or size % BATCH_MULTIPLE != 0:
         raise BatchSizeInvalid(f"size must be a positive multiple of {BATCH_MULTIPLE}")
+    if size > BATCH_MAX:
+        raise BatchSizeInvalid(f"size must be at most {BATCH_MAX}")
 
     batch = PromoBatch(
         name=name,

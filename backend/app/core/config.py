@@ -224,6 +224,11 @@ class Settings(BaseSettings):
     rate_limit_promo_per_hour: int = 10
     rate_limit_llm_analysis_per_minute: int = 20
     rate_limit_admin_mutation_per_minute: int = 60
+    # GET /matches/{id}, per caller (user id, or guest IP / IPv6 /64), checked
+    # before the fixture lookup. A match page refetches once a minute per tab,
+    # and guests behind one NAT share a bucket, hence the headroom.
+    rate_limit_match_detail_per_window: int = 120
+    rate_limit_match_detail_window_seconds: int = 60
 
     # --- Reverse proxies ----------------------------------------------------
     # Comma-separated CIDRs whose X-Forwarded-For is honoured (Caddy and the

@@ -18,11 +18,18 @@ from app.models.promo import (
 )
 from app.models.tier import Subscription, Tier
 from app.models.user import User, UserRole, UserTier
-from app.services.promo import hash_code
+from app.schemas.promo import BatchCreate
+from app.services.promo import BatchSizeInvalid, generate_batch, hash_code
 from app.services.tiers import PRO, seed_default_tiers
 from httpx import AsyncClient
+from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+# ER-M-03: the largest batch, and the smallest refused size that is still a
+# multiple of 500 (so only the upper bound can refuse it).
+BATCH_CAP = 100_000
+OVER_CAP = 100_500
 
 
 async def _user(session: AsyncSession, *, admin: bool = False) -> tuple[User, dict[str, str]]:
@@ -117,6 +124,40 @@ async def test_batch_size_must_be_multiple_of_500(
         json={"name": "x", "code_type": "upgrade", "size": 501},
     )
     assert bad.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_batch_size_above_the_cap_is_refused_before_any_code_is_made(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    _, admin = await _user(session, admin=True)
+    resp = await client.post(
+        "/admin/promo/batches",
+        headers=admin,
+        json={"name": "x", "code_type": "upgrade", "size": OVER_CAP},
+    )
+    assert resp.status_code == 422
+    assert await session.scalar(select(func.count()).select_from(PromoBatch)) == 0
+    assert await session.scalar(select(func.count()).select_from(PromoCode)) == 0
+
+
+def test_batch_create_accepts_the_cap_and_refuses_above() -> None:
+    # The cap itself is checked on the schema: an API call would make 100k codes.
+    from app.services.promo import BATCH_MAX
+
+    assert BATCH_MAX == BATCH_CAP  # the service and the schema share one bound
+    ok = BatchCreate(name="x", code_type=PromoCodeType.upgrade, size=BATCH_CAP)
+    assert ok.size == BATCH_CAP
+    with pytest.raises(ValidationError):
+        BatchCreate(name="x", code_type=PromoCodeType.upgrade, size=OVER_CAP)
+
+
+@pytest.mark.asyncio
+async def test_generate_batch_refuses_above_the_cap(session: AsyncSession) -> None:
+    # The service checks it too, for any caller that skips the schema.
+    with pytest.raises(BatchSizeInvalid):
+        await generate_batch(session, name="x", code_type=PromoCodeType.upgrade, size=OVER_CAP)
+    assert await session.scalar(select(func.count()).select_from(PromoBatch)) == 0
 
 
 # --- redemption --------------------------------------------------------------
