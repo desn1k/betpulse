@@ -126,7 +126,13 @@ acquire_release_lock() {
     fi
     return 1
   fi
-  printf '%s\n' "$$" >"$release_lock_dir/pid"
+  # Checked explicitly: called as `acquire_release_lock ... || exit 1`, set -e
+  # does not apply here, and a lock without its PID could never be released.
+  if ! printf '%s\n' "$$" >"$release_lock_dir/pid"; then
+    rm -rf "$release_lock_dir"
+    echo "Refused: could not write $release_lock_dir/pid (disk full or not writable?)." >&2
+    return 1
+  fi
   release_lock_owned=true
   export BETPULSE_RELEASE_LOCK_PID="$$"
   _chain_trap release_release_lock EXIT

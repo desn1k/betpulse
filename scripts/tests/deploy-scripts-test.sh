@@ -558,8 +558,27 @@ out="$(bash -c '
 [[ "$out" == *"old-exit quoted"* ]] || fail "trap chain: existing EXIT trap replaced"
 lock_released "$root" "trap chain"
 
+# 16h. the PID cannot be written (disk full): the new lock is removed again and
+# the run refused; no ownership, no traps left behind.
+root="$(setup_root lock-pid-write-fails)"
+set +e
+out="$(bash -c '
+  set -Eeuo pipefail
+  . "$1/scripts/release-digests.sh"
+  printf() { return 1; }
+  acquire_release_lock "$1/.release" && exit 0
+  echo "refused owned=$release_lock_owned exit-trap=[$(trap -p EXIT)]"
+  exit 1
+' _ "$root" 2>&1)"
+code=$?
+set -e
+[[ "$code" == "1" ]] || fail "lock pid write fails: exit $code, expected 1"
+[[ "$out" == *"refused owned=false exit-trap=[]"* ]] ||
+  fail "lock pid write fails: ownership or traps left behind ($out)"
+lock_released "$root" "lock pid write fails"
+
 if ((failures > 0)); then
   echo "$failures deploy-script test(s) failed." >&2
   exit 1
 fi
-echo "OK: deploy, rollback, prod-compose and release-version checks behave as expected (34 scenarios)."
+echo "OK: deploy, rollback, prod-compose and release-version checks behave as expected (35 scenarios)."
