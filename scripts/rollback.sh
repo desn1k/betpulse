@@ -35,6 +35,8 @@ if [[ ! -f "$digests_file" ]]; then
   exit 1
 fi
 load_release_digests "$digests_file" "$image_tag" || exit 1
+# Under deploy.sh's automatic rollback this reuses the parent's lock.
+acquire_release_lock "$state_dir" || exit 1
 
 compose() {
   IMAGE_TAG="$image_tag" docker compose --env-file "$env_file" \

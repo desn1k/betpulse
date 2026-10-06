@@ -30,6 +30,12 @@ if [[ "${1:-}" == "inspect" ]]; then
   exit 0
 fi
 args=" $* "
+# STUB_BLOCK_DIR: `compose pull` writes <dir>/started, then waits for <dir>/go
+# (a deploy held mid-run, to signal it).
+if [[ -n "${STUB_BLOCK_DIR:-}" && "$args" == *" pull "* ]]; then
+  : >"$STUB_BLOCK_DIR/started"
+  while [[ ! -f "$STUB_BLOCK_DIR/go" ]]; do /usr/bin/sleep 0.1; done
+fi
 if [[ "$args" == *" ps -q "* ]]; then
   echo "container-id"
   exit 0
@@ -111,6 +117,7 @@ run() {
   PATH="$work/bin:$PATH" STUB_LOG="$log" STUB_READY="$ready" IMAGE_TAG="$tag" \
     STUB_READY_FAIL_TAG="${READY_FAIL_TAG:-}" STUB_UNHEALTHY_TAG="${UNHEALTHY_TAG:-}" \
     STUB_TIMESCALE="${TIMESCALE:-absent}" STUB_PSQL_FAIL_DB="${PSQL_FAIL_DB:-}" \
+    BETPULSE_RELEASE_LOCK_PID="${LOCK_PID:-}" \
     RELEASE_DIGESTS="$digests" DEPLOY_HEALTHCHECK_ATTEMPTS=2 \
     bash "$root/scripts/$script" >"$root/out.txt" 2>&1
   local code=$?
@@ -123,6 +130,17 @@ app="api worker-realtime worker-batch worker-ml web mlflow"
 # Every file in ROOT/.release, hidden ones included, sorted, space-separated.
 state_files() {
   find "$1/.release" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' '
+}
+
+# The deploy/rollback lock must be gone once a run has ended.
+lock_released() {
+  [[ ! -e "$1/.release/.deploy.lock" ]] || fail "$2: lock not released"
+}
+
+# take_lock ROOT PID: the lock as a run with that PID holds it.
+take_lock() {
+  mkdir -p "$1/.release/.deploy.lock"
+  echo "$2" >"$1/.release/.deploy.lock/pid"
 }
 
 # 1. deploy, backend reachable: success, new tag and its digests recorded,
@@ -194,6 +212,7 @@ grep -q "database schema is NOT rolled back" "$root/out.txt" ||
 write_digests "$root/expected-v1.digests" v1.0.0 1
 cmp -s "$root/expected-v1.digests" "$root/.release/v1.0.0.digests" ||
   fail "deploy rolled back: stored digests of the previous release changed"
+lock_released "$root" "deploy rolled back (exit 2)"
 
 # 2b. the previous release cannot reach the API either: the rollback fails, exit 3.
 root="$(setup_root rollback-fails)"
@@ -203,6 +222,7 @@ grep -q "AUTOMATIC ROLLBACK TO v1.0.0 FAILED" "$root/out.txt" ||
   fail "deploy rollback failed: outcome not reported"
 grep -q "database schema is NOT rolled back" "$root/out.txt" ||
   fail "deploy rollback failed: no schema warning after migrations ran"
+lock_released "$root" "deploy rollback failed (exit 3)"
 
 # 2c. the previous release never becomes healthy: the rollback fails, exit 3.
 root="$(setup_root rollback-unhealthy)"
@@ -308,6 +328,7 @@ grep -q "No stored digests for v1.0.0" "$root/out.txt" || fail "deploy no previo
 if grep -q "^IMAGE_TAG=v1.0.0 " "$root/docker.log"; then
   fail "deploy no previous digests: rolled back without digests"
 fi
+lock_released "$root" "deploy no previous digests (exit 4)"
 
 # 10b. first deploy on this server fails: nothing to roll back to, exit 4.
 root="$(setup_root first-deploy)"
@@ -409,6 +430,7 @@ code="$(READY_FAIL_TAG=v1.0.0 run "$root" ok rollback.sh v1.0.0)"
 [[ "$code" == "1" ]] || fail "failed manual rollback: exit $code, expected 1"
 [[ "$(<"$root/.release/last-successful-image-tag")" == "v2.0.0" ]] ||
   fail "failed manual rollback: last successful tag changed"
+lock_released "$root" "failed manual rollback"
 
 # 15d. a manual rollback to a release never deployed here (RELEASE_DIGESTS
 # given) stores its digests, so a later automatic rollback can use them.
@@ -436,8 +458,108 @@ grep -q "rolled back to v1.0.0, which is healthy and ready" "$root/out.txt" ||
 [[ "$(<"$root/.release/last-successful-image-tag")" == "v1.0.0" ]] ||
   fail "redeploy after rollback: last successful tag is not v1.0.0"
 
+# 16. deploy and rollback hold one lock (.release/.deploy.lock). Held by a
+# running process: both refuse with exit 1 before any docker call, and leave
+# the other run's lock in place.
+root="$(setup_root lock-held)"
+take_lock "$root" "$$"
+for script in deploy.sh rollback.sh; do
+  if [[ "$script" == deploy.sh ]]; then
+    code="$(run "$root" ok deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
+  else
+    code="$(run "$root" ok rollback.sh v1.0.0)"
+  fi
+  [[ "$code" == "1" ]] || fail "lock held, $script: exit $code, expected 1"
+  grep -q "another deploy or rollback is running (pid $$)" "$root/out.txt" ||
+    fail "lock held, $script: no clear message"
+  [[ ! -s "$root/docker.log" ]] || fail "lock held, $script: docker was called"
+  [[ "$(<"$root/.release/.deploy.lock/pid")" == "$$" ]] ||
+    fail "lock held, $script: the other run's lock was removed or changed"
+done
+
+# 16b. a stale lock (its process is gone): exit 1, says it is stale and prints
+# the exact command to remove it; never removed automatically.
+root="$(setup_root lock-stale)"
+bash -c 'exit 0' &
+dead_pid=$!
+wait "$dead_pid"
+take_lock "$root" "$dead_pid"
+code="$(run "$root" ok deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
+[[ "$code" == "1" ]] || fail "stale lock: exit $code, expected 1"
+grep -q "stale" "$root/out.txt" || fail "stale lock: not called stale"
+grep -qF "rm -rf '$root/.release/.deploy.lock'" "$root/out.txt" ||
+  fail "stale lock: no exact command to remove it"
+[[ ! -s "$root/docker.log" ]] || fail "stale lock: docker was called"
+[[ -d "$root/.release/.deploy.lock" ]] || fail "stale lock: removed automatically"
+
+# 16c. the inherited-lock variable without the lock behind it: a manual
+# rollback refuses instead of running unlocked.
+root="$(setup_root lock-inherited-none)"
+code="$(LOCK_PID=$$ run "$root" ok rollback.sh v1.0.0)"
+[[ "$code" == "1" ]] || fail "inherited lock, none held: exit $code, expected 1"
+grep -q "BETPULSE_RELEASE_LOCK_PID" "$root/out.txt" ||
+  fail "inherited lock, none held: no clear message"
+[[ ! -s "$root/docker.log" ]] || fail "inherited lock, none held: docker was called"
+
+# 16d. the variable names a held lock, but not one held by the caller's parent
+# deploy.sh: refused as well, and the lock is left alone.
+root="$(setup_root lock-inherited-foreign)"
+take_lock "$root" "$$"
+code="$(LOCK_PID=$$ run "$root" ok rollback.sh v1.0.0)"
+[[ "$code" == "1" ]] || fail "inherited lock, foreign: exit $code, expected 1"
+[[ ! -s "$root/docker.log" ]] || fail "inherited lock, foreign: docker was called"
+[[ -d "$root/.release/.deploy.lock" ]] || fail "inherited lock, foreign: lock removed"
+
+# 16e. first deploy on an empty server: no .release/ yet; it is created, the
+# lock taken in it, and only the release state left behind.
+root="$(setup_root lock-empty-server)"
+rm -rf "$root/.release"
+code="$(run "$root" ok deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
+[[ "$code" == "0" ]] || fail "empty server: exit $code, expected 0"
+[[ "$(state_files "$root")" == "last-successful-image-tag v2.0.0.digests " ]] ||
+  fail "empty server: unexpected .release/ contents"
+
+# 16f. SIGTERM during a deploy (held at the image pull): the run exits 143 and
+# releases its lock.
+root="$(setup_root lock-sigterm)"
+mkdir -p "$root/block"
+: >"$root/docker.log"
+PATH="$work/bin:$PATH" STUB_LOG="$root/docker.log" STUB_READY=ok STUB_BLOCK_DIR="$root/block" \
+  IMAGE_TAG=v2.0.0 RELEASE_DIGESTS="$root/release-v2.0.0.digests" DEPLOY_HEALTHCHECK_ATTEMPTS=2 \
+  bash "$root/scripts/deploy.sh" >"$root/out.txt" 2>&1 &
+deploy_pid=$!
+for ((i = 0; i < 300; i++)); do
+  [[ -f "$root/block/started" ]] && break
+  /usr/bin/sleep 0.1
+done
+[[ -d "$root/.release/.deploy.lock" ]] || fail "sigterm: lock not held during the deploy"
+kill -TERM "$deploy_pid"
+: >"$root/block/go"
+set +e
+wait "$deploy_pid"
+code=$?
+set -e
+[[ "$code" == "143" ]] || fail "sigterm: exit $code, expected 143"
+lock_released "$root" "sigterm"
+[[ "$(<"$root/.release/last-successful-image-tag")" == "v1.0.0" ]] ||
+  fail "sigterm: release state changed"
+
+# 16g. the lock's traps are chained after existing ones, never replace them
+# (an EXIT trap with a quote in it still runs; the ERR trap is untouched).
+root="$(setup_root lock-trap-chain)"
+out="$(bash -c '
+  . "$1/scripts/release-digests.sh"
+  trap "echo old-exit '\''quoted'\''" EXIT
+  trap "echo err" ERR
+  acquire_release_lock "$1/.release" || exit 9
+  trap -p ERR
+' _ "$root" 2>&1)"
+[[ "$out" == *"trap -- 'echo err' ERR"* ]] || fail "trap chain: ERR trap changed"
+[[ "$out" == *"old-exit quoted"* ]] || fail "trap chain: existing EXIT trap replaced"
+lock_released "$root" "trap chain"
+
 if ((failures > 0)); then
   echo "$failures deploy-script test(s) failed." >&2
   exit 1
 fi
-echo "OK: deploy, rollback, prod-compose and release-version checks behave as expected (27 scenarios)."
+echo "OK: deploy, rollback, prod-compose and release-version checks behave as expected (34 scenarios)."
