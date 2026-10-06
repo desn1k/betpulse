@@ -95,6 +95,16 @@ inlines the compiled config), is excluded via `outputFileTracingExcludes` and gu
 covered by the blocking gate. **Revisit:** re-enable the full audit as blocking once a fixed
 `braces` (or a `fast-glob`/`micromatch` without it) is released — see §11.
 
+**`frontend/package-lock.json`: minimal hunks only.** `npm update <pkg>` rewrites unrelated lock
+entries: with npm 11 on Windows it dropped `next-intl/node_modules/@swc/helpers` and the `dev` flag
+of `fsevents`; with npm 10.9.9 in `node:22` it moved the `@swc/helpers` entry. So a dependency bump
+by hand changes only that package's `version`, `resolved` and `integrity` (from
+`npm view <pkg>@<version> dist`), and is validated on a copy in a clean `node:22` container, so
+nothing is written into the working tree:
+`docker run --rm -v "$PWD/frontend:/src:ro" node:22 sh -c "mkdir /w && cp /src/package.json /src/package-lock.json /w/ && cd /w && npm ci && npm ls <pkg> && npm audit --omit=dev --audit-level=high"`.
+`npm ci` must succeed and every copy of the package must be the new version. Example: `0578a72`
+(`source-map-js` 1.2.1 → 1.2.2, CVE-2026-93749, 3 changed lines).
+
 Backend CI specifics (`.github/workflows/ci.yml`): Postgres (timescaledb image) + Redis service
 containers; installs `libgomp1` for LightGBM; runs the **migration round-trip**
 `upgrade head → downgrade base → upgrade head`; runs **offline historical ingestion** against the
@@ -1175,11 +1185,37 @@ secrets.
     fixed 2026-10-05: `live_provider_configured()` (`app/services/live/provider.py`) is the one
     check; without a key `worker-realtime` logs one warning at start-up and starts no poll, and a
     poll left in Redis by an older release returns without a request and without rescheduling.
-    To enable live: set the key, restart `worker-realtime`. Not yet seen on a live stack (needs
-    the next rc image);
+    To enable live: set the key, restart `worker-realtime`. Seen live in the rc5 rehearsal (below);
   - F4: `deploy.sh`'s automatic rollback does not wait for health or `/api/ready` — fixed
     2026-10-05: it runs `rollback.sh` and reports the outcome by exit code (see "Release images
-    and digests"). Not yet provoked on a live stack (first-VPS checklist; drill planned on rc5).
+    and digests"). Provoked live in the rc5 rehearsal (below); still a first-VPS item.
+
+### rc5 rehearsal (2026-10-06)
+
+`v0.0.1-rc5` (main `2210cf8`, release run 37506302174) was deployed on the local Docker Desktop
+stack over rc4 with its data (not from scratch), in the rehearsal clone that holds `.release/`.
+- **Release:** a pre-release with `release-v0.0.1-rc5.digests`; the GHCR rc5 tags match the file;
+  `latest` did not move (api/web unchanged, mlflow has none).
+- **Deploy rc4 → rc5:** exit 0; all six app containers on the rc5 digests; `last-successful` =
+  rc5.
+- **F3 live:** exactly one "Live polling is disabled" line at start-up and again after a restart
+  of `worker-realtime`; over 4 minutes no API-Football request and no 403. The one
+  `poll_live_task` rc4 had left in Redis ran once, returned 0 without a request and did not
+  reschedule.
+- **F4 drill** (a redeploy of rc4 as the "failing" release, `api` stopped from a second process):
+  - `api` stopped once it was healthy on rc4: `/api/ready` failed → rolled back to rc5, **exit 2**,
+    "healthy and ready", schema note ("migrations of v0.0.1-rc4 already ran"), state still rc5;
+  - `api` stopped in a loop: **exit 3**, "AUTOMATIC ROLLBACK TO v0.0.1-rc5 FAILED", schema note;
+    then `rollback.sh` to rc5 by hand: exit 0, `/api/ready` 200 through Caddy.
+  - **Observation:** in that exit-3 run both the deploy and the rollback failed in
+    `compose up` ("dependency failed to start: container betpulse-api-1 exited (137)": `web`
+    waits for a healthy `api`), not in the health or `/api/ready` wait. The exit-3 path through a
+    failed wait was therefore not exercised live; it is covered by the script tests only (2b, 2c).
+- **Lock:** a `rollback.sh` started while a deploy ran: exit 1, "another deploy or rollback is
+  running (pid N)", no docker call from it; the deploy finished with exit 0.
+- **State after a manual rollback:** `rollback.sh` rc5 → rc4: exit 0, `last-successful` = rc4,
+  `prod-compose.sh config` on the rc4 digests; then rc5 deployed again (exit 0).
+- `.release/.deploy.lock` was gone after every step; no volume was removed.
 
 ### First VPS launch: items no rehearsal could verify
 
@@ -1202,12 +1238,12 @@ Check these on the server during the first launch (runbook: `docs/DEPLOY_VPS.md`
   from there even with plain curl.
 - [ ] **Automatic rollback, provoked once.** On the live stack, deploy a release that is known to
   fail its checks (or make `/api/ready` fail on purpose) and confirm `deploy.sh` restores the
-  previous release by its stored digests, then that the site and `/api/ready` are back. The
-  rehearsals covered it only with the stubbed docker in `scripts/tests/deploy-scripts-test.sh`.
+  previous release by its stored digests, then that the site and `/api/ready` are back. Drilled
+  on the local stack in the rc5 rehearsal (exit 2 and exit 3); not yet on a server.
 - [ ] **Rollback to a previous release by digest.** As soon as a second release with a digests
   file exists (rc5 or v0.0.1 after rc4), deploy it, then `IMAGE_TAG=<previous> scripts/rollback.sh`
-  and check every app container runs the previous release's digests. The rc4 rehearsal could
-  only restore rc4 itself (rc3 has no digests file and is refused, as designed).
+  and check every app container runs the previous release's digests. Done locally in the rc5
+  rehearsal (rc5 → rc4 by digest, then rc5 again); not yet on a server.
 
 ## 9j. Legal & compliance (Russian Federation)
 
@@ -1588,9 +1624,9 @@ ignored. Line numbers are as of `5eedb0b` and will drift.
 | ER-H-10 | Partly true | Order is `(kickoff_at, id)` only (`ml/chronology.py:30-38`); date-only fixtures sit at 12:00 UTC. Production never uses football-data, and Sportmonks has kickoff times, so this hits dev data and old CSV seasons | Low for production; Medium for dev-metric honesty | Conservative chronology: a league-day with any unknown-time fixture is one batch | An unknown-time match's result never changes a same-day known-time match's prediction | Later |
 | ER-M-01 | Confirmed | `/health/ready` returns `ready` unconditionally (`api/health.py:42-49`); also §9g 12d item 1 | Medium | `SELECT 1` + Redis `PING` with timeouts, 503 on failure | Redis ping fails → 503 | Before the first public release |
 | ER-M-02 | Confirmed | If the enqueue in `finally` fails (`workers/tasks.py:120-127`), the self-rescheduling chain ends until a worker restart (seeded only at start-up, `workers/arq_app.py:80-84`) | Medium | A cron re-seeds the poll with a fixed `_job_id` | Enqueue in `finally` raises → the cron restores the chain | With ER-H-01 |
-| ER-M-03 | Confirmed | `BatchCreate.size` has no upper bound (`schemas/promo.py`), loop in `services/promo.py:144`; admin + TOTP only | Low | `le=100_000` | `size=100_500` → 422 | Quick fixes |
+| ER-M-03 | Confirmed | `BatchCreate.size` has no upper bound (`schemas/promo.py`), loop in `services/promo.py:144`; admin + TOTP only | Low | `le=100_000` | `size=100_500` → 422 | **Fixed 2026-10-06** (schema `le=100_000` + `BATCH_MAX` in the service) |
 | ER-M-04 | Confirmed | `/auth/register` has no rate limit and answers 409 for a known address; not routed today (the BFF has only login/logout/me/refresh) | Medium before sign-up opens | §11 O2 | §11 O2 | O2 |
-| ER-M-05 | Confirmed | The match-view quota is consumed before the fixture lookup (`api/matches.py:319-343`); a guest burns mostly their own (IP or /64) quota, NAT neighbours share it | Low–Medium | Consume after the lookup | Random UUID → 404, remaining quota unchanged | Quick fixes |
+| ER-M-05 | Confirmed | The match-view quota is consumed before the fixture lookup (`api/matches.py:319-343`); a guest burns mostly their own (IP or /64) quota, NAT neighbours share it | Low–Medium | Consume after the lookup | Random UUID → 404, remaining quota unchanged | **Fixed 2026-10-06**; the 404 before the quota check is deliberate (an exhausted caller can tell real ids from made-up ones; matches are public in `/matches`) |
 | ER-M-06 | Partly true | `ilike('%x%')` without an index (`api/system.py:87-100`); user `%`/`_` are not escaped; admin-only, small log at launch | Low | Escape wildcards; `pg_trgm` later | A literal `%` in `target` matches only itself | Later |
 | ER-L-01 | Confirmed, negligible | `XgModel` built in the loop (`ml/features.py:190-194`), but its `__init__` is trivial (`ml/xg.py:35-36`) | Low (cosmetic) | Hoist out of the loop | — | Later |
 | ER-L-02 | Confirmed | O(n·k) season grouping (`services/backtester/engine.py:241-252`), k ≤ 7 | Low | `defaultdict` | — | Later |
