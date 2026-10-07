@@ -30,8 +30,8 @@ independent methods plus a calibrated consensus. The full brief is
 5. **Each phase on its own branch.** Never push to a different branch without explicit permission.
 6. **No shortcuts.** No legacy/deprecated libraries. No secrets in code. No raw SQL string building
    (ORM / bound params only). If the spec is ambiguous, **ask — do not guess.**
-7. **Model identity** (`claude-opus-4-8`) must never appear in commits, PRs, code, or any pushed
-   artifact — chat replies only.
+7. **No AI or model attribution** (model names, "generated with", co-author lines) in commits,
+   PRs, code, or any pushed artifact.
 
 ## 3. Stack & repo layout
 
@@ -63,7 +63,7 @@ mlflow_utils), `app/workers` (arq_app, tasks), `app/api` (health, auth, admin, p
 | 1 | Project setup, CI/CD, security scanners, branch protection | ✅ merged |
 | 2 | Auth: Argon2id, JWT + rotating refresh (reuse detection), RBAC, admin TOTP 2FA, CSRF, lockout | ✅ merged |
 | 3 | Domain model + migrations + provider abstraction + ID mapping + football-data.co.uk ingestion | ✅ merged |
-| 4 | 6 ML methods + consensus + calibration + MLflow→MinIO + model registry + `/performance` | ✅ merged |
+| 4 | 6 ML methods + consensus + calibration + MLflow (artifacts on its own volume; MinIO removed 2026-10) + model registry + `/performance` | ✅ merged |
 | 5 | API-Football live ingestion + in-play recompute + SSE streaming + push notifications | ✅ merged |
 | 6 | Frontend: design system + match list/card (all method bars + consensus) + light sporty theme + skeletons + i18n RU/EN | ✅ merged |
 | 7 | Tiers + feature flags + server-side limit enforcement + guest blur/lock + minimal login | ✅ merged |
@@ -120,7 +120,7 @@ covered by Vitest + React Testing Library.
 
 ## 6. Conventions that bite if ignored
 
-- **Migrations** are hand-written in `backend/migrations/versions/` (`0001`–`0004`). Enums via
+- **Migrations** are hand-written in `backend/migrations/versions/` (`0001`–`0017` today). Enums via
   `postgresql.ENUM(..., name=...)` created with `checkfirst=True` and `create_type=False` on the
   column; dropped in `downgrade`. Timescale hypertables are guarded by a `pg_available_extensions`
   check so CI (plain PG) and prod (timescaledb) both pass. **Every migration must survive the
@@ -369,21 +369,29 @@ covered by Vitest + React Testing Library.
   (`uq_fixture_identity`, odds identity, prediction identity). Tasks keyed by
   `fixture_id + method + model_version` so retries/duplicate deliveries are safe.
 
-## 7. Sandbox / environment constraints (important)
+## 7. Development environment (important)
 
-The agent's build/verify environment is **not** the production environment. Known limits:
+The development machine is **not** the production environment. Since 2026-10 it is **Windows +
+Git Bash + Docker Desktop** (WSL2); the earlier Linux sandbox notes no longer apply.
 
-- **Docker registry egress is blocked** (cloudfront blob pulls return 403; the agent proxy is
-  unreachable from inside containers). `docker compose pull`/multi-stage builds that fetch base
-  images fail here. Local verification instead runs **Postgres 16 and Redis as host processes**:
-  system Postgres at `/usr/lib/postgresql/16/bin` (run as the `postgres` user, data dir
-  `/tmp/bp_pgdata`, port 5432, socket `/tmp`) and system `redis-server` on 6379.
-- **`football-data.co.uk` is blocked by the proxy policy (403)**, so the committed CSV fixture is a
-  documented, format-faithful reconstruction (real EPL 2023-24 matchday-1 scores + representative
-  odds), flagged in the Phase 3 PR — not a live download.
+- **Backend tests run in a Linux container**, not on the Windows host (through the WSL port relay a
+  host pytest against Postgres in Docker takes over 45 minutes; in a container about 8). Containers
+  `bp-test-pg` (the CI Timescale image) and `bp-test-redis` (`redis:7.4-alpine`) on a `bp-test`
+  network, and a runner image (`python:3.12-slim` + `libgomp1` + the backend deps with the `dev`
+  extra) started with the CI environment from `ci.yml`. Mount the **whole repository**, not only
+  `backend/`: some tests read repo-root files.
+- **Tools not installed on Windows run in Docker:** shellcheck, trivy, Linux pytest, `node:22` (the
+  `package-lock.json` check in §5). Worktrees check out CRLF (`core.autocrlf`); strip `\r` before
+  shellcheck.
+- **Rehearsals** run `scripts/deploy.sh` on GHCR images in a separate scratch clone, never in the
+  working copy (it holds the owner's own `.env`), under compose project `betpulse`. That stack
+  restarts with Docker Desktop; leave it alone unless rehearsing. In Git Bash set
+  `MSYS2_ARG_CONV_EXCL=/dev/null` for `deploy.sh`.
+- **The committed football-data CSV fixture** is a documented, format-faithful reconstruction
+  (real EPL 2023-24 matchday-1 scores + representative odds), flagged in the Phase 3 PR — not a
+  live download.
 - **MLflow 3** refuses a file store unless `MLFLOW_ALLOW_FILE_STORE=true` (set in tests/CI).
-- **Outbound HTTPS** goes through an agent proxy (CA bundle `/root/.ccr/ca-bundle.crt`); on
-  403/405/407/TLS failures see `/root/.ccr/README.md`. Never disable TLS verification.
+- Never disable TLS verification.
 
 ## 8. Dependency pins that are load-bearing
 
@@ -834,7 +842,9 @@ implemented.
     2.24.4 only for `!override`, and `!reset` exists in compose-go at least since v1.14 (2023) with
     fixes since. Do not rely on a version number — run the script on the server after installing
     or upgrading Docker.
-  - **Follow-up (separate PR):** Redis `requirepass`.
+  - **Redis `requirepass` — LAUNCH BLOCKER for the first VPS run (separate PR).** Redis holds
+    the pickled ARQ jobs, quotas and rate limits; today only the Compose network keeps anything
+    else from it. See "Launch blockers" below.
 - **web → API wiring (fixed 2026-10-03).** The bug, the fix and the tests:
   - **The bug.** The base compose gave the web container
     `API_BASE_URL: ${API_BASE_URL:-http://api:8000}`, read from `.env`, whose example value is
@@ -868,7 +878,8 @@ implemented.
   provider or another host, **not chosen yet** (owner); the on-server MinIO bucket is gone. The
   first-launch plan is
   manual: Postgres dumps of `football` and `mlflow` plus a tar of the `mlflow_artifacts` volume,
-  encrypted and copied off the server, see `docs/DEPLOY_VPS.md`) — then `make backup`, weekly
+  encrypted and copied off the server, to be written up in `docs/DEPLOY_VPS.md`, which does not
+  exist yet) — then `make backup`, weekly
   `make restore-drill`, backup freshness checks, and Telegram ops alerting when backups are stale
   (owner target: alert if backup is older than 15 minutes).
 - **Docs:** update README/deploy docs with required env vars, tag-based release flow, deploy, rollback,
@@ -1226,9 +1237,36 @@ stack over rc4 with its data (not from scratch), in the rehearsal clone that hol
   `prod-compose.sh config` on the rc4 digests; then rc5 deployed again (exit 0).
 - `.release/.deploy.lock` was gone after every step; no volume was removed.
 
+### v0.0.1-rc6 (planned)
+
+- **When and who:** after PR B (ER-H-02) is merged; the owner publishes and rehearses it by hand,
+  with an explicit `IMAGE_TAG=v0.0.1-rc6` (never `latest`). The agent prepares the checklist
+  before the run.
+- **The checklist must cover at least:**
+  - deploy rc5 → rc6 over rc5's data: migration 0018 runs, exit 0, all app containers on the rc6
+    digests;
+  - F6 on the real stack: a guest with one match tab open for several minutes still has
+    `matches_remaining` = 2;
+  - **an exit-3 drill that fails in the health / `/api/ready` wait**, not in `compose up` (the
+    rc5 drill only reached the `compose up` failure): the rollback's `compose up` must succeed and
+    its readiness wait must fail, e.g. by pausing (not stopping) `api` once the rollback's
+    `compose up` has returned; exact steps in the checklist;
+  - the rollback note for 0018: images roll back, the schema does not (ER-H-08); rc5 on the 0018
+    schema is checked, not assumed.
+
+### Launch blockers before the first VPS run
+
+None of these is done; the site is not opened before all are.
+- **F5** — IPv6 / userland-proxy identity collapse (§9m).
+- **F7** — rate limit on `/matches`, and limits enforced before tier resolution (§9m).
+- **Redis `requirepass`** (§9i, "Published ports").
+- **`docs/DEPLOY_VPS.md`** — the VPS runbook and first-VPS checklist. **It does not exist yet**;
+  writing it is a launch deliverable. It absorbs the list below.
+
 ### First VPS launch: items no rehearsal could verify
 
-Check these on the server during the first launch (runbook: `docs/DEPLOY_VPS.md`, in progress):
+Check these on the server during the first launch (runbook: `docs/DEPLOY_VPS.md`, not written yet;
+a launch blocker above):
 
 - [ ] **ACME on the real domain.** The DNS A/AAAA records point at the server, and Caddy obtains
   the certificate: check the caddy logs and `curl -I https://<domain>/healthz`.
@@ -1619,6 +1657,17 @@ ignored. Line numbers are as of `5eedb0b` and will drift.
   the LLM spend dashboard sums those rows, so every regeneration (language switch, cache expiry)
   drops the earlier generation's tokens and cost. The fix must correct the spend figures as well
   as the cache key.
+  - **Approved plan (PR B, slot right after F6):**
+    - migration **0018**: unique `(fixture_id, model, language)` on the analysis cache, which
+      is looked up by language;
+    - an append-only **`llm_generations`** journal: one row per LLM call, tokens and **cost
+      computed and stored at write time** (a later price change never rewrites history);
+    - the spend dashboard aggregates from the journal, not from the cache rows;
+    - **downgrade** keeps the newest row per `(fixture_id, model)` and raises a `NOTICE` with
+      both counts (rows before, rows kept); take a `pg_dump` before any downgrade (pre-deploy
+      checklist, §9i);
+    - **rollback incompatibility (ER-H-08):** an image before 0018 on the 0018 schema is not
+      assumed to work; the rc6 rehearsal checks it.
 - **ER-H-09 — required tag** (fixed with F2, see §9i "Release images and digests"). Before the
   fix, `infra/docker-compose.prod.yml` fell back to `${IMAGE_TAG:-latest}` (lines 21, 46, 89):
   `deploy.sh` refused `latest`, a manual `docker compose up` did not. The overlay now requires
@@ -1628,7 +1677,7 @@ ignored. Line numbers are as of `5eedb0b` and will drift.
 |---|---|---|---|---|---|---|
 | ER-C-01 | Confirmed; the failure differs | `Prediction` is written only by training (`ml/training.py:300`); `/matches` requires `exists(Prediction)` (`api/matches.py:231-232`), so upcoming matches are not listed at all (not listed with `consensus: null`). Same gap as §11 "online inference" | Critical for launch | Scoring task: load the champion, build as-of features, write `Prediction` for scheduled fixtures | A scheduled fixture, after the task runs, is in `/matches` with a consensus | Right after real data is loaded |
 | ER-H-01 | Confirmed, wider | Every poll tick enqueues a recompute for **every** live fixture (`services/live/ingestion.py:118`, `workers/tasks.py:108-117`) with no `_job_id`, `max_jobs=20`: duplicates and out-of-order states (an older minute stored after a newer one) | Medium now (live is dev-only); High when live is public | Per-fixture `pg_advisory_xact_lock` in `recompute_fixture`; skip a state not newer than the latest | Two concurrent `recompute_fixture` calls with the same new state → one `LiveUpdate`, one `should_push` | With live moving to Sportmonks, together with ER-M-02 |
-| ER-H-02 | Confirmed, plus spend | Cache lookup and `uq_llm_analysis_fixture_model` ignore `language` (`services/llm/analysis.py:170-174`, `models/llm.py:62`); upsert overwrites (`analysis.py:218-229`); spend sums the rows (`services/llm/spend.py:81-83`) | High | Migration: unique `(fixture_id, model, language)`, filter by language; keep every generation for spend (see note) | `ru` then `en` → two LLM calls, `en` content served; spend counts both | Quick fixes, after the F-series |
+| ER-H-02 | Confirmed, plus spend | Cache lookup and `uq_llm_analysis_fixture_model` ignore `language` (`services/llm/analysis.py:170-174`, `models/llm.py:62`); upsert overwrites (`analysis.py:218-229`); spend sums the rows (`services/llm/spend.py:81-83`) | High | Migration: unique `(fixture_id, model, language)`, filter by language; keep every generation for spend (see note) | `ru` then `en` → two LLM calls, `en` content served; spend counts both | **PR B, right after F6** (plan in the note above) |
 | ER-H-03 | Confirmed | Budget check and `INCRBY` are separate (`analysis.py:193-214`); `INCRBY` + `EXPIREAT` not atomic (also in §11); concurrent cache misses all call the LLM | High (cost) | Atomic Lua reservation of `max_tokens` in `app/services/counters.py` style, settled with the real usage after the call | 20 concurrent requests with budget left for one → at most one `generate_completion` call | LLM pack, before user-facing launch |
 | ER-H-04 | Confirmed | `AsyncOpenAI(...)` never closed (`analysis.py:130-131`) | Low–Medium | `async with AsyncOpenAI(...)` | A fake client records `close()` | LLM pack |
 | ER-H-05 | Confirmed | `session.get(Fixture)` (`api/llm.py:98`) checks out a request-pool connection that is held through the LLM call until `commit` (line 110); request pool = 15 | High under load | Read, close the session, call the LLM, write in a short separate session | `pool.checkedout() == 0` while a stubbed `generate_completion` runs | LLM pack |
