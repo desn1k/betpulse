@@ -70,6 +70,9 @@ let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let retryAttempt = 0;
 let inFlight: Promise<void> | null = null;
+// Bumped whenever the session ends here; a refresh started under an older
+// epoch must not bring the session back (a logout racing a renewal).
+let sessionEpoch = 0;
 
 function clearTimers(): void {
   if (refreshTimer !== null) clearTimeout(refreshTimer);
@@ -147,6 +150,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
   /** End the session in this tab. ``expired``: the server ended a session this
    * tab held, so say so; a logout (here or in another tab) is not "expired". */
   function clearSession({ expired }: { expired: boolean }): void {
+    sessionEpoch += 1;
     clearTimers();
     retryAttempt = 0;
     const hadSession = get().accessToken !== null || get().user !== null;
@@ -172,6 +176,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
   }
 
   async function runRefresh(): Promise<void> {
+    const epoch = sessionEpoch;
     const { expiresAt } = get();
     const recovered = expiresAt === null || Date.now() >= expiresAt;
     let res: Response;
@@ -185,14 +190,19 @@ export const useAuthStore = create<AuthState>((set, get) => {
         res = await withTimeout(requestRefresh, REFRESH_TIMEOUT_MS);
       }
     } catch (error) {
+      if (epoch !== sessionEpoch) throw new SessionRefreshError("signed out");
       set({ refreshFailing: get().accessToken !== null });
       scheduleRetry();
       throw error instanceof SessionRefreshError ? error : new SessionRefreshError();
     }
     if (res.ok) {
-      applySession((await res.json()) as AccessTokenResponse, { recovered });
+      const data = (await res.json()) as AccessTokenResponse;
+      // Signed out (here or in another tab) while this was in flight: drop it.
+      if (epoch !== sessionEpoch) return;
+      applySession(data, { recovered });
       return;
     }
+    if (epoch !== sessionEpoch) return;
     if (res.status === 401 || res.status === 403) {
       // The refresh session is gone: sign out visibly (a guest stays a guest).
       clearSession({ expired: true });

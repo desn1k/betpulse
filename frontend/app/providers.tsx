@@ -44,8 +44,10 @@ export function Providers({ children }: { children: ReactNode }) {
           void client.invalidateQueries({ queryKey: matchKeys.all });
           void client.invalidateQueries({ queryKey: ["push", "follows"] });
         } else {
-          // Another account, or signed out: every user-scoped query is stale.
-          void client.invalidateQueries();
+          // Another account, or signed out: drop every cached answer (reset,
+          // not invalidate, so the previous account's data is not shown while
+          // the new one loads) and refetch what is on screen.
+          void client.resetQueries();
         }
       }),
     [client],
