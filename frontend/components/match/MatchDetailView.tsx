@@ -61,7 +61,14 @@ export function MatchDetailView({ id }: { id: string }) {
   // be transient, so the data is only marked as possibly stale.
   const refetchError = query.isError ? query.error : null;
   const limitTier = limitTierRequired(refetchError);
-  const updatedAt = format.dateTime(new Date(query.dataUpdatedAt), {
+  // The time alone, or with the date once the data is from an earlier day
+  // (a refetch failing past midnight would otherwise look current).
+  const lastUpdate = new Date(query.dataUpdatedAt);
+  const sameDay =
+    format.dateTime(lastUpdate, { dateStyle: "short" }) ===
+    format.dateTime(new Date(), { dateStyle: "short" });
+  const updatedAt = format.dateTime(lastUpdate, {
+    ...(sameDay ? {} : { month: "short", day: "numeric" }),
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
