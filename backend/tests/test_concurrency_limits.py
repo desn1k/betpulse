@@ -44,7 +44,15 @@ def _counter_calls(now: datetime) -> list[tuple[str, Callable[[], Awaitable[Any]
     return [
         (
             f"limits:ip-a:{now:%Y-%m-%d}",
-            lambda: limits.consume_match_view(redis, identity="ip-a", limit=50, now=now),
+            lambda: limits.consume_match_view(
+                redis, identity="ip-a", fixture_id=uuid.UUID(int=7), limit=50, now=now
+            ),
+        ),
+        (
+            f"limits:seen:ip-b:{now:%Y-%m-%d}",
+            lambda: limits.consume_match_view(
+                redis, identity="ip-b", fixture_id=uuid.UUID(int=7), limit=50, now=now
+            ),
         ),
         (
             f"limits:backtester:{user_id}:{now:%Y-%m-%d}",
@@ -82,7 +90,11 @@ async def test_counter_left_without_ttl_is_healed() -> None:
     keys a leak. The next increment must give it a TTL."""
     redis = get_redis()
     for key, call in _counter_calls(datetime.now(UTC)):
-        await redis.set(key, 1)  # the crash leftover: counted, never expired
+        # The crash leftover: counted (or marked seen), never expired.
+        if key.startswith("limits:seen:"):
+            await redis.sadd(key, str(uuid.UUID(int=7)))
+        else:
+            await redis.set(key, 1)
         assert await redis.ttl(key) == -1
         await call()
         assert await redis.ttl(key) > 0, key
@@ -96,7 +108,12 @@ async def test_parallel_match_views_never_exceed_the_quota() -> None:
     redis = get_redis()
     now = datetime.now(UTC)
     results = await asyncio.gather(
-        *(limits.consume_match_view(redis, identity="race", limit=5, now=now) for _ in range(40)),
+        *(
+            limits.consume_match_view(
+                redis, identity="race", fixture_id=uuid.UUID(int=i), limit=5, now=now
+            )
+            for i in range(40)
+        ),
         return_exceptions=True,
     )
     granted = [r for r in results if not isinstance(r, BaseException)]
@@ -104,6 +121,25 @@ async def test_parallel_match_views_never_exceed_the_quota() -> None:
     assert sorted(granted) == [0, 1, 2, 3, 4]
     assert all(isinstance(r, limits.LimitExceeded) for r in results if r not in granted)
     assert int(await redis.get(f"limits:race:{now:%Y-%m-%d}")) == 5
+    assert await redis.scard(f"limits:seen:race:{now:%Y-%m-%d}") == 5
+
+
+@pytest.mark.asyncio
+async def test_parallel_views_of_one_match_cost_one_view() -> None:
+    """F6: several tabs (and their 60 s refetches) opening the same new match at
+    once take exactly one unit of the day's budget."""
+    redis = get_redis()
+    now = datetime.now(UTC)
+    match = uuid.uuid4()
+    results = await asyncio.gather(
+        *(
+            limits.consume_match_view(redis, identity="tabs", fixture_id=match, limit=3, now=now)
+            for _ in range(30)
+        )
+    )
+    assert results == [2] * 30
+    assert int(await redis.get(f"limits:tabs:{now:%Y-%m-%d}")) == 1
+    assert await redis.smembers(f"limits:seen:tabs:{now:%Y-%m-%d}") == {str(match)}
 
 
 @pytest.mark.asyncio

@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from app.core.redis import get_redis
 from app.core.security import create_access_token
 from app.models.fixture import Fixture, FixtureStatus
 from app.models.model_registry import ModelRegistry, ModelStatus
@@ -29,6 +30,11 @@ _METHOD_HOME = {
 
 
 async def _seed_match(session: AsyncSession) -> Fixture:
+    return (await _seed_matches(session, 1))[0]
+
+
+async def _seed_matches(session: AsyncSession, count: int) -> list[Fixture]:
+    """``count`` distinct fixtures in one league, sharing one model registry."""
     session.add_all(
         [
             ModelRegistry(
@@ -46,6 +52,13 @@ async def _seed_match(session: AsyncSession) -> Fixture:
     )
     league = League(code="EPL", name="Premier League")
     session.add(league)
+    await session.flush()
+    fixtures = [await _add_fixture(session, league) for _ in range(count)]
+    await session.commit()
+    return fixtures
+
+
+async def _add_fixture(session: AsyncSession, league: League) -> Fixture:
     home = Team(name="A", normalized_name=f"a-{uuid.uuid4().hex[:6]}")
     away = Team(name="B", normalized_name=f"b-{uuid.uuid4().hex[:6]}")
     session.add_all([home, away])
@@ -72,7 +85,7 @@ async def _seed_match(session: AsyncSession) -> Fixture:
                     model_version="v1",
                 )
             )
-    await session.commit()
+    await session.flush()
     return fixture
 
 
@@ -196,16 +209,90 @@ async def test_expired_subscription_is_ignored(client: AsyncClient, session: Asy
 # --- matches/day limit -------------------------------------------------------
 
 
+async def _seen_and_used() -> tuple[set[str], int]:
+    """The single caller's seen set and view counter for today (F6)."""
+    redis = get_redis()
+    seen_keys = [k async for k in redis.scan_iter("limits:seen:*")]
+    counter_keys = [
+        k async for k in redis.scan_iter("limits:*") if not k.startswith("limits:seen:")
+    ]
+    assert len(seen_keys) <= 1 and len(counter_keys) <= 1
+    seen = set(await redis.smembers(seen_keys[0])) if seen_keys else set()
+    used = int(await redis.get(counter_keys[0])) if counter_keys else 0
+    return seen, used
+
+
 @pytest.mark.asyncio
 async def test_guest_daily_limit_then_403(client: AsyncClient, session: AsyncSession) -> None:
-    fixture = await _seed_match(session)
-    url = f"/matches/{fixture.id}"
-    # Guest budget is 3/day (per IP). Fourth view is refused.
-    for _ in range(3):
-        assert (await client.get(url)).status_code == 200
-    blocked = await client.get(url)
+    fixtures = await _seed_matches(session, 4)
+    # Guest budget is 3 distinct matches/day (per IP). A fourth match is refused.
+    for fixture in fixtures[:3]:
+        assert (await client.get(f"/matches/{fixture.id}")).status_code == 200
+    blocked = await client.get(f"/matches/{fixtures[3].id}")
     assert blocked.status_code == 403
     assert blocked.json()["detail"]["tier_required"] == "free"
+
+
+@pytest.mark.asyncio
+async def test_same_match_fetched_many_times_costs_one_view(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    # F6: the match page refetches every 60 s; only the first fetch of a match
+    # in a UTC day counts.
+    fixture = await _seed_match(session)
+    for _ in range(5):
+        assert (await client.get(f"/matches/{fixture.id}")).status_code == 200
+    assert (await client.get("/matches")).json()["matches_remaining"] == 2
+
+
+@pytest.mark.asyncio
+async def test_exhausted_guest_still_opens_matches_viewed_today(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    a, b, c, d = await _seed_matches(session, 4)
+    for fixture in (a, b, c):
+        assert (await client.get(f"/matches/{fixture.id}")).status_code == 200
+    # Budget spent: an already-viewed match is still served, a new one is not.
+    assert (await client.get(f"/matches/{a.id}")).status_code == 200
+    blocked = await client.get(f"/matches/{d.id}")
+    assert blocked.status_code == 403
+    assert blocked.json()["detail"]["tier_required"] == "free"
+
+
+@pytest.mark.asyncio
+async def test_refused_view_is_not_recorded(client: AsyncClient, session: AsyncSession) -> None:
+    # A 403 neither marks the match as seen nor moves the counter, so asking
+    # again is still refused.
+    a, b, c, d = await _seed_matches(session, 4)
+    for fixture in (a, b, c):
+        assert (await client.get(f"/matches/{fixture.id}")).status_code == 200
+    for _ in range(2):
+        assert (await client.get(f"/matches/{d.id}")).status_code == 403
+    seen, used = await _seen_and_used()
+    assert seen == {str(a.id), str(b.id), str(c.id)}
+    assert used == 3
+
+
+@pytest.mark.asyncio
+async def test_missing_seen_set_counts_as_a_new_view(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    # The seen set was evicted (or expired apart from the counter): the next
+    # fetch is a new view under the normal limit, not an error.
+    a, b = await _seed_matches(session, 2)
+    assert (await client.get(f"/matches/{a.id}")).status_code == 200
+    redis = get_redis()
+    async for key in redis.scan_iter("limits:seen:*"):
+        await redis.delete(key)
+    assert (await client.get(f"/matches/{a.id}")).status_code == 200
+    seen, used = await _seen_and_used()
+    assert seen == {str(a.id)}
+    assert used == 2
+    assert (await client.get(f"/matches/{b.id}")).status_code == 200
+    # Budget spent (3 counted): a match outside the set is refused as usual.
+    async for key in redis.scan_iter("limits:seen:*"):
+        await redis.delete(key)
+    assert (await client.get(f"/matches/{a.id}")).status_code == 403
 
 
 @pytest.mark.asyncio
@@ -219,6 +306,7 @@ async def test_unknown_match_id_does_not_spend_the_view_quota(
     for _ in range(3):
         assert (await client.get(f"/matches/{uuid.uuid4()}")).status_code == 404
     assert (await client.get("/matches")).json()["matches_remaining"] == 3
+    assert await _seen_and_used() == (set(), 0)
 
 
 @pytest.mark.asyncio
@@ -228,25 +316,40 @@ async def test_exhausted_guest_gets_404_for_unknown_and_403_for_known(
     # Deliberate (ER-M-05): the 404 comes before the quota check, so an
     # exhausted guest can tell a real match id from a made-up one. Matches are
     # public in /matches anyway.
-    fixture = await _seed_match(session)
-    for _ in range(3):
+    a, b, c, d = await _seed_matches(session, 4)
+    for fixture in (a, b, c):
         assert (await client.get(f"/matches/{fixture.id}")).status_code == 200
     assert (await client.get(f"/matches/{uuid.uuid4()}")).status_code == 404
-    blocked = await client.get(f"/matches/{fixture.id}")
+    blocked = await client.get(f"/matches/{d.id}")
     assert blocked.status_code == 403
     assert blocked.json()["detail"]["tier_required"] == "free"
+    assert (await client.get(f"/matches/{a.id}")).status_code == 200
 
 
 @pytest.mark.asyncio
 async def test_list_reports_matches_remaining(client: AsyncClient, session: AsyncSession) -> None:
-    fixture = await _seed_match(session)
-    # Guest starts with 3; after two detail views the list reports 1 remaining.
+    a, b = await _seed_matches(session, 2)
+    # Guest starts with 3; two distinct matches (one fetched twice) leave 1.
     first = (await client.get("/matches")).json()
     assert first["matches_remaining"] == 3
-    await client.get(f"/matches/{fixture.id}")
-    await client.get(f"/matches/{fixture.id}")
+    await client.get(f"/matches/{a.id}")
+    await client.get(f"/matches/{a.id}")
+    await client.get(f"/matches/{b.id}")
     after = (await client.get("/matches")).json()
     assert after["matches_remaining"] == 1
+
+
+@pytest.mark.asyncio
+async def test_free_user_counts_distinct_matches_too(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    # Same rule for signed-in tiers, counted per user id: free has 10/day.
+    fixture = await _seed_match(session)
+    headers = await _tier_headers(session, UserTier.free)
+    for _ in range(11):
+        resp = await client.get(f"/matches/{fixture.id}", headers=headers)
+        assert resp.status_code == 200
+    assert (await client.get("/matches", headers=headers)).json()["matches_remaining"] == 9
 
 
 # --- admin tier management ---------------------------------------------------
