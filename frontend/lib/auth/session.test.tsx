@@ -255,6 +255,20 @@ describe("the app", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
+  it("on a signed-in page load the first request waits for the session restore", async () => {
+    // Child queries start before Providers' mount effect runs hydrate(), so
+    // without the gate the first fetch went out as a guest (guest view, guest
+    // quota) and was not repeated once the session was back.
+    const calls = stubFetch({ "/api/auth/refresh": ok(session("tok-1")), "/api/matches": ok(LIST) });
+    renderApp();
+    await tick(1);
+
+    expect(calls[0].path).toBe("/api/auth/refresh");
+    expect(refreshes(calls)).toHaveLength(1);
+    expect(matchCalls(calls).length).toBeGreaterThan(0);
+    expect(matchCalls(calls).every((c) => c.auth === "Bearer tok-1")).toBe(true);
+  });
+
   it("a stale refresh cookie on load (401) leaves a guest without the expired notice", async () => {
     const calls = stubFetch({ "/api/auth/refresh": status(401), "/api/matches": ok(LIST) });
     renderApp();
