@@ -1280,7 +1280,7 @@ stack over rc4 with its data (not from scratch), in the rehearsal clone that hol
 
 ### v0.0.1-rc6 (planned)
 
-- **When and who:** after PR B (ER-H-02) is merged; the owner publishes and rehearses it by hand,
+- **When and who:** after F8 and F9 are merged; the owner publishes and rehearses it by hand,
   with an explicit `IMAGE_TAG=v0.0.1-rc6` (never `latest`). The agent prepares the checklist
   before the run.
 - **The checklist must cover at least:**
@@ -1297,13 +1297,18 @@ stack over rc4 with its data (not from scratch), in the rehearsal clone that hol
   - the rollback note for 0018: images roll back, the schema does not (ER-H-08). Expected (§9i):
     rc5 on the 0018 schema fails LLM generation and serves the rest of the site; with LLM
     disabled it answers `disabled`. Check both; then the dump + `alembic downgrade
-    0017_single_champion` path and its NOTICE line.
+    0017_single_champion` path and its NOTICE line;
+  - **F9:** a signed-in Pro user keeps the method bars and the Pro tier after 20+ minutes on a match
+    page (the access token lives 15 minutes);
+  - **F8:** a failed background refetch keeps the card (e.g. stop `api` for one poll): the
+    "Couldn't refresh" note appears, and the card updates again once `api` is back.
 
 ### Launch blockers before the first VPS run
 
 None of these is done; the site is not opened before all are.
 - **F5** — IPv6 / userland-proxy identity collapse (§9m).
 - **F7** — rate limit on `/matches`, and limits enforced before tier resolution (§9m).
+- **ER2-05** — API-only `statement_timeout` 15 s and `lock_timeout` 5 s (§9m, external review 2).
 - **Redis `requirepass`** (§9i, "Published ports").
 - **Redis persistence and memory policy.** Decide and document both in `infra/` and the runbook:
   persistence (RDB/AOF) for the pickled ARQ jobs, and `maxmemory` with an eviction policy that
@@ -1746,7 +1751,7 @@ ignored. Line numbers are as of `5eedb0b` and will drift.
 | ER-M-01 | Confirmed | `/health/ready` returns `ready` unconditionally (`api/health.py:42-49`); also §9g 12d item 1 | Medium | `SELECT 1` + Redis `PING` with timeouts, 503 on failure | Redis ping fails → 503 | Before the first public release |
 | ER-M-02 | Confirmed | If the enqueue in `finally` fails (`workers/tasks.py:120-127`), the self-rescheduling chain ends until a worker restart (seeded only at start-up, `workers/arq_app.py:80-84`) | Medium | A cron re-seeds the poll with a fixed `_job_id` | Enqueue in `finally` raises → the cron restores the chain | With ER-H-01 |
 | ER-M-03 | Confirmed | `BatchCreate.size` has no upper bound (`schemas/promo.py`), loop in `services/promo.py:144`; admin + TOTP only | Low | `le=100_000` | `size=100_500` → 422 | **Fixed 2026-10-06** (schema `le=100_000` + `BATCH_MAX` in the service) |
-| ER-M-04 | Confirmed | `/auth/register` has no rate limit and answers 409 for a known address; not routed today (the BFF has only login/logout/me/refresh) | Medium before sign-up opens | §11 O2 | §11 O2 | O2 |
+| ER-M-04 | Confirmed | `/auth/register` has no rate limit and answers 409 for a known address; not routed today (the BFF has only login/logout/me/refresh) | Medium before sign-up opens | §11 O2; the limit runs **before `hash_password`** (ER2-04) | §11 O2 | O2 |
 | ER-M-05 | Confirmed | The match-view quota is consumed before the fixture lookup (`api/matches.py:319-343`); a guest burns mostly their own (IP or /64) quota, NAT neighbours share it | Low–Medium | Consume after the lookup | Random UUID → 404, remaining quota unchanged | **Fixed 2026-10-06**; the 404 before the quota check is deliberate (an exhausted caller can tell real ids from made-up ones; matches are public in `/matches`) |
 | ER-M-06 | Partly true | `ilike('%x%')` without an index (`api/system.py:87-100`); user `%`/`_` are not escaped; admin-only, small log at launch | Low | Escape wildcards; `pg_trgm` later | A literal `%` in `target` matches only itself | Later |
 | ER-L-01 | Confirmed, negligible | `XgModel` built in the loop (`ml/features.py:190-194`), but its `__init__` is trivial (`ml/xg.py:35-36`) | Low (cosmetic) | Hoist out of the loop | — | Later |
@@ -1759,10 +1764,10 @@ fixture lookup: `rl:match_detail:{identity}` (the quota's identity), `RATE_LIMIT
 = 120 per `RATE_LIMIT_MATCH_DETAIL_WINDOW_SECONDS` = 60, 429 with `Retry-After`. A Redis error
 fails the request (fail-closed), as on `/analysis`.
 
-### Found later (2026-10-06/07): F5–F8
+### Found later (2026-10-06/07): F5–F9
 
 Found while checking the ER-M-05 follow-up; the F-series continues the rehearsal findings (F1–F4,
-§9i). F6 and F8 are fixed (2026-10-07); F5 and F7 are open.
+§9i). F6 and F8 are fixed (2026-10-07); F5, F7 and F9 (found while planning F8) are open.
 
 - **F5 — all IPv6 guests may share one identity. LAUNCH BLOCKER for the first VPS run.** Caddy
   publishes `[::]:80`/`[::]:443`, but the `betpulse` network is IPv4-only, so Docker hands IPv6
@@ -1826,6 +1831,26 @@ Found while checking the ER-M-05 follow-up; the F-series continues the rehearsal
     (`RATE_LIMIT_MATCH_DETAIL_WINDOW_SECONDS` = 60) equals the poll interval, so the next poll
     already lands after the window. **Revisit** if that window becomes longer than the poll
     interval, or a page starts polling `/analysis`: then poll at `max(60 s, Retry-After)`.
+- **F9 — a signed-in session silently becomes a guest after 15 minutes. Open; slot right after
+  F8, before v0.0.1-rc6.** The access token lives `JWT_ACCESS_TTL_MINUTES` = 15 and is kept in
+  memory only; the frontend refreshes it **only on mount** (`hydrate()`, `lib/auth/store.ts`,
+  called from `app/providers.tsx`) — there is no refresh on expiry and none on a 401.
+  - On `/matches*` and `/analysis`, `get_optional_user` (`core/deps.py`) treats an expired token
+    as a guest instead of answering 401, so after 15 minutes the polling match page (and the list)
+    silently switch to the guest view: a Pro user loses the method bars, and the views are counted
+    against the guest quota of their IP (3/day), so after three matches a Pro user gets 403
+    `tier_required=free`. Routes behind `get_current_user` (push settings and follows, promo
+    redemption, backtester, `/auth/me`) answer 401. Only a reload recovers.
+  - **Fix (option A, owner 2026-10-07):** refresh proactively in the auth store — a timer at
+    `expires_in − 60 s` (already in `AccessTokenResponse`), and on `visibilitychange` when the
+    token is past that point (timers do not fire reliably in background tabs); single-flight (one
+    refresh shared by every caller); the existing 409 handling; after a refresh, invalidate the
+    match queries so the page is served for the real tier again. A failed refresh (401) clears the
+    session as a logout does. Not a blind retry on 401. Also `Cache-Control: no-store` on the BFF's
+    token responses (`authProxy.ts`; RFC 6749 §5.1; ER2-12).
+  - **First failing test (Vitest, fake timers):** after login with `expires_in` = 900, the store
+    calls `/api/auth/refresh` once at 840 s and the next match fetch carries the new token; two
+    concurrent triggers share one refresh; a hidden tab refreshes on `visibilitychange`.
 - **F7 — the public `/matches` list has no rate limit.** It runs the heaviest public query
   (list, filters, consensus) and only `/matches/{id}` and `/analysis` are limited. Slot:
   **pre-launch protection group** (before the first public release, with ER-M-04 / §11 O2 and
@@ -1838,6 +1863,56 @@ Found while checking the ER-M-05 follow-up; the F-series continues the rehearsal
     best active subscription) before the limit. Fix for all three together: a dependency that
     derives the limit identity (verified token subject, or the guest IP bucket) and enforces the
     limit before tier resolution, so `/analysis` and `/matches/{id}` stay alike.
+
+### External review 2 (2026-10-07) — verified backlog
+
+Two static-analysis reports (no tests run). Every finding was **verified by reading the code at
+main `314029b`**; line numbers will drift. Labels `ER2-` keep them apart from the first review's
+`ER-` items. Items marked *no action* are recorded so they are not raised again.
+
+| ID | Verdict | Evidence | Severity | Smallest fix | First failing test | Slot |
+|---|---|---|---|---|---|---|
+| ER2-01 | Confirmed | `get_current_user` checks only signature, expiry and `is_active` (`core/deps.py:49-79`); `change_password` revokes refresh tokens only (`services/auth.py:589-593`); no `token_version` / `password_changed_at`. An issued access JWT stays valid ≤ 15 min after a password change. Not routed by the BFF today | Medium before a password-change UI | `users.password_changed_at`; reject tokens with `iat` before it in `get_current_user` and `get_optional_user` | token issued before a password change → 401 on `/auth/me` | O2 |
+| ER2-02 | Confirmed | `POST /auth/change-password` has no rate limit or failure counter (`api/auth.py:235-256`); with a stolen access token the current password can be brute-forced, each try an Argon2 hash | Medium | per-user fixed window (`counters.incr_with_ttl`) **before** `verify_password` | 6th wrong try → 429, `verify_password` not called | O2 |
+| ER2-03 | Confirmed | `register_user` checks then inserts (`services/auth.py:142-153`); `users.email` is unique; no `IntegrityError` handler (`main.py:62` registers only the validation handler) → a concurrent duplicate is a 500. Not routed today | Low | catch `IntegrityError` on the flush → `EmailAlreadyRegistered` (after O2: the same answer either way) | two concurrent registrations of one address → no 500 | O2 |
+| ER2-04 | Confirmed (doc gap) | O2 / ER-M-04 did not say where the limit runs; `register_user` hashes at `services/auth.py:148` | Medium (CPU DoS through Argon2) | limit as a dependency before the handler body; recorded in O2 and ER-M-04 | over the limit → 429, `hash_password` not called | O2 |
+| ER2-05 | Confirmed | no `statement_timeout`, `lock_timeout` or `idle_in_transaction_session_timeout` on any engine (`core/db.py:30-79`) | Medium; **launch blocker** | see below | API session: `pg_sleep` past the limit fails; a worker session does not | pre-launch protection group (with F7) |
+| ER2-06 | Confirmed, wider | `push_task` keeps one session for the whole dispatch (`workers/tasks.py:185-191`): the first SELECT opens a transaction that stays idle across each HTTP send (Web Push 10 s, Telegram 15 s) and the 30 s retry sleep (`services/live/push.py:190-224`). `autoflush=False`, so pruned rows are not flushed and no row lock is held — but the connection is. Pool 5+10 vs `max_jobs=20`. **New:** `job_timeout=60` with `push` `max_tries=1` (`workers/arq_app.py:120-129`) — one unreachable subscription costs up to 50 s (Web Push) / 60 s (Telegram), so **two unreachable subscribers kill the whole push job**: the remaining followers get nothing and the prunes are lost (no commit); the budget reservations are released by `finally` | Medium now (live is dev-only); High once live is public | read followers and tiers in a short session and close it; deliver without a session; prune in a short session; retry via a deferred ARQ job instead of `sleep`; bounded concurrency | `checkedout() == 0` during a stubbed send; N unreachable followers finish within the job timeout | live → Sportmonks (with ER-H-01, ER-M-02); related to ER-H-05/ER-H-06 |
+| ER2-07 | Confirmed | worst case per unreachable subscription `2T + 30 s` (T = 10 s Web Push, 15 s Telegram), sequential: ≈ N · k · (2T + 30) for N followers with k subscriptions each; a successful send is ~0.1–0.5 s | as ER2-06 | with ER2-06 | with ER2-06 | with ER2-06 |
+| ER2-08 | **No action** | the `IntegrityError` on the redemption insert (`services/promo.py:235-238`) becomes `AlreadyRedeemed`, the router raises at once (`api/promo.py:174-177`), and no statement runs in that session afterwards; `get_session` rolls back, which also returns the claimed activation — correct | none | — | — | — |
+| ER2-09 | Confirmed, measured | the generation loop is synchronous until the final flush (`services/promo.py:147-164`), so the **whole API stalls** while it runs; api memory limit 1 GB. Measured on Postgres in a Linux container: 10k codes 2.6 s / 37 MiB Python peak / 138 MiB RSS; 50k 12.2 s / 164 / 405; 100k 24.5 s / 328 / 744 | Medium | `BATCH_MAX = 10_000` (service and schema `le=`) | `size=10_500` → 422 | cleanup PR |
+| ER2-10 | Confirmed | admin batch list unpaginated (`api/promo.py:80-89`); `export.csv` loads the whole batch as ORM rows (`api/promo.py:117-153`). With `BATCH_MAX` 10k an export is a few MB; batches are few | Low | `limit`/`offset` on the list; streamed export later | list with `limit` → exactly `limit` rows | later |
+| ER2-11 | **No action** (intended) | the promo limiter counts every attempt, refused ones included (`services/limits.py:44-56`) — right for a brute-force limit; the key is bucketed by clock hour, so counting a 429 never extends the lockout | — | — | — | — |
+| ER2-12 | Confirmed | `proxyBackendGet` dropped every backend header, so `Retry-After` from a 429 on `/matches/{id}` and `/analysis` never reached the browser — **fixed with F8**. The backend sets no `Cache-Control` on auth responses, so `authProxy.ts` loses nothing, but the token responses (`/api/auth/login`, `/refresh`) carry no `Cache-Control: no-store` (RFC 6749 §5.1) | Low | `no-store` on token responses | BFF refresh response → `cache-control: no-store` | `Retry-After`: F8 (done); `no-store`: F9 |
+| ER2-13 | Confirmed | read nowhere — `Settings` fields: `PUBLIC_BASE_URL`, `DEFAULT_LOCALE`, `CONSENSUS_WEIGHT_MODE` (replaced by the DB, §9g), `csrf_header_name`; `.env.example` only: `POSTGRES_HOST`, `POSTGRES_PORT`, `FOOTBALL_DATA_COUK_ENABLED`, `API_FOOTBALL_DAILY_LIMIT`, `API_FOOTBALL_PER_MINUTE_LIMIT`, `ENABLED_LEAGUES`, `MODEL_RETENTION_VERSIONS`, `RETRAIN_CRON` (§9k), `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `LLM_MAX_TOKENS`, `LLM_DAILY_TOKEN_BUDGET`, `LLM_CACHE_TTL_SECONDS` (LLM config lives in the DB), `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `BACKUP_ENABLED`, `BACKUP_CRON`, `BACKUP_RETENTION_DAILY`/`_WEEKLY`/`_MONTHLY`, `BACKUP_ENCRYPTION_PUBLIC_KEY`, `RESTORE_DRILL_CRON`, `RPO_ALERT_MINUTES` (14b placeholders), `LOG_LEVEL`, `LOG_FORMAT`, `SENTRY_DSN`, `METRICS_ENABLED` (no `/metrics`), `AGE_GATE_ENABLED`, `DISCLAIMER_REQUIRED`. Read after all: `CORS_ALLOWED_ORIGINS`, `WEBPUSH_CONTACT_EMAIL` (via properties), `SPORTMONKS_API_TOKEN`, `THE_ODDS_API_KEY` (`providers/recording.py`), `TZ` (the containers' libc, via `env_file`) | Low | remove from `.env.example` and `Settings`, or wire them; mark 14b placeholders as such | every `.env.example` key is read somewhere (allowlist for placeholders) | cleanup PR |
+| ER2-14 | Already tracked | backtester unbounded fetch, in-memory structures, response size | — | ER-H-07 | — | — |
+| ER2-15 | Already tracked | `season_split` is a breakdown, not walk-forward | — | §9d | — | — |
+| ER2-16 | Already tracked | a push reservation is lost on a crash between reserve and release | — | §6 (Redis counters) | — | — |
+| ER2-17 | Confirmed, new | saved strategies have no per-user cap and their list is unpaginated (`api/backtester.py:54-95`, expert only); the admin providers list is unpaginated but tiny (`api/providers.py:39`) | Low | per-user cap (e.g. 100) and `limit`/`offset` | 101st save → 409 | later |
+
+**ER2-05 — database timeouts (launch blocker).**
+- **API processes only:** `statement_timeout = 15s`, `lock_timeout = 5s`, set per connection
+  (`connect_args={"server_settings": …}`) on the request, security and read engines.
+- **Enabled from `create_app()`**, not from the `api` service's environment: the engines are shared
+  code, and the CLI runs as `compose run api python -m app.cli …`, which would inherit it.
+- **Exempt:** Alembic (its own engine in `migrations/env.py`), every ARQ worker (training,
+  ingestion, live recompute, push), the CLI (`bootstrap-history`, backfills, `data-report`,
+  `replace-source`). The backtester runs inside an API request (≈13k rows today) and stays under
+  15 s; if it grows, `SET LOCAL statement_timeout` inside it rather than a global exemption.
+- **`idle_in_transaction_session_timeout = 60s` only after ER-H-05:** `/analysis` keeps its
+  transaction open for the whole LLM call (the OpenAI SDK's default timeout is 600 s), and an open
+  SSE stream holds one too (ER-H-06); 60 s would kill both.
+
+### Queue (owner, 2026-10-07)
+
+1. **F8** — done.
+2. **F9** — proactive token refresh (+ `no-store` on token responses).
+3. **v0.0.1-rc6** — the owner, by hand; checklist by the agent.
+4. **Launch blockers:** F5, F7, ER2-05, Redis `requirepass` and memory policy, `docs/DEPLOY_VPS.md`.
+5. **Cleanup PR:** ER2-09 (`BATCH_MAX` 10 000), ER2-13 (dead settings).
+6. **O2** (registration) with ER2-01…ER2-04 and ER-M-04.
+7. **Live to Sportmonks** with ER2-06/ER2-07, ER-H-01, ER-M-02.
+8. **Later:** ER2-10, ER2-17.
 
 ## 10. How to resume
 
@@ -1916,7 +1991,9 @@ Found while checking the ER-M-05 follow-up; the F-series continues the rehearsal
 - **Before registration is opened to the public** (audit 1b, O2; also **ER-M-04** in §9m): `POST /auth/register` has no
   rate limit and answers `409 Email already registered`, which lets anyone check whether an
   address has an account. Before any sign-up form or BFF route exposes it:
-  - add a per-IP and per-email rate limit;
+  - add a per-IP and per-email rate limit, **enforced before `hash_password`** (Argon2 is
+    deliberately expensive: without that order every refused request still costs a hash — a
+    CPU denial of service; ER2-04);
   - answer the same way whether or not the address exists (for example `202` plus an email to
     the address);
   - test both.
