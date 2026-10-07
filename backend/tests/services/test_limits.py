@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 import pytest
 from app.core.redis import get_redis
@@ -95,7 +97,7 @@ async def test_seen_set_is_utc_date_scoped_with_midnight_ttl() -> None:
     match = uuid.uuid4()
     await consume_match_view(redis, identity="ipz", fixture_id=match, limit=5, now=now)
     key = "limits:seen:ipz:2026-07-15"
-    assert await redis.smembers(key) == {str(match)}
+    assert await cast("Awaitable[set[str]]", redis.smembers(key)) == {str(match)}
     ttl = await redis.ttl(key)
     assert 7100 < ttl <= 7200
 
@@ -112,7 +114,9 @@ async def test_day_rollover_resets_counter_and_seen_set() -> None:
     # The next UTC day: the match seen yesterday costs a view again, and the
     # day-old keys are not consulted.
     assert await consume_match_view(redis, identity="ipr", fixture_id=a, limit=1, now=day2) == 0
-    assert await redis.smembers("limits:seen:ipr:2026-07-16") == {str(a)}
+    assert await cast("Awaitable[set[str]]", redis.smembers("limits:seen:ipr:2026-07-16")) == {
+        str(a)
+    }
     assert await redis.get("limits:ipr:2026-07-16") == "1"
     with pytest.raises(LimitExceeded):
         await consume_match_view(redis, identity="ipr", fixture_id=b, limit=1, now=day2)

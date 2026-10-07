@@ -62,10 +62,12 @@ async def test_121st_request_for_an_existing_match_gets_429(
     await session.commit()
     ip = "198.51.100.21"
     codes = [await _detail(client, fixture.id, ip) for _ in range(DEFAULT_LIMIT)]
-    # The daily quota is unchanged: three views, then 403 while under the limit.
-    assert codes[:GUEST_DAILY_VIEWS] == [200] * GUEST_DAILY_VIEWS
-    assert set(codes[GUEST_DAILY_VIEWS:]) == {403}
+    # The same match costs one daily view (F6), so only the request limit
+    # bounds repeated fetches of it.
+    assert codes == [200] * DEFAULT_LIMIT
     assert await _detail(client, fixture.id, ip) == 429
+    listing = await client.get("/matches", headers=_guest(ip))
+    assert listing.json()["matches_remaining"] == GUEST_DAILY_VIEWS - 1
 
 
 async def test_the_limit_is_per_identity(client: AsyncClient, session: AsyncSession) -> None:

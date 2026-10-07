@@ -11,7 +11,7 @@ import asyncio
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -92,7 +92,7 @@ async def test_counter_left_without_ttl_is_healed() -> None:
     for key, call in _counter_calls(datetime.now(UTC)):
         # The crash leftover: counted (or marked seen), never expired.
         if key.startswith("limits:seen:"):
-            await redis.sadd(key, str(uuid.UUID(int=7)))
+            await cast("Awaitable[int]", redis.sadd(key, str(uuid.UUID(int=7))))
         else:
             await redis.set(key, 1)
         assert await redis.ttl(key) == -1
@@ -121,7 +121,7 @@ async def test_parallel_match_views_never_exceed_the_quota() -> None:
     assert sorted(granted) == [0, 1, 2, 3, 4]
     assert all(isinstance(r, limits.LimitExceeded) for r in results if r not in granted)
     assert int(await redis.get(f"limits:race:{now:%Y-%m-%d}")) == 5
-    assert await redis.scard(f"limits:seen:race:{now:%Y-%m-%d}") == 5
+    assert await cast("Awaitable[int]", redis.scard(f"limits:seen:race:{now:%Y-%m-%d}")) == 5
 
 
 @pytest.mark.asyncio
@@ -139,7 +139,9 @@ async def test_parallel_views_of_one_match_cost_one_view() -> None:
     )
     assert results == [2] * 30
     assert int(await redis.get(f"limits:tabs:{now:%Y-%m-%d}")) == 1
-    assert await redis.smembers(f"limits:seen:tabs:{now:%Y-%m-%d}") == {str(match)}
+    assert await cast(
+        "Awaitable[set[str]]", redis.smembers(f"limits:seen:tabs:{now:%Y-%m-%d}")
+    ) == {str(match)}
 
 
 @pytest.mark.asyncio

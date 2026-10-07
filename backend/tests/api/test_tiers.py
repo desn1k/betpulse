@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import cast
 
 import pytest
 from app.core.redis import get_redis
@@ -217,7 +219,7 @@ async def _seen_and_used() -> tuple[set[str], int]:
         k async for k in redis.scan_iter("limits:*") if not k.startswith("limits:seen:")
     ]
     assert len(seen_keys) <= 1 and len(counter_keys) <= 1
-    seen = set(await redis.smembers(seen_keys[0])) if seen_keys else set()
+    seen = await cast("Awaitable[set[str]]", redis.smembers(seen_keys[0])) if seen_keys else set()
     used = int(await redis.get(counter_keys[0])) if counter_keys else 0
     return seen, used
 
@@ -360,7 +362,7 @@ async def test_admin_lists_and_edits_tiers_reflected_immediately(
     client: AsyncClient, session: AsyncSession
 ) -> None:
     await seed_default_tiers(session)
-    fixture = await _seed_match(session)
+    first, second = await _seed_matches(session, 2)
     admin = await _admin_headers(session)
 
     listed = await client.get("/admin/tiers", headers=admin)
@@ -380,9 +382,8 @@ async def test_admin_lists_and_edits_tiers_reflected_immediately(
     assert patch.json()["limits"]["matches_per_day"] == 1
 
     free_headers = await _tier_headers(session, UserTier.free)
-    url = f"/matches/{fixture.id}"
-    assert (await client.get(url, headers=free_headers)).status_code == 200
-    blocked = await client.get(url, headers=free_headers)
+    assert (await client.get(f"/matches/{first.id}", headers=free_headers)).status_code == 200
+    blocked = await client.get(f"/matches/{second.id}", headers=free_headers)
     assert blocked.status_code == 403
     assert blocked.json()["detail"]["tier_required"] == "pro"
 
