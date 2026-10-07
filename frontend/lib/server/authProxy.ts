@@ -34,7 +34,9 @@ export async function proxyAuth(request: NextRequest, backendPath: string): Prom
   const payload = await backendRes.text();
   const response = new NextResponse(payload, {
     status: backendRes.status,
-    headers: { "content-type": "application/json" },
+    // Login and refresh responses carry an access token: never cache them
+    // (RFC 6749 §5.1). Logout gets the same, so no auth answer is ever reused.
+    headers: { "content-type": "application/json", "cache-control": "no-store" },
   });
   for (const cookie of backendRes.headers.getSetCookie()) {
     response.headers.append("set-cookie", rewriteRefreshPath(cookie));

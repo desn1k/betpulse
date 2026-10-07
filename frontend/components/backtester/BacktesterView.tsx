@@ -6,7 +6,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ApiError, runBacktest } from "@/lib/api";
-import { authHeader, useAuthStore } from "@/lib/auth/store";
+import { authHeaders, SessionRefreshError, useAuthStore } from "@/lib/auth/store";
 import type { BacktestResult, BetType, RunRequest, StrategyFilter } from "@/types/backtester";
 
 import { BacktestResults } from "./BacktestResults";
@@ -63,6 +63,8 @@ export function BacktesterView() {
           (err.body as { detail?: { tier_required?: string } } | null)?.detail?.tier_required ??
           "pro";
         setError(t("backtester.limitReached", { tier }));
+      } else if (err instanceof SessionRefreshError) {
+        setError(t("auth.sessionRefreshFailed"));
       } else {
         setError(t("list.error"));
       }
@@ -75,9 +77,17 @@ export function BacktesterView() {
   async function onSave() {
     setSaveMsg(null);
     const req = currentRequest();
+    let headers: Record<string, string>;
+    try {
+      headers = await authHeaders();
+    } catch {
+      // The session could not be renewed: do not send the save as a guest.
+      setSaveMsg(t("auth.sessionRefreshFailed"));
+      return;
+    }
     const res = await fetch("/api/backtester/strategies", {
       method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json", ...authHeader() },
+      headers: { "content-type": "application/json", accept: "application/json", ...headers },
       body: JSON.stringify({ name: `${betType}/${pick}`, ...req }),
     });
     setSaveMsg(res.status === 201 ? t("backtester.saved") : t("backtester.saveUpgrade"));

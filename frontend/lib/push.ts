@@ -5,7 +5,7 @@
 // which attach the bearer token.
 
 import { ApiError } from "@/lib/api";
-import { authHeader } from "@/lib/auth/store";
+import { authHeaders } from "@/lib/auth/store";
 import type {
   FollowsResponse,
   SubscriptionsResponse,
@@ -16,7 +16,7 @@ import type {
 async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(url, {
     ...init,
-    headers: { accept: "application/json", ...(init.headers ?? {}), ...authHeader() },
+    headers: { accept: "application/json", ...(init.headers ?? {}), ...(await authHeaders()) },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => null);

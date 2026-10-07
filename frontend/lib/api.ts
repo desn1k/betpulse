@@ -1,7 +1,7 @@
 // Browser-side fetchers for the same-origin match proxy routes. Consumed by the
 // TanStack Query hooks in lib/queries.ts.
 
-import { authHeader } from "@/lib/auth/store";
+import { authHeaders } from "@/lib/auth/store";
 import type { BacktestResult, RunRequest } from "@/types/backtester";
 import type { AnalysisResult } from "@/types/llm";
 import type { MatchDetail, MatchList, MatchListParams } from "@/types/match";
@@ -19,7 +19,7 @@ class ApiError extends Error {
 
 async function getJson<T>(url: string): Promise<T> {
   // Attach the bearer token (when signed in) so the backend resolves the tier.
-  const res = await fetch(url, { headers: { accept: "application/json", ...authHeader() } });
+  const res = await fetch(url, { headers: { accept: "application/json", ...(await authHeaders()) } });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new ApiError(`request failed: ${res.status}`, res.status, body);
@@ -60,7 +60,11 @@ export interface RedeemEffect {
 export async function redeemPromo(code: string): Promise<RedeemEffect> {
   const res = await fetch("/api/promo/redeem", {
     method: "POST",
-    headers: { "content-type": "application/json", accept: "application/json", ...authHeader() },
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json",
+      ...(await authHeaders()),
+    },
     body: JSON.stringify({ code }),
   });
   if (!res.ok) {
@@ -77,7 +81,11 @@ export async function runBacktest(
   const url = `/api/backtester/run${seasonSplit ? "?season_split=true" : ""}`;
   const res = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json", accept: "application/json", ...authHeader() },
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json",
+      ...(await authHeaders()),
+    },
     body: JSON.stringify(request),
   });
   if (!res.ok) {

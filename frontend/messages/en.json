@@ -262,7 +262,10 @@
     "password": "Password",
     "signingIn": "Signing in…",
     "invalidCredentials": "Invalid email or password.",
-    "loginFailed": "Could not sign in. Please try again."
+    "loginFailed": "Could not sign in. Please try again.",
+    "sessionExpired": "Your session has expired — please sign in again.",
+    "sessionRefreshFailing": "Can't renew your session — retrying. Actions may fail until it reconnects.",
+    "sessionRefreshFailed": "Couldn't renew your session. Check your connection and try again."
   },
   "promo": {
     "title": "Redeem a promo code",

@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { ApiError, redeemPromo, type RedeemEffect } from "@/lib/api";
+import { SessionRefreshError } from "@/lib/auth/store";
 import { matchKeys } from "@/lib/queries";
 
 type Msg = { ok: boolean; text: string } | null;
@@ -53,6 +54,10 @@ export function RedeemPromo({ onApplied }: { onApplied?: () => void }) {
       setCode("");
       onApplied?.();
     } catch (err) {
+      if (err instanceof SessionRefreshError) {
+        setMessage({ ok: false, text: t("auth.sessionRefreshFailed") });
+        return;
+      }
       const status = err instanceof ApiError ? err.status : 0;
       setMessage({ ok: false, text: t(errorKey(status)) });
     } finally {

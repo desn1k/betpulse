@@ -3,7 +3,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 
-import { useAuthStore } from "@/lib/auth/store";
+import { onSessionEvent, useAuthStore, watchSession } from "@/lib/auth/store";
+import { matchKeys } from "@/lib/queries";
 import { shouldRetry } from "@/lib/retry";
 
 /** Client-side providers (TanStack Query). One client per browser session. */
@@ -27,6 +28,28 @@ export function Providers({ children }: { children: ReactNode }) {
   useEffect(() => {
     void useAuthStore.getState().hydrate();
   }, []);
+
+  // Renew the session when the tab comes back, and follow a logout in another
+  // tab (lib/auth/store.ts).
+  useEffect(() => watchSession(), []);
+
+  // Keep cached data on the same account as the header (F9).
+  useEffect(
+    () =>
+      onSessionEvent((event) => {
+        if (event === "recovered") {
+          // The token had expired: reload what may have failed meanwhile. Free
+          // after F6 (a match already viewed today costs no view; the list and a
+          // cached analysis spend no quota).
+          void client.invalidateQueries({ queryKey: matchKeys.all });
+          void client.invalidateQueries({ queryKey: ["push", "follows"] });
+        } else {
+          // Another account, or signed out: every user-scoped query is stale.
+          void client.invalidateQueries();
+        }
+      }),
+    [client],
+  );
 
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }

@@ -6,7 +6,7 @@ import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { useAuthStore } from "@/lib/auth/store";
+import { SessionRefreshError, useAuthStore } from "@/lib/auth/store";
 import {
   createTelegramLink,
   deleteSubscription,
@@ -38,7 +38,8 @@ export function NotificationsSettings() {
   const enable = useMutation({
     mutationFn: enableWebPush,
     onSuccess: invalidate,
-    onError: (e: Error) => setError(e.message),
+    onError: (e: Error) =>
+      setError(e instanceof SessionRefreshError ? t("auth.sessionRefreshFailed") : e.message),
   });
 
   const disable = useMutation({
@@ -52,7 +53,8 @@ export function NotificationsSettings() {
   const link = useMutation({
     mutationFn: createTelegramLink,
     onSuccess: (data) => setLinkUrl(data.url),
-    onError: (e: Error) => setError(e.message),
+    onError: (e: Error) =>
+      setError(e instanceof SessionRefreshError ? t("auth.sessionRefreshFailed") : e.message),
   });
 
   const disconnect = useMutation({

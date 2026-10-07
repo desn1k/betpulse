@@ -18,6 +18,8 @@ export function AuthMenu() {
   const t = useTranslations();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const sessionExpired = useAuthStore((s) => s.sessionExpired);
+  const refreshFailing = useAuthStore((s) => s.refreshFailing);
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [promoOpen, setPromoOpen] = useState(false);
@@ -30,6 +32,11 @@ export function AuthMenu() {
   if (user) {
     return (
       <div className="flex items-center gap-2">
+        {refreshFailing && (
+          <span className="max-w-[16rem] text-xs text-muted-strong" role="status">
+            {t("auth.sessionRefreshFailing")}
+          </span>
+        )}
         <span className="hidden max-w-[12rem] truncate text-sm text-muted-strong sm:inline">
           {user.email}
         </span>
@@ -59,7 +66,12 @@ export function AuthMenu() {
   }
 
   return (
-    <div className="relative">
+    <div className="relative flex items-center gap-2">
+      {sessionExpired && (
+        <span className="max-w-[16rem] text-xs text-muted-strong" role="status">
+          {t("auth.sessionExpired")}
+        </span>
+      )}
       <Button size="sm" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
         {t("auth.login")}
       </Button>

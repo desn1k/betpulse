@@ -9,10 +9,17 @@ interface AuthState {
   // httpOnly cookie restores the session after a reload.
   accessToken: string | null;
   user: AuthUser | null;
+  // Client-clock instant (ms) the access token stops being valid: the moment
+  // its response arrived plus ``expires_in``. The server clock is never used.
+  expiresAt: number | null;
   pending: boolean;
   // True once the initial silent-refresh attempt has settled (success or not),
   // so guards can wait for a known auth state instead of flash-redirecting.
   hydrated: boolean;
+  // This tab was signed in and the server ended the session (refresh → 401).
+  sessionExpired: boolean;
+  // Renewing the session keeps failing (network or 5xx); retries are scheduled.
+  refreshFailing: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   hydrate: () => Promise<void>;
@@ -20,85 +27,326 @@ interface AuthState {
 
 export class LoginError extends Error {}
 
+/** The session could not be renewed (network, 5xx, timeout); the request was
+ * not sent, so it never goes out as a guest. Not an ApiError on purpose. */
+export class SessionRefreshError extends Error {
+  constructor(message = "session refresh failed") {
+    super(message);
+    this.name = "SessionRefreshError";
+  }
+}
+
 // Delay before retrying a refresh that lost a race to a concurrent one (409).
 export const REFRESH_CONFLICT_RETRY_MS = 500;
+/** Renew this long before the token expires. */
+export const REFRESH_MARGIN_MS = 60_000;
+/** Every waiter gives up on one refresh attempt after this long. */
+export const REFRESH_TIMEOUT_MS = 10_000;
+/** Retry delays after a failed (network / 5xx) refresh; the last one repeats. */
+export const REFRESH_RETRY_DELAYS_MS = [5_000, 15_000, 30_000, 60_000] as const;
 
-function requestRefresh(): Promise<Response> {
+/** Name of the channel that tells the other tabs about a logout. */
+export const AUTH_CHANNEL = "betpulse-auth";
+
+/** What changed about the session, for the query cache (see app/providers.tsx). */
+export type SessionEvent =
+  | "recovered" // renewed after the token had expired: reload what failed meanwhile
+  | "account-changed" // the refresh cookie now belongs to another user
+  | "signed-out"; // ended here or in another tab
+
+const listeners = new Set<(event: SessionEvent) => void>();
+
+/** Subscribe to session changes; returns the unsubscribe function. */
+export function onSessionEvent(listener: (event: SessionEvent) => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function emit(event: SessionEvent): void {
+  for (const listener of listeners) listener(event);
+}
+
+let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+let retryAttempt = 0;
+let inFlight: Promise<void> | null = null;
+
+function clearTimers(): void {
+  if (refreshTimer !== null) clearTimeout(refreshTimer);
+  if (retryTimer !== null) clearTimeout(retryTimer);
+  refreshTimer = null;
+  retryTimer = null;
+}
+
+function channel(): BroadcastChannel | null {
+  return typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel(AUTH_CHANNEL);
+}
+
+function requestRefresh(signal: AbortSignal): Promise<Response> {
   // The CSRF cookie is re-read on every call: a winning refresh rotates it.
   return fetch("/api/auth/refresh", {
     method: "POST",
     headers: { "x-csrf-token": readCookie(CSRF_COOKIE) ?? "" },
+    signal,
   });
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
-  accessToken: null,
-  user: null,
-  pending: false,
-  hydrated: false,
+/** Resolve with ``promise`` or reject with SessionRefreshError after ``ms``,
+ * aborting the request. */
+function withTimeout<T>(promise: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
+  const controller = new AbortController();
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      controller.abort();
+      reject(new SessionRefreshError("session refresh timed out"));
+    }, ms);
+    promise(controller.signal).then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error instanceof SessionRefreshError ? error : new SessionRefreshError());
+      },
+    );
+  });
+}
 
-  login: async (email, password) => {
-    set({ pending: true });
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-      if (!res.ok) {
-        throw new LoginError(res.status === 401 ? "invalid_credentials" : "login_failed");
-      }
-      const data = (await res.json()) as AccessTokenResponse;
-      set({ accessToken: data.access_token, user: data.user });
-    } finally {
-      set({ pending: false });
-    }
-  },
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-  logout: async () => {
-    const csrf = readCookie(CSRF_COOKIE);
-    try {
-      await fetch("/api/auth/logout", {
-        method: "POST",
-        headers: csrf ? { "x-csrf-token": csrf } : {},
-      });
-    } catch {
-      // Best-effort revoke; the client session is cleared regardless.
-    }
-    set({ accessToken: null, user: null });
-  },
+// Set by the store below; module-level so the helpers outside it can call them.
+let refreshSessionRef: () => Promise<void> = () => Promise.resolve();
+let hydration: Promise<void> | null = null;
+let clearSessionRef: (options: { expired: boolean }) => void = () => undefined;
 
-  // Silent refresh on app mount: if a refresh session exists (CSRF cookie
-  // present), exchange it for a fresh access token so a reload keeps the user
-  // signed in without re-entering their password.
-  hydrate: async () => {
-    if (readCookie(CSRF_COOKIE) === null) {
-      set({ hydrated: true });
-      return;
-    }
+export const useAuthStore = create<AuthState>((set, get) => {
+  /** Take a token response: store it, schedule the next renewal, and tell the
+   * cache when the account behind the shared refresh cookie changed. */
+  function applySession(data: AccessTokenResponse, { recovered }: { recovered: boolean }): void {
+    const previous = get().user;
+    set({
+      accessToken: data.access_token,
+      user: data.user,
+      expiresAt: Date.now() + data.expires_in * 1000,
+      sessionExpired: false,
+      refreshFailing: false,
+    });
+    retryAttempt = 0;
+    clearTimers();
+    refreshTimer = setTimeout(
+      () => void refreshSession().catch(() => undefined),
+      Math.max(0, data.expires_in * 1000 - REFRESH_MARGIN_MS),
+    );
+    if (previous && previous.id !== data.user.id) emit("account-changed");
+    else if (recovered) emit("recovered");
+  }
+
+  /** End the session in this tab. ``expired``: the server ended a session this
+   * tab held, so say so; a logout (here or in another tab) is not "expired". */
+  function clearSession({ expired }: { expired: boolean }): void {
+    clearTimers();
+    retryAttempt = 0;
+    const hadSession = get().accessToken !== null || get().user !== null;
+    set({
+      accessToken: null,
+      user: null,
+      expiresAt: null,
+      refreshFailing: false,
+      sessionExpired: expired && hadSession,
+    });
+    if (hadSession) emit("signed-out");
+  }
+
+  function scheduleRetry(): void {
+    if (retryTimer !== null) clearTimeout(retryTimer);
+    const delay =
+      REFRESH_RETRY_DELAYS_MS[Math.min(retryAttempt, REFRESH_RETRY_DELAYS_MS.length - 1)];
+    retryAttempt += 1;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      void refreshSession().catch(() => undefined);
+    }, delay);
+  }
+
+  async function runRefresh(): Promise<void> {
+    const { expiresAt } = get();
+    const recovered = expiresAt === null || Date.now() >= expiresAt;
+    let res: Response;
     try {
-      let res = await requestRefresh();
+      res = await withTimeout(requestRefresh, REFRESH_TIMEOUT_MS);
       if (res.status === 409) {
         // Another tab rotated the refresh token at the same moment. The
         // session is intact: once the browser has applied the winner's
         // Set-Cookie, retry once with the new refresh + CSRF cookies.
-        await new Promise((resolve) => setTimeout(resolve, REFRESH_CONFLICT_RETRY_MS));
-        res = await requestRefresh();
+        await sleep(REFRESH_CONFLICT_RETRY_MS);
+        res = await withTimeout(requestRefresh, REFRESH_TIMEOUT_MS);
       }
-      if (res.ok) {
-        const data = (await res.json()) as AccessTokenResponse;
-        set({ accessToken: data.access_token, user: data.user });
-      }
-    } catch {
-      // No valid session — remain a guest.
-    } finally {
-      set({ hydrated: true });
+    } catch (error) {
+      set({ refreshFailing: get().accessToken !== null });
+      scheduleRetry();
+      throw error instanceof SessionRefreshError ? error : new SessionRefreshError();
     }
-  },
-}));
+    if (res.ok) {
+      applySession((await res.json()) as AccessTokenResponse, { recovered });
+      return;
+    }
+    if (res.status === 401 || res.status === 403) {
+      // The refresh session is gone: sign out visibly (a guest stays a guest).
+      clearSession({ expired: true });
+      return;
+    }
+    // 5xx, 502 from the BFF, or a conflict that did not clear: keep the session
+    // and try again later.
+    set({ refreshFailing: get().accessToken !== null });
+    scheduleRetry();
+    throw new SessionRefreshError(`session refresh failed: ${res.status}`);
+  }
 
-/** Current bearer token for API calls (read outside React). */
-export function authHeader(): Record<string, string> {
+  /** One refresh at a time per tab; every caller shares it. A settled attempt
+   * is never reused: the next caller starts a new one. */
+  function refreshSession(): Promise<void> {
+    if (inFlight === null) {
+      inFlight = runRefresh().finally(() => {
+        inFlight = null;
+      });
+    }
+    return inFlight;
+  }
+  refreshSessionRef = refreshSession;
+  clearSessionRef = clearSession;
+
+  return {
+    accessToken: null,
+    user: null,
+    expiresAt: null,
+    pending: false,
+    hydrated: false,
+    sessionExpired: false,
+    refreshFailing: false,
+
+    login: async (email, password) => {
+      set({ pending: true });
+      try {
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        if (!res.ok) {
+          throw new LoginError(res.status === 401 ? "invalid_credentials" : "login_failed");
+        }
+        applySession((await res.json()) as AccessTokenResponse, { recovered: false });
+        // The session state is known now; no restore needs to run first.
+        set({ hydrated: true });
+      } finally {
+        set({ pending: false });
+      }
+    },
+
+    logout: async () => {
+      const csrf = readCookie(CSRF_COOKIE);
+      try {
+        await fetch("/api/auth/logout", {
+          method: "POST",
+          headers: csrf ? { "x-csrf-token": csrf } : {},
+        });
+      } catch {
+        // Best-effort revoke; the client session is cleared regardless.
+      }
+      clearSession({ expired: false });
+      // Tell the other tabs: their access tokens are still in memory.
+      const bus = channel();
+      bus?.postMessage({ type: "logout" });
+      bus?.close();
+    },
+
+    // Silent refresh on app mount: if a refresh session exists (CSRF cookie
+    // present), exchange it for a fresh access token so a reload keeps the user
+    // signed in without re-entering their password.
+    // One restore per page load, shared by every caller: Providers' mount
+    // effect and the first API requests (which start before it, see
+    // authHeaders) await the same attempt.
+    hydrate: () => {
+      if (get().hydrated) return Promise.resolve();
+      if (hydration === null) {
+        hydration = (async () => {
+          if (readCookie(CSRF_COOKIE) === null) return;
+          try {
+            await refreshSession();
+          } catch {
+            // No session yet (or the server is unreachable) — remain a guest.
+          }
+        })().finally(() => {
+          hydration = null;
+          set({ hydrated: true });
+        });
+      }
+      return hydration;
+    },
+  };
+});
+
+/** Renew the session now (single-flight). */
+export function refreshSession(): Promise<void> {
+  return refreshSessionRef();
+}
+
+function needsRefresh(now = Date.now()): boolean {
+  const { accessToken, expiresAt } = useAuthStore.getState();
+  return accessToken !== null && expiresAt !== null && now >= expiresAt - REFRESH_MARGIN_MS;
+}
+
+/**
+ * Bearer header for an API call — the only way client code gets one. On a page
+ * load it first waits for the session restore (a signed-in user's first request
+ * must not go out as a guest). A token
+ * close to or past its expiry is renewed first (single-flight), so no request
+ * leaves with a token known to be expired. If renewal fails while the token is
+ * still valid, the current token is used; once it has expired the call fails
+ * with SessionRefreshError and is not sent (never as a guest).
+ */
+export async function authHeaders(): Promise<Record<string, string>> {
+  // Page load: queries start before Providers runs hydrate(), so the first
+  // request restores the session itself instead of going out as a guest.
+  if (!useAuthStore.getState().hydrated) await useAuthStore.getState().hydrate();
+  if (needsRefresh()) {
+    try {
+      await refreshSession();
+    } catch (error) {
+      const { expiresAt } = useAuthStore.getState();
+      if (expiresAt === null || Date.now() >= expiresAt) throw error;
+    }
+  }
   const token = useAuthStore.getState().accessToken;
   return token ? { authorization: `Bearer ${token}` } : {};
+}
+
+/**
+ * Renew when the tab comes back (visible, online, focused) with a token close to
+ * expiry: timers do not fire reliably in background tabs or during sleep. Also
+ * listens for a logout in another tab. Returns the cleanup function.
+ */
+export function watchSession(): () => void {
+  const check = () => {
+    if (document.visibilityState === "hidden") return;
+    if (needsRefresh()) void refreshSession().catch(() => undefined);
+  };
+  document.addEventListener("visibilitychange", check);
+  window.addEventListener("online", check);
+  window.addEventListener("focus", check);
+  const bus = channel();
+  if (bus) {
+    bus.onmessage = (event: MessageEvent<{ type?: string }>) => {
+      if (event.data?.type === "logout") clearSessionRef({ expired: false });
+    };
+  }
+  return () => {
+    document.removeEventListener("visibilitychange", check);
+    window.removeEventListener("online", check);
+    window.removeEventListener("focus", check);
+    bus?.close();
+  };
 }
