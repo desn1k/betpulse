@@ -2,7 +2,7 @@ import { within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { authHeader, REFRESH_CONFLICT_RETRY_MS, useAuthStore } from "@/lib/auth/store";
+import { REFRESH_CONFLICT_RETRY_MS, useAuthStore } from "@/lib/auth/store";
 import { renderWithProviders } from "@/test/test-utils";
 
 import { AuthMenu } from "./AuthMenu";
@@ -27,11 +27,10 @@ describe("auth store", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("stores the access token in memory on login and exposes a bearer header", async () => {
+  it("stores the access token in memory on login", async () => {
     mockFetchOk();
     await useAuthStore.getState().login("admin@betpulse.dev", "pw");
     expect(useAuthStore.getState().accessToken).toBe("tok-123");
-    expect(authHeader()).toEqual({ authorization: "Bearer tok-123" });
   });
 
   it("clears the session on logout", async () => {
@@ -42,7 +41,6 @@ describe("auth store", () => {
     useAuthStore.setState({ accessToken: "x", user: SESSION.user as never });
     await useAuthStore.getState().logout();
     expect(useAuthStore.getState().accessToken).toBeNull();
-    expect(authHeader()).toEqual({});
   });
 });
 

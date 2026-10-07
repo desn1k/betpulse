@@ -207,6 +207,17 @@ describe("proxyAuth", () => {
     expect(res.headers.get("set-cookie")).not.toContain("/auth/refresh");
   });
 
+  it.each(["/auth/login", "/auth/refresh", "/auth/logout"])(
+    "%s responses are never cached (Cache-Control: no-store)",
+    async (path) => {
+      mockFetch(() => Response.json({ access_token: "a" }));
+
+      const res = await proxyAuth(request({}, { method: "POST" }), path);
+
+      expect(res.headers.get("cache-control")).toBe("no-store");
+    },
+  );
+
   it("passes a refresh conflict (409) through without touching auth cookies", async () => {
     mockFetch(() =>
       Response.json(
