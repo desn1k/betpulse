@@ -440,10 +440,19 @@ lock; unmapped API-Football team/league during live → structured warning + ski
 - **Method-bar gating is server-side.** `GET /matches/{id}` returns per-method bars only for
   pro/expert (`flags.methods` in `all`/`all_weights`); guest/free get `methods: []` + `flags` so the
   frontend renders the blur/lock. Aggregate signals (consensus, agreement %, delta) are shown to all.
-- **matches/day** counts `GET /matches/{id}` per caller (user id, or the guest's client IP from
-  `app.core.deps.get_client_ip`, IPv6 bucketed per /64). Redis key `limits:{id}:{YYYY-MM-DD}`, TTL = seconds to next **UTC midnight**
-  (not rolling 24h). Over budget → `403 {tier_required}` (guest→free, free→pro). The list is free and
-  reports `matches_remaining`.
+- **matches/day** counts **distinct matches** opened with `GET /matches/{id}` per caller (user id,
+  or the guest's client IP from `app.core.deps.get_client_ip`, IPv6 bucketed per /64) and UTC day
+  (F6, fixed 2026-10-07): the page refetches its card every 60 s, and the same match again that
+  day costs nothing. Redis keys, both with TTL = seconds to next **UTC midnight** (not rolling
+  24h): the counter `limits:{id}:{YYYY-MM-DD}` and the set of fixture ids already charged,
+  `limits:seen:{id}:{YYYY-MM-DD}`, updated together by one Lua script
+  (`counters.incr_distinct_within_limit`), so tabs opening the same new match at once take one
+  unit. Over budget, a match not seen today → `403 {tier_required}` (guest→free, free→pro); it is
+  not recorded, and a match already seen today still answers 200. The counter is the measure of use
+  (`matches_remaining`); a seen set lost on its own makes the next view count again, never an error.
+  No migration: an older image ignores the set and keeps counting every fetch on the same counter,
+  so a rollback in either direction only changes how fetches are counted that day. The list is free
+  and reports `matches_remaining`.
 - **SSE gating** now reads the same `live_recompute` flag (was the `UserTier.can_stream_live` enum).
 - **Frontend auth is minimal** (spec allows): access token in a Zustand store (memory only), refresh
   token in the backend's httpOnly cookie. `/api/auth/*` route handlers proxy to the backend and relay
@@ -1644,10 +1653,10 @@ fixture lookup: `rl:match_detail:{identity}` (the quota's identity), `RATE_LIMIT
 = 120 per `RATE_LIMIT_MATCH_DETAIL_WINDOW_SECONDS` = 60, 429 with `Retry-After`. A Redis error
 fails the request (fail-closed), as on `/analysis`.
 
-### Found later (2026-10-06): F5–F7
+### Found later (2026-10-06/07): F5–F8
 
 Found while checking the ER-M-05 follow-up; the F-series continues the rehearsal findings (F1–F4,
-§9i). None is fixed yet.
+§9i). F6 is fixed (2026-10-07); F5, F7 and F8 (found while fixing F6) are open.
 
 - **F5 — all IPv6 guests may share one identity. LAUNCH BLOCKER for the first VPS run.** Caddy
   publishes `[::]:80`/`[::]:443`, but the `betpulse` network is IPv4-only, so Docker hands IPv6
@@ -1673,8 +1682,9 @@ Found while checking the ER-M-05 follow-up; the F-series continues the rehearsal
   - **Recommendation:** 1; if it cannot be finished before launch, 3 as a stopgap (never launch
     with the collapse in place).
   - First-VPS checklist item (below).
-- **F6 — the daily view quota is spent by the page's own refetch. Defect; next PR slot, before
-  ER-H-02.** `useMatch` refetches `GET /matches/{id}` every 60 s (`frontend/lib/queries.ts`, plus
+- **F6 — the daily view quota is spent by the page's own refetch. Fixed 2026-10-07 with option
+  (a): the quota counts distinct `(identity, fixture)` per UTC day, for every tier (§9b).** Before:
+  `useMatch` refetches `GET /matches/{id}` every 60 s (`frontend/lib/queries.ts`, plus
   `retry: 1`), and every call counts a view: a guest with one match tab open spends the 3 daily
   views in about 3 minutes without a click (a free user their tier's budget likewise).
   - Options: (a) count **unique `(identity, fixture)` per day** (a Redis set per identity and
@@ -1683,6 +1693,22 @@ Found while checking the ER-M-05 follow-up; the F-series continues the rehearsal
   - **Recommendation: (a).** It fixes every tier, not only guests, keeps live updates on the page,
     and matches what a "match view" means to a user; (b) leaves signed-in users burning their
     budget and drops live refresh for guests. Check the spec's wording of the quota with it.
+    The spec says "Matches/day" and `tiers.py` already defined the limit as "distinct
+    match-detail views per UTC day", so (a) brings the code in line with both.
+  - Frontend follow-up: **F8** below.
+- **F8 — the match page drops its card on a failed background refetch; 4xx are retried. Frontend
+  defect, open.** TanStack Query keeps `data` when a refetch fails but sets `isError`, and
+  `MatchDetailView` checks `isError` first, so one failed 60 s refetch replaces a card the user
+  is reading with the lock (403) or the error text (429, 5xx). The default `retry: 1`
+  (`app/providers.tsx`) also repeats 4xx answers, which cannot succeed on a retry and each count
+  against the 120/60 s request limit. After F6 a 403 mid-session only follows a tier drop (a
+  subscription expiring), but a 429 or 5xx still hides the card.
+  - Fix: render the error state only when there is no `data` (keep the card, optionally with a
+    "data may be stale" note); do not retry 4xx responses (a `retry` function on `ApiError.status`).
+  - First failing test (Vitest): a refetch answering 403/429/500 after a successful load keeps the
+    card on screen; a 4xx is fetched once.
+  - Slot (proposed): right after PR B (ER-H-02), before v0.0.1-rc6, so the rc6 rehearsal runs it in
+    the real web image.
 - **F7 — the public `/matches` list has no rate limit.** It runs the heaviest public query
   (list, filters, consensus) and only `/matches/{id}` and `/analysis` are limited. Slot:
   **pre-launch protection group** (before the first public release, with ER-M-04 / §11 O2 and
