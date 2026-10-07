@@ -1799,7 +1799,7 @@ fails the request (fail-closed), as on `/analysis`.
 ### Found later (2026-10-06/07): F5–F9
 
 Found while checking the ER-M-05 follow-up; the F-series continues the rehearsal findings (F1–F4,
-§9i). F6 and F8 are fixed (2026-10-07); F5, F7 and F9 (found while planning F8) are open.
+§9i). F6, F8 (2026-10-07) and F9 (2026-10-08, found while planning F8) are fixed; F5 and F7 are open.
 
 - **F5 — all IPv6 guests may share one identity. LAUNCH BLOCKER for the first VPS run.** Caddy
   publishes `[::]:80`/`[::]:443`, but the `betpulse` network is IPv4-only, so Docker hands IPv6
@@ -1863,26 +1863,48 @@ Found while checking the ER-M-05 follow-up; the F-series continues the rehearsal
     (`RATE_LIMIT_MATCH_DETAIL_WINDOW_SECONDS` = 60) equals the poll interval, so the next poll
     already lands after the window. **Revisit** if that window becomes longer than the poll
     interval, or a page starts polling `/analysis`: then poll at `max(60 s, Retry-After)`.
-- **F9 — a signed-in session silently becomes a guest after 15 minutes. Open; slot right after
-  F8, before v0.0.1-rc6.** The access token lives `JWT_ACCESS_TTL_MINUTES` = 15 and is kept in
-  memory only; the frontend refreshes it **only on mount** (`hydrate()`, `lib/auth/store.ts`,
-  called from `app/providers.tsx`) — there is no refresh on expiry and none on a 401.
-  - On `/matches*` and `/analysis`, `get_optional_user` (`core/deps.py`) treats an expired token
-    as a guest instead of answering 401, so after 15 minutes the polling match page (and the list)
-    silently switch to the guest view: a Pro user loses the method bars, and the views are counted
-    against the guest quota of their IP (3/day), so after three matches a Pro user gets 403
-    `tier_required=free`. Routes behind `get_current_user` (push settings and follows, promo
-    redemption, backtester, `/auth/me`) answer 401. Only a reload recovers.
-  - **Fix (option A, owner 2026-10-07):** refresh proactively in the auth store — a timer at
-    `expires_in − 60 s` (already in `AccessTokenResponse`), and on `visibilitychange` when the
-    token is past that point (timers do not fire reliably in background tabs); single-flight (one
-    refresh shared by every caller); the existing 409 handling; after a refresh, invalidate the
-    match queries so the page is served for the real tier again. A failed refresh (401) clears the
-    session as a logout does. Not a blind retry on 401. Also `Cache-Control: no-store` on the BFF's
-    token responses (`authProxy.ts`; RFC 6749 §5.1; ER2-12).
-  - **First failing test (Vitest, fake timers):** after login with `expires_in` = 900, the store
-    calls `/api/auth/refresh` once at 840 s and the next match fetch carries the new token; two
-    concurrent triggers share one refresh; a hidden tab refreshes on `visibilitychange`.
+- **F9 — a signed-in session silently became a guest after 15 minutes. Fixed 2026-10-08.** The
+  access token lives `JWT_ACCESS_TTL_MINUTES` = 15, in memory only, and was renewed **only on
+  mount**. On `/matches*` and `/analysis` `get_optional_user` treats an expired token as a guest
+  (no 401), so the polling match page and the list switched to the guest view and counted views
+  against the guest quota of the IP; routes behind `get_current_user` answered 401. Found while
+  fixing it: on **every page load** a signed-in user's first request also went out as a guest
+  (child queries start before `Providers` runs `hydrate()`), and nothing refetched afterwards.
+  - **Now** (`lib/auth/store.ts`): the expiry is measured on the client (response time +
+    `expires_in`); a timer renews 60 s early; `visibilitychange`, `online` and `focus` renew a
+    late tab (throttled timers, sleep). `authHeaders()` is the only bearer source: it waits for
+    the page-load restore, renews a token near or past expiry first (one refresh per tab, shared
+    by every caller; 409 retried once), and with an expired token and a failed renewal throws
+    `SessionRefreshError` — **nothing is sent as a guest**. A static test forbids reading the
+    token synchronously elsewhere.
+  - **No deadlock:** each attempt times out after 10 s for every waiter; a failure rejects all
+    waiters at once; a settled attempt is never reused; network/5xx failures retry at
+    5/15/30/60 s and on focus/online/visibility.
+  - **What the user sees:** refresh 401 → signed out, header shows the login button and "Your
+    session has expired — please sign in again." / «Сессия истекла — войдите снова.» — only if
+    the tab held a session (a guest with a stale cookie on load sees nothing). Network/5xx →
+    still signed in, "Can't renew your session — retrying…" / «Не удаётся обновить сессию —
+    повторяем попытку…»; a match card keeps its data with the F8 note; promo redeem, backtest
+    run and save, and push settings show "Couldn't renew your session…" / «Не удалось обновить
+    сессию…»; the follow toggle and admin writes fail without being sent (the header notice
+    explains it); mutations are not retried.
+  - **Other tabs:** a logout is broadcast (`BroadcastChannel("betpulse-auth")`, logout only; tokens
+    are not shared) and the other tabs sign out quietly — no "expired" notice. A login as another
+    user in another tab moves the shared refresh cookie; the next refresh here returns that user,
+    so the store takes it and every query is invalidated (header and data stay on one account).
+  - **Cache:** after renewing an expired token the match and follow queries reload (free after
+    F6: a match already viewed today costs nothing, the list and a cached analysis spend no
+    quota); after an account change or a sign-out every query is invalidated.
+  - `Cache-Control: no-store` on every BFF auth response (ER2-12).
+  - **Known limitation — client clock moved backwards.** The expiry is client-measured, so a
+    clock set back after a token was issued makes an expired token look valid; the public
+    routes then serve the guest view until the next renewal. Not fixed (owner, 2026-10-08).
+    **Option if it ever shows in practice:** the public routes answer an expired-but-genuine
+    token (valid signature, past `exp`; not a garbage token) with a header such as
+    `X-Auth-Expired: 1` on the normal guest response, and the client renews and refetches when
+    it sees it.
+  - **Tests:** Vitest (fake timers) for every path above, and `e2e/session-refresh.spec.ts`
+    (Playwright, no backend: `page.route` + `page.clock`) for a real-browser renewal.
 - **F7 — the public `/matches` list has no rate limit.** It runs the heaviest public query
   (list, filters, consensus) and only `/matches/{id}` and `/analysis` are limited. Slot:
   **pre-launch protection group** (before the first public release, with ER-M-04 / §11 O2 and
@@ -1915,7 +1937,7 @@ main `314029b`**; line numbers will drift. Labels `ER2-` keep them apart from th
 | ER2-09 | Confirmed, measured | the generation loop is synchronous until the final flush (`services/promo.py:147-164`), so the **whole API stalls** while it runs; api memory limit 1 GB. Measured on Postgres in a Linux container: 10k codes 2.6 s / 37 MiB Python peak / 138 MiB RSS; 50k 12.2 s / 164 / 405; 100k 24.5 s / 328 / 744 | Medium | `BATCH_MAX = 10_000` (service and schema `le=`) | `size=10_500` → 422 | cleanup PR |
 | ER2-10 | Confirmed | admin batch list unpaginated (`api/promo.py:80-89`); `export.csv` loads the whole batch as ORM rows (`api/promo.py:117-153`). With `BATCH_MAX` 10k an export is a few MB; batches are few | Low | `limit`/`offset` on the list; streamed export later | list with `limit` → exactly `limit` rows | later |
 | ER2-11 | **No action** (intended) | the promo limiter counts every attempt, refused ones included (`services/limits.py:44-56`) — right for a brute-force limit; the key is bucketed by clock hour, so counting a 429 never extends the lockout | — | — | — | — |
-| ER2-12 | Confirmed | `proxyBackendGet` dropped every backend header, so `Retry-After` from a 429 on `/matches/{id}` and `/analysis` never reached the browser — **fixed with F8**. The backend sets no `Cache-Control` on auth responses, so `authProxy.ts` loses nothing, but the token responses (`/api/auth/login`, `/refresh`) carry no `Cache-Control: no-store` (RFC 6749 §5.1) | Low | `no-store` on token responses | BFF refresh response → `cache-control: no-store` | `Retry-After`: F8 (done); `no-store`: F9 |
+| ER2-12 | Confirmed | `proxyBackendGet` dropped every backend header, so `Retry-After` from a 429 on `/matches/{id}` and `/analysis` never reached the browser — **fixed with F8**. The backend sets no `Cache-Control` on auth responses, so `authProxy.ts` loses nothing, but the token responses (`/api/auth/login`, `/refresh`) carry no `Cache-Control: no-store` (RFC 6749 §5.1) | Low | `no-store` on token responses | BFF refresh response → `cache-control: no-store` | `Retry-After`: F8 (done); `no-store`: F9 (done) |
 | ER2-13 | Confirmed | read nowhere — `Settings` fields: `PUBLIC_BASE_URL`, `DEFAULT_LOCALE`, `CONSENSUS_WEIGHT_MODE` (replaced by the DB, §9g), `csrf_header_name`; `.env.example` only: `POSTGRES_HOST`, `POSTGRES_PORT`, `FOOTBALL_DATA_COUK_ENABLED`, `API_FOOTBALL_DAILY_LIMIT`, `API_FOOTBALL_PER_MINUTE_LIMIT`, `ENABLED_LEAGUES`, `MODEL_RETENTION_VERSIONS`, `RETRAIN_CRON` (§9k), `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `LLM_MAX_TOKENS`, `LLM_DAILY_TOKEN_BUDGET`, `LLM_CACHE_TTL_SECONDS` (LLM config lives in the DB), `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `BACKUP_ENABLED`, `BACKUP_CRON`, `BACKUP_RETENTION_DAILY`/`_WEEKLY`/`_MONTHLY`, `BACKUP_ENCRYPTION_PUBLIC_KEY`, `RESTORE_DRILL_CRON`, `RPO_ALERT_MINUTES` (14b placeholders), `LOG_LEVEL`, `LOG_FORMAT`, `SENTRY_DSN`, `METRICS_ENABLED` (no `/metrics`), `AGE_GATE_ENABLED`, `DISCLAIMER_REQUIRED`. Read after all: `CORS_ALLOWED_ORIGINS`, `WEBPUSH_CONTACT_EMAIL` (via properties), `SPORTMONKS_API_TOKEN`, `THE_ODDS_API_KEY` (`providers/recording.py`), `TZ` (the containers' libc, via `env_file`) | Low | remove from `.env.example` and `Settings`, or wire them; mark 14b placeholders as such | every `.env.example` key is read somewhere (allowlist for placeholders) | cleanup PR |
 | ER2-14 | Already tracked | backtester unbounded fetch, in-memory structures, response size | — | ER-H-07 | — | — |
 | ER2-15 | Already tracked | `season_split` is a breakdown, not walk-forward | — | §9d | — | — |
@@ -1938,7 +1960,7 @@ main `314029b`**; line numbers will drift. Labels `ER2-` keep them apart from th
 ### Queue (owner, 2026-10-07)
 
 1. **F8** — done.
-2. **F9** — proactive token refresh (+ `no-store` on token responses).
+2. **F9** — done.
 3. **v0.0.1-rc6** — the owner, by hand; checklist by the agent.
 4. **Launch blockers:** F5, F7, ER2-05, Redis `requirepass` and memory policy, `docs/DEPLOY_VPS.md`.
 5. **Cleanup PR:** ER2-09 (`BATCH_MAX` 10 000), ER2-13 (dead settings).
