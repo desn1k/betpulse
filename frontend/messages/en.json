@@ -251,7 +251,9 @@
     "error": "Could not load the match.",
     "backToList": "Back to matches",
     "limitReached": "Daily match limit reached",
-    "limitReachedBody": "Upgrade to the {tier} tier to view more matches today."
+    "limitReachedBody": "Upgrade to the {tier} tier to view more matches today.",
+    "staleNote": "Couldn't refresh — showing data as of {time}.",
+    "lastDataBelow": "Below is the last data received."
   },
   "auth": {
     "login": "Log in",

@@ -136,6 +136,28 @@ describe("proxyBackendGet", () => {
     expect(await res.json()).toEqual({ detail: "Match not found" });
   });
 
+  it("relays Retry-After from a backend 429, and no other backend header", async () => {
+    mockFetch(
+      () =>
+        new Response(JSON.stringify({ detail: "Too many match requests" }), {
+          status: 429,
+          headers: {
+            "content-type": "application/json",
+            "retry-after": "17",
+            "x-internal": "leak",
+            "set-cookie": "a=b",
+          },
+        }),
+    );
+
+    const res = await proxyBackendGet(request(), "/matches/x");
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("17");
+    expect(res.headers.get("x-internal")).toBeNull();
+    expect(res.headers.get("set-cookie")).toBeNull();
+  });
+
   it("answers 502 when the backend is unreachable", async () => {
     vi.stubGlobal(
       "fetch",

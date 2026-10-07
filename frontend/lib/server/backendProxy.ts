@@ -68,15 +68,21 @@ export function backendFetch(
   });
 }
 
+// Backend response headers relayed to the browser; every other one (cookies,
+// server details) stays on the server.
+const RELAYED_RESPONSE_HEADERS = ["retry-after"] as const;
+
 /** Relay a backend GET as a JSON response (502 when the backend is down). */
 export async function proxyBackendGet(request: NextRequest, path: string): Promise<NextResponse> {
   try {
     const res = await backendFetch(request, path);
     const body = await res.text();
-    return new NextResponse(body, {
-      status: res.status,
-      headers: { "content-type": "application/json" },
-    });
+    const headers = new Headers({ "content-type": "application/json" });
+    for (const name of RELAYED_RESPONSE_HEADERS) {
+      const value = res.headers.get(name);
+      if (value) headers.set(name, value);
+    }
+    return new NextResponse(body, { status: res.status, headers });
   } catch {
     return NextResponse.json({ error: "backend_unavailable" }, { status: 502 });
   }
