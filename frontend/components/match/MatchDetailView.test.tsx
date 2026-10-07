@@ -132,6 +132,18 @@ describe("MatchDetailView: a failed background refetch keeps the card", () => {
     );
   });
 
+  it("data from an earlier day: the stale note names the date too", async () => {
+    vi.setSystemTime(new Date("2026-10-07T23:59:30Z"));
+    stubMatch([OK, { status: 500, body: { detail: "boom" } }]);
+    renderView();
+    await tick(1); // loaded 23:59:30 on 7 October
+    await tick(60_000); // fails 00:00:30 on 8 October
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Couldn't refresh — showing data as of Oct 7, 23:59.",
+    );
+  });
+
   it("403: card stays under the daily-limit banner", async () => {
     stubMatch([OK, QUOTA]);
     renderView();
