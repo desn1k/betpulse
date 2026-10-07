@@ -120,11 +120,20 @@ covered by Vitest + React Testing Library.
 
 ## 6. Conventions that bite if ignored
 
-- **Migrations** are hand-written in `backend/migrations/versions/` (`0001`–`0017` today). Enums via
+- **Migrations** are hand-written in `backend/migrations/versions/` (`0001`–`0018` today). Enums via
   `postgresql.ENUM(..., name=...)` created with `checkfirst=True` and `create_type=False` on the
   column; dropped in `downgrade`. Timescale hypertables are guarded by a `pg_available_extensions`
   check so CI (plain PG) and prod (timescaledb) both pass. **Every migration must survive the
   round-trip.**
+  - **Server messages are logged** (2026-10-07): asyncpg drops Postgres NOTICE/WARNING unless a
+    listener is registered, so `migrations/env.py` forwards them to the `alembic` logger
+    (stderr, `INFO  [alembic] postgres NOTICE: …`). A migration that must tell the operator
+    something (counts, skipped rows) can `RAISE NOTICE`. stdout (`alembic heads`/`current`, read
+    by CI) is unchanged. An upgrade now also shows TimescaleDB's own warnings about `varchar`
+    columns in the hypertables; they are harmless.
+  - **Offline mode (`alembic upgrade head --sql`) does not work and never did past `0002`**:
+    `0003`'s Timescale check queries the database (`AttributeError: 'NoneType' object has no
+    attribute 'scalar'`). Not used anywhere; fix only if SQL scripts are ever needed.
 - **Secrets** (TOTP, provider/LLM keys) are Fernet-encrypted at rest with `DATA_ENCRYPTION_KEY`;
   never returned to the client (masked suffix only). Provider keys are entered in the Admin UI;
   `.env` values are a dev/CI fallback only.
@@ -552,12 +561,15 @@ lock; unmapped API-Football team/league during live → structured warning + ski
   today). The `llm` feature flag gates on that rank: guest `none` → 403; free `match_of_day` → rank 1;
   pro `top5` → ranks 1–5; expert `any` → any fixture. Migration `0010` patches the `llm` flag onto the
   tier rows seeded by `0007`.
-- **Cache + budget + cost.** Analyses are cached per `(fixture_id, model)` (unique constraint); a
+- **Cache + budget + cost.** Analyses are cached per `(fixture_id, model, language)` (unique
+  constraint, migration `0018`, ER-H-02); a
   cached row older than `cache_ttl_seconds` is regenerated, never served stale (`cached: true/false`
   on the response). A per-UTC-day Redis counter `llm:budget:{YYYY-MM-DD}` hard-stops generation once
   `daily_token_budget` is spent → `{"status": "budget_exhausted", "resets_at": "<UTC midnight ISO>"}`.
-  Both token counts **and** computed cost (`cost_per_1k_*`) are stored on `llm_analyses` for the
-  admin spend dashboard (Phase 12). Token/cost are **not** exposed on the public response.
+  Every generation (not a cache hit) is appended to `llm_generations` with both token counts and the
+  cost computed from `cost_per_1k_*` **at write time**, in the same transaction as the cache upsert;
+  the admin spend dashboard (Phase 12) sums the journal, never the cache rows, and a later price
+  change does not rewrite past spend. Token/cost are **not** exposed on the public response.
 - **Prompt is English-only** (spec §8); the response language is a request param (`?language=ru|en`,
   driven by the user's locale) appended as "Respond in {language}." — nothing hard-coded to Russian.
   `generate_completion` is the only function that touches the network, isolated so tests monkeypatch
@@ -1173,6 +1185,35 @@ contains data migrations, e.g. 0014/0015 (HI-2) and 0017:
   model_registry WHERE status = 'champion'` must return at most one row; otherwise the upgrade STOPs
   with the list. Demote the extras in Admin → Models first.
 
+**Migration 0018 (LLM cache per language, `llm_generations` journal; ER-H-02) and image
+rollback.** Not compatible with rolling the images back to a release before 0018 (ER-H-08):
+the old code looks the cache up by `(fixture_id, model)` with `scalar_one_or_none()`, which raises
+`MultipleResultsFound` once a fixture has analyses in two languages, and its upsert names
+`uq_llm_analysis_fixture_model`, which no longer exists, so every new generation fails. LLM
+analysis answers 500 there; the rest of the site works, and the old spend page reads the cache rows
+(it under-reports again). Before rolling back to a pre-0018 release, either:
+- turn LLM analysis off in Admin → LLM (`is_enabled = false`; the endpoint then answers
+  `disabled` without touching the cache), or
+- downgrade the schema first (below), then roll the images back.
+
+**The automatic rollback does not do this** (CodeRabbit on #117, accepted as documented): when
+`deploy.sh` fails after 0018 ran and restores a pre-0018 release itself (exit 2), LLM generation
+stays enabled. On a cache miss the old code calls the provider and adds the tokens to the daily
+Redis budget, then its upsert fails: paid calls, error responses, and no journal row. **Not
+reachable in production**: the first VPS launch starts at a release with 0018, so no pre-0018
+release is ever deployed there to roll back to. It matters only where a pre-0018 release ran
+before, i.e. the local rehearsal of rc5 → rc6: disable LLM there before any rollback drill.
+
+- [ ] **Before any downgrade of 0018**, dump the journal (the only spend history) and the cache, and
+  keep the file off the host:
+  `scripts/prod-compose.sh exec -T postgres pg_dump -U football -Fc -t llm_generations -t
+  llm_analyses football > betpulse-llm-pre-downgrade-0018-$(date -u +%Y%m%dT%H%M%SZ).dump`
+  Then `scripts/prod-compose.sh run --rm api alembic downgrade 0017_single_champion`. The log
+  shows `postgres NOTICE: 0018 downgrade: N llm_analyses rows deleted, M llm_generations rows
+  dropped`: the newest analysis per `(fixture_id, model)` is kept (`created_at DESC, id DESC`), the
+  others and the whole journal are gone. Restore the journal from the dump only after upgrading to
+  0018 again (`pg_restore --data-only -t llm_generations`), after the back-fill rows are removed.
+
 ### Post-deploy manual checklist
 
 Run after the **first** deploy of a new image (and after any change to the frontend build/trace
@@ -1251,8 +1292,12 @@ stack over rc4 with its data (not from scratch), in the rehearsal clone that hol
     rc5 drill only reached the `compose up` failure): the rollback's `compose up` must succeed and
     its readiness wait must fail, e.g. by pausing (not stopping) `api` once the rollback's
     `compose up` has returned; exact steps in the checklist;
-  - the rollback note for 0018: images roll back, the schema does not (ER-H-08); rc5 on the 0018
-    schema is checked, not assumed.
+  - **before any rollback drill across 0018** (the exit-2 and exit-3 drills included): disable LLM
+    in Admin → LLM, or confirm `is_enabled` is false; the automatic rollback does not do it (§9i);
+  - the rollback note for 0018: images roll back, the schema does not (ER-H-08). Expected (§9i):
+    rc5 on the 0018 schema fails LLM generation and serves the rest of the site; with LLM
+    disabled it answers `disabled`. Check both; then the dump + `alembic downgrade
+    0017_single_champion` path and its NOTICE line.
 
 ### Launch blockers before the first VPS run
 
@@ -1260,6 +1305,13 @@ None of these is done; the site is not opened before all are.
 - **F5** — IPv6 / userland-proxy identity collapse (§9m).
 - **F7** — rate limit on `/matches`, and limits enforced before tier resolution (§9m).
 - **Redis `requirepass`** (§9i, "Published ports").
+- **Redis persistence and memory policy.** Decide and document both in `infra/` and the runbook:
+  persistence (RDB/AOF) for the pickled ARQ jobs, and `maxmemory` with an eviction policy that
+  never evicts the quota and rate-limit keys (`limits:*`, `limits:seen:*`, `rl:*`,
+  `llm:budget:*`): for example `noeviction` (writes fail loudly when full) or a `volatile-*` policy
+  only if nothing that must survive carries a TTL — every quota key does, so `volatile-*` would
+  evict them. An evicted counter hands its caller a fresh quota; an evicted seen set charges a
+  match again (F6). Raised by CodeRabbit on #116.
 - **`docs/DEPLOY_VPS.md`** — the VPS runbook and first-VPS checklist. **It does not exist yet**;
   writing it is a launch deliverable. It absorbs the list below.
 
@@ -1657,17 +1709,22 @@ ignored. Line numbers are as of `5eedb0b` and will drift.
   the LLM spend dashboard sums those rows, so every regeneration (language switch, cache expiry)
   drops the earlier generation's tokens and cost. The fix must correct the spend figures as well
   as the cache key.
-  - **Approved plan (PR B, slot right after F6):**
+  - **Fixed 2026-10-07 (PR B):**
     - migration **0018**: unique `(fixture_id, model, language)` on the analysis cache, which
       is looked up by language;
-    - an append-only **`llm_generations`** journal: one row per LLM call, tokens and **cost
-      computed and stored at write time** (a later price change never rewrites history);
+    - an append-only **`llm_generations`** journal: one row per LLM call (a cache hit writes
+      none), in the same transaction as the cache upsert, tokens and **cost computed and stored
+      at write time** (a later price change never rewrites history);
     - the spend dashboard aggregates from the journal, not from the cache rows;
-    - **downgrade** keeps the newest row per `(fixture_id, model)` and raises a `NOTICE` with
-      both counts (rows before, rows kept); take a `pg_dump` before any downgrade (pre-deploy
-      checklist, §9i);
-    - **rollback incompatibility (ER-H-08):** an image before 0018 on the 0018 schema is not
-      assumed to work; the rc6 rehearsal checks it.
+    - **history before 0018 is lost**: the generations the old upsert overwrote cannot be
+      recovered, so the journal starts with one back-filled row per cached analysis (its last
+      generation);
+    - **downgrade** keeps the newest row per `(fixture_id, model)` (`created_at DESC, id DESC`),
+      deletes the rest, and raises a `NOTICE` with the number of deleted `llm_analyses` rows and
+      of `llm_generations` rows it drops (shown in the alembic log, see §6); dump first (§9i,
+      pre-deploy checklist, exact command there);
+    - **rollback incompatibility (ER-H-08):** an image before 0018 fails LLM generation on the
+      0018 schema (§9i); disable LLM or downgrade first. The rc6 rehearsal checks it.
 - **ER-H-09 — required tag** (fixed with F2, see §9i "Release images and digests"). Before the
   fix, `infra/docker-compose.prod.yml` fell back to `${IMAGE_TAG:-latest}` (lines 21, 46, 89):
   `deploy.sh` refused `latest`, a manual `docker compose up` did not. The overlay now requires
@@ -1677,13 +1734,13 @@ ignored. Line numbers are as of `5eedb0b` and will drift.
 |---|---|---|---|---|---|---|
 | ER-C-01 | Confirmed; the failure differs | `Prediction` is written only by training (`ml/training.py:300`); `/matches` requires `exists(Prediction)` (`api/matches.py:231-232`), so upcoming matches are not listed at all (not listed with `consensus: null`). Same gap as §11 "online inference" | Critical for launch | Scoring task: load the champion, build as-of features, write `Prediction` for scheduled fixtures | A scheduled fixture, after the task runs, is in `/matches` with a consensus | Right after real data is loaded |
 | ER-H-01 | Confirmed, wider | Every poll tick enqueues a recompute for **every** live fixture (`services/live/ingestion.py:118`, `workers/tasks.py:108-117`) with no `_job_id`, `max_jobs=20`: duplicates and out-of-order states (an older minute stored after a newer one) | Medium now (live is dev-only); High when live is public | Per-fixture `pg_advisory_xact_lock` in `recompute_fixture`; skip a state not newer than the latest | Two concurrent `recompute_fixture` calls with the same new state → one `LiveUpdate`, one `should_push` | With live moving to Sportmonks, together with ER-M-02 |
-| ER-H-02 | Confirmed, plus spend | Cache lookup and `uq_llm_analysis_fixture_model` ignore `language` (`services/llm/analysis.py:170-174`, `models/llm.py:62`); upsert overwrites (`analysis.py:218-229`); spend sums the rows (`services/llm/spend.py:81-83`) | High | Migration: unique `(fixture_id, model, language)`, filter by language; keep every generation for spend (see note) | `ru` then `en` → two LLM calls, `en` content served; spend counts both | **PR B, right after F6** (plan in the note above) |
+| ER-H-02 | Confirmed, plus spend | Cache lookup and `uq_llm_analysis_fixture_model` ignore `language` (`services/llm/analysis.py:170-174`, `models/llm.py:62`); upsert overwrites (`analysis.py:218-229`); spend sums the rows (`services/llm/spend.py:81-83`) | High | Migration: unique `(fixture_id, model, language)`, filter by language; keep every generation for spend (see note) | `ru` then `en` → two LLM calls, `en` content served; spend counts both | **Fixed 2026-10-07** (migration `0018`, `llm_generations`; note above) |
 | ER-H-03 | Confirmed | Budget check and `INCRBY` are separate (`analysis.py:193-214`); `INCRBY` + `EXPIREAT` not atomic (also in §11); concurrent cache misses all call the LLM | High (cost) | Atomic Lua reservation of `max_tokens` in `app/services/counters.py` style, settled with the real usage after the call | 20 concurrent requests with budget left for one → at most one `generate_completion` call | LLM pack, before user-facing launch |
 | ER-H-04 | Confirmed | `AsyncOpenAI(...)` never closed (`analysis.py:130-131`) | Low–Medium | `async with AsyncOpenAI(...)` | A fake client records `close()` | LLM pack |
 | ER-H-05 | Confirmed | `session.get(Fixture)` (`api/llm.py:98`) checks out a request-pool connection that is held through the LLM call until `commit` (line 110); request pool = 15 | High under load | Read, close the session, call the LLM, write in a short separate session | `pool.checkedout() == 0` while a stubbed `generate_completion` runs | LLM pack |
 | ER-H-06 | Confirmed, wider | FastAPI 0.139 closes yield dependencies after the response; `require_streaming_tier` and `get_current_user` use `get_db` (`api/live.py:56-64`, `core/deps.py:49-51`), so **every open stream holds a write connection with an open transaction**, replay or not. Not reachable today: Caddy sends only the Telegram webhook to the API (`infra/Caddyfile:36-41`) and the BFF has no stream route | High before SSE is exposed | Resolve user/tier and replay in short sessions; the stream itself uses Redis only | `checkedout() == 0` while a stream is open | Before SSE is exposed |
 | ER-H-07 | Partly true | Unbounded fetch (`services/backtester/engine.py:186-197`), but `backtest_features` has one row per fixture: 5 leagues × 7 seasons ≈ 13k rows, not 1M; runs are tier-limited per day | Low–Medium | Row cap and a narrow select | A run over the cap → explicit error/refusal | Later |
-| ER-H-08 | Confirmed (policy) | Rollback restores images, not schema (`scripts/deploy.sh:123-131,141`); `scripts/rollback.sh:97` does so on purpose | Medium–High at the first upgrade with migrations | Expand/contract migration policy + PR checklist | CI job: release N−1's tests against head schema (design separately) | Before the first public release |
+| ER-H-08 | Confirmed (policy) | Rollback restores images, not schema (`scripts/deploy.sh:123-131,141`); `scripts/rollback.sh:97` does so on purpose | Medium–High at the first upgrade with migrations | Expand/contract migration policy + PR checklist | CI job: release N−1's tests against head schema (design separately) | Before the first public release. **First real case: `0018`** — a pre-0018 image fails LLM generation on its schema; disable LLM or downgrade first (§9i) |
 | ER-H-09 | Confirmed, plus fallback | Tags are not pinned to digests (`.github/workflows/release.yml:74-76,89-91`); `${IMAGE_TAG:-latest}` in prod compose (see note) | Medium | With F2: record digests in the release, deploy by digest, `${IMAGE_TAG:?}` | Release-tooling test: `compose config` without `IMAGE_TAG` fails | With F2 |
 | ER-H-10 | Partly true | Order is `(kickoff_at, id)` only (`ml/chronology.py:30-38`); date-only fixtures sit at 12:00 UTC. Production never uses football-data, and Sportmonks has kickoff times, so this hits dev data and old CSV seasons | Low for production; Medium for dev-metric honesty | Conservative chronology: a league-day with any unknown-time fixture is one batch | An unknown-time match's result never changes a same-day known-time match's prediction | Later |
 | ER-M-01 | Confirmed | `/health/ready` returns `ready` unconditionally (`api/health.py:42-49`); also §9g 12d item 1 | Medium | `SELECT 1` + Redis `PING` with timeouts, 503 on failure | Redis ping fails → 503 | Before the first public release |

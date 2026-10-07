@@ -1,8 +1,10 @@
 """Admin LLM spend dashboard: RBAC, deterministic UTC-day aggregation, top
 fixtures by cost, and the ``days`` range validation (Phase 12c).
 
-Spend rows are seeded with **explicit UTC timestamps**, never ``datetime.now()``,
-so the daily buckets are deterministic regardless of when the suite runs.
+Spend is read from the ``llm_generations`` journal (ER-H-02): one row per LLM
+call, with the cost computed when it was written. Journal rows are seeded with
+**explicit UTC timestamps**, never ``datetime.now()``, so the daily buckets are
+deterministic regardless of when the suite runs.
 """
 
 from __future__ import annotations
@@ -12,12 +14,17 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from app.core.redis import get_redis
 from app.core.security import create_access_token
 from app.models.fixture import Fixture, FixtureStatus
-from app.models.llm import LlmAnalysis, LlmConfig
+from app.models.llm import LlmConfig
+from app.models.prediction import Prediction
 from app.models.reference import League, Team
 from app.models.user import User, UserRole, UserTier
+from app.services.llm import analysis as analysis_service
+from app.services.llm.analysis import get_or_create_analysis
 from httpx import AsyncClient
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -60,7 +67,7 @@ async def _seed_fixture(session: AsyncSession, *, home: str, away: str) -> uuid.
     return fixture.id
 
 
-async def _seed_analysis(
+async def _seed_generation(
     session: AsyncSession,
     *,
     fixture_id: uuid.UUID,
@@ -68,22 +75,22 @@ async def _seed_analysis(
     cost: str,
     tokens_in: int = 100,
     tokens_out: int = 50,
-    model: str | None = None,
 ) -> None:
-    session.add(
-        LlmAnalysis(
-            fixture_id=fixture_id,
-            provider="test",
-            model=model or f"m-{uuid.uuid4().hex[:6]}",
-            language="en",
-            content="x",
-            tokens_in=tokens_in,
-            tokens_out=tokens_out,
-            cost=Decimal(cost),
-            created_at=created_at,
-        )
+    await session.execute(
+        text(
+            "INSERT INTO llm_generations (id, fixture_id, model, language, tokens_in, "
+            "tokens_out, cost, created_at) VALUES (:id, :fid, 'm', 'en', :tin, :tout, "
+            ":cost, :at)"
+        ),
+        {
+            "id": uuid.uuid4(),
+            "fid": fixture_id,
+            "tin": tokens_in,
+            "tout": tokens_out,
+            "cost": Decimal(cost),
+            "at": created_at,
+        },
     )
-    await session.flush()
 
 
 # --- RBAC + validation ------------------------------------------------------
@@ -123,9 +130,9 @@ async def test_daily_buckets_are_utc_and_deterministic(
     day2 = (day1 + timedelta(days=1)).replace(hour=12, minute=0)  # next UTC day
 
     # The two same-day rows must collapse into one bucket; the third is separate.
-    await _seed_analysis(session, fixture_id=fixture_id, created_at=day1, cost="0.10")
-    await _seed_analysis(session, fixture_id=fixture_id, created_at=day1_late, cost="0.20")
-    await _seed_analysis(session, fixture_id=fixture_id, created_at=day2, cost="0.05")
+    await _seed_generation(session, fixture_id=fixture_id, created_at=day1, cost="0.10")
+    await _seed_generation(session, fixture_id=fixture_id, created_at=day1_late, cost="0.20")
+    await _seed_generation(session, fixture_id=fixture_id, created_at=day2, cost="0.05")
     await session.commit()
     headers = await _admin_headers(session)
 
@@ -150,8 +157,8 @@ async def test_top_fixtures_ranked_by_cost(client: AsyncClient, session: AsyncSe
     cheap = await _seed_fixture(session, home="Cheap FC", away="Rival")
     pricey = await _seed_fixture(session, home="Pricey FC", away="Rival")
     at = (datetime.now(UTC) - timedelta(days=2)).replace(hour=12, minute=0, second=0, microsecond=0)
-    await _seed_analysis(session, fixture_id=cheap, created_at=at, cost="0.05")
-    await _seed_analysis(session, fixture_id=pricey, created_at=at, cost="0.90")
+    await _seed_generation(session, fixture_id=cheap, created_at=at, cost="0.05")
+    await _seed_generation(session, fixture_id=pricey, created_at=at, cost="0.90")
     await session.commit()
     headers = await _admin_headers(session)
 
@@ -168,10 +175,10 @@ async def test_window_excludes_older_rows(client: AsyncClient, session: AsyncSes
     session.add(LlmConfig(singleton="default"))
     fixture_id = await _seed_fixture(session, home="A", away="B")
     now = datetime.now(UTC)
-    await _seed_analysis(
+    await _seed_generation(
         session, fixture_id=fixture_id, created_at=now - timedelta(days=2), cost="0.10"
     )
-    await _seed_analysis(
+    await _seed_generation(
         session, fixture_id=fixture_id, created_at=now - timedelta(days=40), cost="9.99"
     )
     await session.commit()
@@ -179,3 +186,106 @@ async def test_window_excludes_older_rows(client: AsyncClient, session: AsyncSes
 
     body = (await client.get("/admin/llm/spend?days=7", headers=headers)).json()
     assert Decimal(body["total_cost"]) == Decimal("0.10")  # the 40-day-old row is excluded
+
+
+# --- generations through the service (ER-H-02) ------------------------------
+
+
+async def _generate(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    fixture_id: uuid.UUID,
+    steps: list[tuple[str, datetime]],
+) -> None:
+    async def _fake(config: LlmConfig, *, system: str, user: str) -> tuple[str, int, int]:
+        return "text", 100, 50
+
+    monkeypatch.setattr(analysis_service, "generate_completion", _fake)
+    for language, now in steps:
+        await get_or_create_analysis(
+            session, get_redis(), fixture_id=fixture_id, language=language, now=now
+        )
+        await session.commit()
+
+
+async def _with_consensus(session: AsyncSession, fixture_id: uuid.UUID) -> None:
+    for outcome, prob in (("home", "0.5"), ("draw", "0.3"), ("away", "0.2")):
+        session.add(
+            Prediction(
+                fixture_id=fixture_id,
+                method="consensus",
+                market="1x2",
+                outcome=outcome,
+                probability=Decimal(prob),
+                model_version="v1",
+            )
+        )
+    await session.flush()
+
+
+def _llm_config() -> LlmConfig:
+    return LlmConfig(
+        singleton="default",
+        model="test-model",
+        is_enabled=True,
+        cache_ttl_seconds=100,
+        cost_per_1k_in=Decimal("0.5"),
+        cost_per_1k_out=Decimal("1.5"),
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("second_language", "second_after"),
+    [("ru", timedelta(seconds=10)), ("en", timedelta(seconds=200))],
+    ids=["language_change", "stale_cache"],
+)
+async def test_every_generation_counts_in_spend(
+    client: AsyncClient,
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    second_language: str,
+    second_after: timedelta,
+) -> None:
+    # Before ER-H-02 the second generation overwrote the first one's row, so
+    # spend showed one generation instead of two.
+    session.add(_llm_config())
+    fixture_id = await _seed_fixture(session, home="A", away="B")
+    await _with_consensus(session, fixture_id)
+    await session.commit()
+    at = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0) - timedelta(days=1)
+    await _generate(
+        session, monkeypatch, fixture_id, [("en", at), (second_language, at + second_after)]
+    )
+    headers = await _admin_headers(session)
+
+    body = (await client.get("/admin/llm/spend?days=7", headers=headers)).json()
+
+    assert sum(d["count"] for d in body["daily"]) == 2
+    assert body["total_tokens"] == 300
+    assert Decimal(body["total_cost"]) == Decimal("0.25")
+    assert body["top_fixtures"][0]["count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_spend_keeps_the_cost_computed_at_write_time(
+    client: AsyncClient, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session.add(_llm_config())
+    fixture_id = await _seed_fixture(session, home="A", away="B")
+    await _with_consensus(session, fixture_id)
+    await session.commit()
+    at = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0) - timedelta(days=1)
+    await _generate(session, monkeypatch, fixture_id, [("en", at)])
+    headers = await _admin_headers(session)
+    before = (await client.get("/admin/llm/spend?days=7", headers=headers)).json()
+
+    config = (await session.execute(select(LlmConfig))).scalar_one()
+    config.cost_per_1k_in = Decimal("50")
+    config.cost_per_1k_out = Decimal("150")
+    await session.commit()
+    after = (await client.get("/admin/llm/spend?days=7", headers=headers)).json()
+
+    assert Decimal(before["total_cost"]) == Decimal("0.125")
+    assert after["total_cost"] == before["total_cost"]
+    assert after["daily"] == before["daily"]

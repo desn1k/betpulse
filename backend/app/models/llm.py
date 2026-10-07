@@ -4,8 +4,10 @@ The LLM narrative *explains* the model outputs — it is never the source of the
 probabilities. The provider is any OpenAI-compatible endpoint, configured by an
 admin: ``base_url``, ``model`` and an API key encrypted at rest (Fernet, same as
 provider keys); only a masked suffix is ever returned to a client. Generated
-analyses are cached per ``(fixture_id, model)`` and their token usage + cost are
-logged for the admin spend dashboard.
+analyses are cached per ``(fixture_id, model, language)``; every generation is
+also appended to ``llm_generations`` with its token usage and cost, which the
+admin spend dashboard sums (a cache row is overwritten on regeneration, the
+journal never is).
 """
 
 from __future__ import annotations
@@ -59,7 +61,9 @@ class LlmConfig(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class LlmAnalysis(UUIDPrimaryKeyMixin, Base):
     __tablename__ = "llm_analyses"
     __table_args__ = (
-        UniqueConstraint("fixture_id", "model", name="uq_llm_analysis_fixture_model"),
+        UniqueConstraint(
+            "fixture_id", "model", "language", name="uq_llm_analysis_fixture_model_language"
+        ),
     )
 
     fixture_id: Mapped[uuid.UUID] = mapped_column(
@@ -74,4 +78,25 @@ class LlmAnalysis(UUIDPrimaryKeyMixin, Base):
     cost: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class LlmGeneration(UUIDPrimaryKeyMixin, Base):
+    """One LLM call, appended when it is made and never updated (ER-H-02).
+
+    ``cost`` is computed from the config's rates at write time, so a later price
+    change does not rewrite past spend."""
+
+    __tablename__ = "llm_generations"
+
+    fixture_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("fixtures.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    language: Mapped[str] = mapped_column(String(8), nullable=False)
+    tokens_in: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    tokens_out: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    cost: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True, nullable=False
     )
