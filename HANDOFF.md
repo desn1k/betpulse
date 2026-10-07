@@ -1196,6 +1196,14 @@ analysis answers 500 there; the rest of the site works, and the old spend page r
   `disabled` without touching the cache), or
 - downgrade the schema first (below), then roll the images back.
 
+**The automatic rollback does not do this** (CodeRabbit on #117, accepted as documented): when
+`deploy.sh` fails after 0018 ran and restores a pre-0018 release itself (exit 2), LLM generation
+stays enabled. On a cache miss the old code calls the provider and adds the tokens to the daily
+Redis budget, then its upsert fails: paid calls, error responses, and no journal row. **Not
+reachable in production**: the first VPS launch starts at a release with 0018, so no pre-0018
+release is ever deployed there to roll back to. It matters only where a pre-0018 release ran
+before, i.e. the local rehearsal of rc5 → rc6: disable LLM there before any rollback drill.
+
 - [ ] **Before any downgrade of 0018**, dump the journal (the only spend history) and the cache, and
   keep the file off the host:
   `scripts/prod-compose.sh exec -T postgres pg_dump -U football -Fc -t llm_generations -t
@@ -1284,6 +1292,8 @@ stack over rc4 with its data (not from scratch), in the rehearsal clone that hol
     rc5 drill only reached the `compose up` failure): the rollback's `compose up` must succeed and
     its readiness wait must fail, e.g. by pausing (not stopping) `api` once the rollback's
     `compose up` has returned; exact steps in the checklist;
+  - **before any rollback drill across 0018** (the exit-2 and exit-3 drills included): disable LLM
+    in Admin → LLM, or confirm `is_enabled` is false; the automatic rollback does not do it (§9i);
   - the rollback note for 0018: images roll back, the schema does not (ER-H-08). Expected (§9i):
     rc5 on the 0018 schema fails LLM generation and serves the rest of the site; with LLM
     disabled it answers `disabled`. Check both; then the dump + `alembic downgrade
