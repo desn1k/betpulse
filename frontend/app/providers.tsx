@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { useAuthStore } from "@/lib/auth/store";
+import { shouldRetry } from "@/lib/retry";
 
 /** Client-side providers (TanStack Query). One client per browser session. */
 export function Providers({ children }: { children: ReactNode }) {
@@ -13,7 +14,8 @@ export function Providers({ children }: { children: ReactNode }) {
         defaultOptions: {
           queries: {
             staleTime: 30_000,
-            retry: 1,
+            // No retry on 4xx; one on 5xx and network errors (lib/retry.ts).
+            retry: shouldRetry,
             refetchOnWindowFocus: false,
           },
         },

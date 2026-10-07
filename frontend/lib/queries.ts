@@ -1,6 +1,6 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
-import { fetchAnalysis, fetchMatch, fetchMatches } from "./api";
+import { ApiError, fetchAnalysis, fetchMatch, fetchMatches } from "./api";
 import type { AnalysisResult } from "@/types/llm";
 import type { MatchDetail, MatchList, MatchListParams } from "@/types/match";
 
@@ -20,11 +20,41 @@ export function useMatches(params: MatchListParams): UseQueryResult<MatchList> {
   });
 }
 
+export const MATCH_REFETCH_MS = 60_000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const MIDNIGHT_JITTER_MS = 60_000;
+
+/**
+ * When to poll a match card again, given the last fetch's error (F8).
+ *
+ * - 404: the match is gone; stop (a focus refetch may still try once).
+ * - 403: the daily view quota is spent; the next day's quota starts at UTC
+ *   midnight, so try then, spread over a minute (``errorUpdatedAt`` gives each
+ *   tab a stable offset) instead of every 60 s.
+ * - Anything else, or no error: the usual 60 s.
+ */
+export function matchRefetchInterval(
+  error: unknown,
+  errorUpdatedAt: number,
+  now: number = Date.now(),
+): number | false {
+  if (error instanceof ApiError && error.status === 404) return false;
+  if (error instanceof ApiError && error.status === 403) {
+    const untilMidnight = DAY_MS - (now % DAY_MS);
+    return untilMidnight + (errorUpdatedAt % MIDNIGHT_JITTER_MS);
+  }
+  return MATCH_REFETCH_MS;
+}
+
 export function useMatch(id: string): UseQueryResult<MatchDetail> {
   return useQuery({
     queryKey: matchKeys.detail(id),
     queryFn: () => fetchMatch(id),
-    refetchInterval: 60_000,
+    refetchInterval: (query) =>
+      matchRefetchInterval(query.state.error, query.state.errorUpdatedAt),
+    // Off app-wide; on here so a tab left on a 403 or 404 recovers when the
+    // user comes back to it.
+    refetchOnWindowFocus: true,
   });
 }
 

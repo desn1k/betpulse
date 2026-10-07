@@ -40,9 +40,10 @@ type Step = { status: number; body?: unknown } | "network";
 const OK: Step = { status: 200, body: match };
 const QUOTA: Step = { status: 403, body: { detail: { tier_required: "free" } } };
 
-/** Answer the match detail from ``steps`` (the last one repeats); count calls. */
-function stubMatch(steps: Step[]): { calls: number } {
-  const counter = { calls: 0 };
+/** Answer the match detail from ``steps`` (the last one repeats); count calls
+ * and record when each was made. */
+function stubMatch(steps: Step[]): { calls: number; at: number[] } {
+  const counter = { calls: 0, at: [] as number[] };
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
@@ -50,6 +51,7 @@ function stubMatch(steps: Step[]): { calls: number } {
       if (url.endsWith(`/api/matches/${ID}`)) {
         const step = steps[Math.min(counter.calls, steps.length - 1)];
         counter.calls += 1;
+        counter.at.push(Date.now());
         if (step === "network") throw new TypeError("Failed to fetch");
         return Response.json(step.body ?? {}, { status: step.status });
       }
@@ -168,7 +170,10 @@ describe("MatchDetailView: polling after a failure", () => {
     expect(counter.calls).toBe(2);
 
     await tick(61_001); // 00:01:00.001: past midnight + the largest jitter
-    expect(counter.calls).toBe(3);
+    const midnight = Date.parse("2026-10-08T00:00:00Z");
+    expect(counter.calls).toBeGreaterThanOrEqual(3);
+    expect(counter.at[2]).toBeGreaterThanOrEqual(midnight);
+    expect(counter.at[2]).toBeLessThanOrEqual(midnight + 60_000);
     expect(screen.getByText("Arsenal")).toBeInTheDocument();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
