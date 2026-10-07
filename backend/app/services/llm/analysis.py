@@ -2,9 +2,11 @@
 
 The narrative **explains** the model outputs — it is never the source of the
 probabilities (``not_a_probability_source`` is always true). Flow: cache lookup
-by ``(fixture_id, model)`` respecting ``cache_ttl_seconds`` → daily token-budget
-hard-stop (Redis key ``llm:budget:{YYYY-MM-DD}``) → one call to the configured
-OpenAI-compatible endpoint → persist content + token usage + cost.
+by ``(fixture_id, model, language)`` respecting ``cache_ttl_seconds`` → daily
+token-budget hard-stop (Redis key ``llm:budget:{YYYY-MM-DD}``) → one call to the
+configured OpenAI-compatible endpoint → upsert the cache row and append the
+generation (tokens + cost) to ``llm_generations``, in the caller's transaction.
+A cache hit is not a generation and writes no journal row.
 
 ``generate_completion`` is the only function that touches the network; tests
 monkeypatch it so no live key is needed.
@@ -27,7 +29,7 @@ from app.core.crypto import decrypt_secret
 from app.core.outbound import register_secret
 from app.ml.base import Method
 from app.models.fixture import Fixture
-from app.models.llm import LlmAnalysis, LlmConfig
+from app.models.llm import LlmAnalysis, LlmConfig, LlmGeneration
 from app.models.prediction import Prediction
 from app.models.reference import League, Team
 
@@ -167,11 +169,13 @@ async def get_or_create_analysis(
     if config is None or not config.is_enabled or not config.model:
         return AnalysisResult(status="disabled")
 
-    # Cache: serve only a fresh entry (within cache_ttl_seconds).
+    # Cache: serve only a fresh entry (within cache_ttl_seconds) in this language.
     cached = (
         await session.execute(
             select(LlmAnalysis).where(
-                LlmAnalysis.fixture_id == fixture_id, LlmAnalysis.model == config.model
+                LlmAnalysis.fixture_id == fixture_id,
+                LlmAnalysis.model == config.model,
+                LlmAnalysis.language == language,
             )
         )
     ).scalar_one_or_none()
@@ -226,15 +230,27 @@ async def get_or_create_analysis(
             created_at=now,
         )
         .on_conflict_do_update(
-            constraint="uq_llm_analysis_fixture_model",
+            constraint="uq_llm_analysis_fixture_model_language",
             set_={
                 "content": content,
-                "language": language,
                 "tokens_in": tokens_in,
                 "tokens_out": tokens_out,
                 "cost": cost,
                 "created_at": now,
             },
+        )
+    )
+    # The cache row above is overwritten by the next generation; the journal row
+    # is what spend counts (ER-H-02). Same transaction, so neither lands alone.
+    session.add(
+        LlmGeneration(
+            fixture_id=fixture_id,
+            model=config.model,
+            language=language,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            cost=cost,
+            created_at=now,
         )
     )
     await session.flush()

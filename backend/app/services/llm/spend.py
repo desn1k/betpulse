@@ -1,6 +1,8 @@
 """LLM spend aggregation for the admin dashboard (spec §8, §9).
 
-Two views over ``llm_analyses`` for a trailing window:
+Two views over the ``llm_generations`` journal (one row per LLM call, cost
+computed when it was written and never recomputed; ER-H-02) for a trailing
+window:
 
 * **Daily buckets** — tokens in/out and cost grouped by UTC calendar day.
   Buckets are computed in SQL with an explicit UTC anchor
@@ -26,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.models.fixture import Fixture
-from app.models.llm import LlmAnalysis
+from app.models.llm import LlmGeneration
 from app.models.reference import League, Team
 from app.services.llm.config import get_config
 
@@ -35,7 +37,7 @@ TOP_FIXTURES = 20
 # ``created_at`` is timestamptz; converting AT TIME ZONE 'UTC' yields the UTC
 # wall-clock, so date_trunc buckets land on UTC calendar-day boundaries. The
 # zone name is a bound parameter, not string-built SQL.
-_UTC_DAY = func.date_trunc("day", LlmAnalysis.created_at.op("AT TIME ZONE")("UTC"))
+_UTC_DAY = func.date_trunc("day", LlmGeneration.created_at.op("AT TIME ZONE")("UTC"))
 
 
 @dataclass(frozen=True)
@@ -78,12 +80,12 @@ async def get_spend(session: AsyncSession, *, days: int) -> SpendReport:
         await session.execute(
             select(
                 _UTC_DAY.label("day"),
-                func.coalesce(func.sum(LlmAnalysis.tokens_in), 0).label("tokens_in"),
-                func.coalesce(func.sum(LlmAnalysis.tokens_out), 0).label("tokens_out"),
-                func.coalesce(func.sum(LlmAnalysis.cost), 0).label("cost"),
+                func.coalesce(func.sum(LlmGeneration.tokens_in), 0).label("tokens_in"),
+                func.coalesce(func.sum(LlmGeneration.tokens_out), 0).label("tokens_out"),
+                func.coalesce(func.sum(LlmGeneration.cost), 0).label("cost"),
                 func.count().label("cnt"),
             )
-            .where(LlmAnalysis.created_at >= since)
+            .where(LlmGeneration.created_at >= since)
             .group_by(_UTC_DAY)
             .order_by(_UTC_DAY)
         )
@@ -105,22 +107,22 @@ async def get_spend(session: AsyncSession, *, days: int) -> SpendReport:
     fixture_rows = (
         await session.execute(
             select(
-                LlmAnalysis.fixture_id.label("fixture_id"),
+                LlmGeneration.fixture_id.label("fixture_id"),
                 home.name.label("home"),
                 away.name.label("away"),
                 League.name.label("league"),
-                func.coalesce(func.sum(LlmAnalysis.cost), 0).label("cost"),
-                func.coalesce(func.sum(LlmAnalysis.tokens_in), 0).label("tokens_in"),
-                func.coalesce(func.sum(LlmAnalysis.tokens_out), 0).label("tokens_out"),
+                func.coalesce(func.sum(LlmGeneration.cost), 0).label("cost"),
+                func.coalesce(func.sum(LlmGeneration.tokens_in), 0).label("tokens_in"),
+                func.coalesce(func.sum(LlmGeneration.tokens_out), 0).label("tokens_out"),
                 func.count().label("cnt"),
             )
-            .join(Fixture, Fixture.id == LlmAnalysis.fixture_id)
+            .join(Fixture, Fixture.id == LlmGeneration.fixture_id)
             .join(home, home.id == Fixture.home_team_id)
             .join(away, away.id == Fixture.away_team_id)
             .join(League, League.id == Fixture.league_id)
-            .where(LlmAnalysis.created_at >= since)
-            .group_by(LlmAnalysis.fixture_id, home.name, away.name, League.name)
-            .order_by(func.sum(LlmAnalysis.cost).desc())
+            .where(LlmGeneration.created_at >= since)
+            .group_by(LlmGeneration.fixture_id, home.name, away.name, League.name)
+            .order_by(func.sum(LlmGeneration.cost).desc())
             .limit(TOP_FIXTURES)
         )
     ).all()
@@ -142,11 +144,11 @@ async def get_spend(session: AsyncSession, *, days: int) -> SpendReport:
     totals = (
         await session.execute(
             select(
-                func.coalesce(func.sum(LlmAnalysis.cost), 0),
+                func.coalesce(func.sum(LlmGeneration.cost), 0),
                 func.coalesce(
-                    func.sum(cast(LlmAnalysis.tokens_in + LlmAnalysis.tokens_out, Integer)), 0
+                    func.sum(cast(LlmGeneration.tokens_in + LlmGeneration.tokens_out, Integer)), 0
                 ),
-            ).where(LlmAnalysis.created_at >= since)
+            ).where(LlmGeneration.created_at >= since)
         )
     ).one()
 

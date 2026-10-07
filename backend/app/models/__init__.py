@@ -12,7 +12,7 @@ from app.models.live import (
     PushSubscription,
     TelegramLinkToken,
 )
-from app.models.llm import LlmAnalysis, LlmConfig
+from app.models.llm import LlmAnalysis, LlmConfig, LlmGeneration
 from app.models.market import Odds
 from app.models.model_registry import ModelRegistry, ModelRegistrySnapshot, ModelStatus
 from app.models.model_weighting import ModelWeighting, WeightingMode
@@ -55,6 +55,7 @@ __all__ = [
     "LiveUpdate",
     "LlmAnalysis",
     "LlmConfig",
+    "LlmGeneration",
     "ModelRegistry",
     "ModelRegistrySnapshot",
     "ModelRun",
