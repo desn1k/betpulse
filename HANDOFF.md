@@ -1710,6 +1710,36 @@ ignored. Line numbers are as of `5eedb0b` and will drift.
   keeps only fixtures with `exists(Prediction)`. The pre-match inference task must also make
   scheduled fixtures visible. Done means a scheduled fixture appears in `/matches` with a
   consensus.
+  - **Design requirements for the pre-match inference task** (owner, 2026-10-07, from a third
+    external note — a product wishlist, not defects):
+    - **Every published pre-match prediction is an immutable record:** fixture, method,
+      `model_version`, feature-set version, `prediction_time`, the probabilities, and the market
+      odds snapshot used at that moment (bookmaker or `market_avg`, with the snapshot's own
+      timestamp; `app/ml/odds_selection.py` already picks the latest complete snapshot at or
+      before a given time). Never updated in place: a re-run writes a **new** record. Today's
+      `predictions` table cannot hold this as is — it is unique per `(fixture_id, method, market,
+      outcome, model_version)` and training inserts with `ON CONFLICT DO NOTHING`
+      (`ml/training.py`), so a re-run under the same model version writes nothing, and it has no
+      `prediction_time` (only `created_at`), feature-set version or odds snapshot.
+    - **After settlement** the closing odds and the result are attached to those records, so
+      CLV and a true forward test (predictions frozen before kickoff, scored after) are computed
+      from them. This is the §11 ML follow-up "a real forward test".
+    - **A feature-set version identifier** is introduced with ER-C-01, so predictions made under
+      different feature definitions are never compared blindly. Today there is none: each MLflow
+      run logs `feature_schema.json` (`ml/mlflow_utils.py`, from `ml/features.feature_schema()`),
+      a column list, not a version; a hash of it is one way to derive the identifier.
+    - Already in place and **not new work** (checked in the code): the model registry with
+      snapshots, one-champion index and registry lock (`ml/registry.py`, `models/model_registry.py`,
+      §6 "Model governance"); the champion rule (`apply_champion_selection`); isotonic calibration
+      of the consensus (`ml/consensus.py`); tier feature flags (`services/tiers.py`, §9b).
+      Provider reconciliation exists **only in part**: the ±36 h cross-source identity rule,
+      `ingestion_conflicts` and `data-report` (HI-2/HI-3, §6); reconciling Sportmonks and The Odds
+      API is provider PRs 2–4 (§9l).
+  - **Rejected from the same note, with the reason:**
+    - a user bet ledger and a "recommendation" lifecycle — the §9j product rule: no calls to
+      place bets without legal review;
+    - business analytics — deferred until payments exist and the cookie-consent banner (§11) is
+      built (analytics only after consent).
 - **ER-H-02 — spend under-reporting.** The analysis upsert overwrites the `llm_analysis` row, and
   the LLM spend dashboard sums those rows, so every regeneration (language switch, cache expiry)
   drops the earlier generation's tokens and cost. The fix must correct the spend figures as well
