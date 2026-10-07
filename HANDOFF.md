@@ -1762,7 +1762,7 @@ fails the request (fail-closed), as on `/analysis`.
 ### Found later (2026-10-06/07): F5–F8
 
 Found while checking the ER-M-05 follow-up; the F-series continues the rehearsal findings (F1–F4,
-§9i). F6 is fixed (2026-10-07); F5, F7 and F8 (found while fixing F6) are open.
+§9i). F6 and F8 are fixed (2026-10-07); F5 and F7 are open.
 
 - **F5 — all IPv6 guests may share one identity. LAUNCH BLOCKER for the first VPS run.** Caddy
   publishes `[::]:80`/`[::]:443`, but the `betpulse` network is IPv4-only, so Docker hands IPv6
@@ -1802,19 +1802,30 @@ Found while checking the ER-M-05 follow-up; the F-series continues the rehearsal
     The spec says "Matches/day" and `tiers.py` already defined the limit as "distinct
     match-detail views per UTC day", so (a) brings the code in line with both.
   - Frontend follow-up: **F8** below.
-- **F8 — the match page drops its card on a failed background refetch; 4xx are retried. Frontend
-  defect, open.** TanStack Query keeps `data` when a refetch fails but sets `isError`, and
-  `MatchDetailView` checks `isError` first, so one failed 60 s refetch replaces a card the user
-  is reading with the lock (403) or the error text (429, 5xx). The default `retry: 1`
-  (`app/providers.tsx`) also repeats 4xx answers, which cannot succeed on a retry and each count
-  against the 120/60 s request limit. After F6 a 403 mid-session only follows a tier drop (a
-  subscription expiring), but a 429 or 5xx still hides the card.
-  - Fix: render the error state only when there is no `data` (keep the card, optionally with a
-    "data may be stale" note); do not retry 4xx responses (a `retry` function on `ApiError.status`).
-  - First failing test (Vitest): a refetch answering 403/429/500 after a successful load keeps the
-    card on screen; a 4xx is fetched once.
-  - Slot (proposed): right after PR B (ER-H-02), before v0.0.1-rc6, so the rc6 rehearsal runs it in
-    the real web image.
+- **F8 — the match page dropped its card on a failed background refetch; 4xx were retried.
+  Fixed 2026-10-07.** TanStack Query keeps `data` when a refetch fails but sets `isError`, and
+  `MatchDetailView` checked `isError` first, so one failed 60 s refetch replaced a card the user
+  was reading with the lock (403) or the error text; the global `retry: 1` repeated 4xx answers,
+  each counted against the 120/60 s request limit.
+  - **Now:** the error or lock replaces the page only on a **first** load (no data). On a failed
+    refetch the card stays: a 403 (the daily quota — spent, or lowered by a tier change; a tab
+    left open past UTC midnight spends a view of the new day) shows the first-load wording
+    ("Daily match limit reached" / «Дневной лимит матчей исчерпан», `limitReachedBody`) above it
+    with "Below is the last data received." / «Ниже — последние полученные данные.»; anything
+    else (404, 429, 5xx, network) shows "Couldn't refresh — showing data as of HH:MM." /
+    «Не удалось обновить данные — показаны данные на HH:MM.». Both are `role="status"`.
+  - **Polling** (`matchRefetchInterval`, `lib/queries.ts`): 404 stops; 403 waits for the next UTC
+    midnight plus a stable 0–60 s offset per tab; otherwise 60 s. `useMatch` refetches on window
+    focus (off app-wide). Recovery without a reload: a promo code (`RedeemPromo` invalidates the
+    match queries), an upgrade (focus or reconnect refetch), the next UTC day (the midnight timer).
+  - **Retries** (`lib/retry.ts`, set app-wide in `app/providers.tsx`): no retry on any 4xx, 401
+    included (nothing relied on it: public match routes never answer 401, see F9); one retry on 5xx
+    and network errors.
+  - **`Retry-After`** from a backend 429 now reaches the browser (`proxyBackendGet` relays it and no
+    other backend header). **No client backoff**, deliberately: the match-detail window
+    (`RATE_LIMIT_MATCH_DETAIL_WINDOW_SECONDS` = 60) equals the poll interval, so the next poll
+    already lands after the window. **Revisit** if that window becomes longer than the poll
+    interval, or a page starts polling `/analysis`: then poll at `max(60 s, Retry-After)`.
 - **F7 — the public `/matches` list has no rate limit.** It runs the heaviest public query
   (list, filters, consensus) and only `/matches/{id}` and `/analysis` are limited. Slot:
   **pre-launch protection group** (before the first public release, with ER-M-04 / §11 O2 and
