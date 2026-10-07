@@ -35,24 +35,30 @@ async def _untrusted_client(peer: str = "192.0.2.50") -> AsyncIterator[AsyncClie
         yield c
 
 
-async def _match_id(session: AsyncSession) -> uuid.UUID:
-    """One committed fixture (no predictions): enough for a match detail view."""
+async def _match_ids(session: AsyncSession, count: int) -> list[uuid.UUID]:
+    """Committed fixtures (no predictions): enough for match detail views. The
+    quota counts distinct matches (F6), so each view below uses a new one."""
     league = League(code="EPL", name="EPL League")
-    home = Team(name="Arsenal", normalized_name=f"arsenal-{uuid.uuid4().hex[:6]}")
-    away = Team(name="Chelsea", normalized_name=f"chelsea-{uuid.uuid4().hex[:6]}")
-    session.add_all([league, home, away])
+    session.add(league)
     await session.flush()
-    fixture = Fixture(
-        league_id=league.id,
-        season="2025-2026",
-        home_team_id=home.id,
-        away_team_id=away.id,
-        kickoff_at=datetime.now(UTC) + timedelta(hours=6),
-        status=FixtureStatus.scheduled,
-    )
-    session.add(fixture)
+    fixtures = []
+    for _ in range(count):
+        home = Team(name="Arsenal", normalized_name=f"arsenal-{uuid.uuid4().hex[:6]}")
+        away = Team(name="Chelsea", normalized_name=f"chelsea-{uuid.uuid4().hex[:6]}")
+        session.add_all([home, away])
+        await session.flush()
+        fixture = Fixture(
+            league_id=league.id,
+            season="2025-2026",
+            home_team_id=home.id,
+            away_team_id=away.id,
+            kickoff_at=datetime.now(UTC) + timedelta(hours=6),
+            status=FixtureStatus.scheduled,
+        )
+        session.add(fixture)
+        fixtures.append(fixture)
     await session.commit()
-    return fixture.id
+    return [f.id for f in fixtures]
 
 
 async def _view_match(client: AsyncClient, forwarded_for: str, match_id: uuid.UUID) -> int:
@@ -84,31 +90,31 @@ async def _login(client: AsyncClient, email: str, forwarded_for: str) -> int:
 async def test_guests_behind_the_bff_get_separate_daily_quotas(
     client: AsyncClient, session: AsyncSession
 ) -> None:
-    match_id = await _match_id(session)
-    for _ in range(GUEST_DAILY_VIEWS):
+    *viewed, new = await _match_ids(session, GUEST_DAILY_VIEWS + 1)
+    for match_id in viewed:
         assert await _view_match(client, "198.51.100.1", match_id) == 200
-    assert await _view_match(client, "198.51.100.1", match_id) == 403
+    assert await _view_match(client, "198.51.100.1", new) == 403
 
-    assert await _view_match(client, "198.51.100.2", match_id) == 200
+    assert await _view_match(client, "198.51.100.2", new) == 200
     listing = await client.get("/matches", headers={"X-Forwarded-For": "198.51.100.2"})
     assert listing.json()["matches_remaining"] == GUEST_DAILY_VIEWS - 1
 
 
 async def test_spoofed_forwarded_for_from_untrusted_peer_is_ignored(session: AsyncSession) -> None:
-    match_id = await _match_id(session)
+    *viewed, new = await _match_ids(session, GUEST_DAILY_VIEWS + 1)
     async with _untrusted_client() as untrusted:
-        for n in range(GUEST_DAILY_VIEWS):
+        for n, match_id in enumerate(viewed):
             assert await _view_match(untrusted, f"198.51.100.{10 + n}", match_id) == 200
         # Rotating the header does not buy a fresh quota: the peer is the identity.
-        assert await _view_match(untrusted, "198.51.100.99", match_id) == 403
+        assert await _view_match(untrusted, "198.51.100.99", new) == 403
 
 
 async def test_guest_quota_buckets_ipv6_by_64(client: AsyncClient, session: AsyncSession) -> None:
-    match_id = await _match_id(session)
-    for n in range(GUEST_DAILY_VIEWS):
+    *viewed, new = await _match_ids(session, GUEST_DAILY_VIEWS + 1)
+    for n, match_id in enumerate(viewed):
         assert await _view_match(client, f"2001:db8:aa:1::{n + 1}", match_id) == 200
-    assert await _view_match(client, "2001:db8:aa:1:ffff::1", match_id) == 403
-    assert await _view_match(client, "2001:db8:aa:2::1", match_id) == 200
+    assert await _view_match(client, "2001:db8:aa:1:ffff::1", new) == 403
+    assert await _view_match(client, "2001:db8:aa:2::1", new) == 200
 
 
 # --- login rate limit -----------------------------------------------------------

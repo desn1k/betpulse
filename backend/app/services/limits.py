@@ -10,6 +10,17 @@ seconds remaining until the next UTC midnight — not a rolling 24h window.
 ``identity`` is the user id for an authenticated caller, or the client IP for a
 guest. A limit of ``-1`` means unlimited (pro/expert) and is never counted.
 
+The budget is for **distinct** matches (F6): the match page refetches its card
+every 60 s, and opening a match again the same day must cost nothing. The
+fixtures already charged today sit in a set next to the counter, with the same
+date and TTL::
+
+    key = limits:seen:{identity}:{YYYY-MM-DD}   (set of fixture ids)
+
+The counter stays the measure of what was used (``matches_remaining``); the set
+only decides whether a view is new. A set lost on its own (evicted) makes the
+next view of a match count again, never an error.
+
 Every counter update is one atomic Redis script (:mod:`app.services.counters`):
 budgets are taken with check-and-increment, so concurrent callers can never
 exceed a limit, and a key always gets its TTL in the same step.
@@ -22,7 +33,12 @@ from datetime import UTC, datetime, timedelta
 
 from redis.asyncio import Redis
 
-from app.services.counters import decr_floor_zero, incr_with_ttl, incr_within_limit
+from app.services.counters import (
+    decr_floor_zero,
+    incr_distinct_within_limit,
+    incr_with_ttl,
+    incr_within_limit,
+)
 
 UNLIMITED = -1
 
@@ -69,20 +85,35 @@ def _key(identity: str, now: datetime) -> str:
     return f"limits:{identity}:{now.astimezone(UTC):%Y-%m-%d}"
 
 
-async def consume_match_view(
-    redis: Redis, *, identity: str, limit: int, now: datetime | None = None
-) -> int:
-    """Count one match-detail view against the day's budget.
+def _seen_key(identity: str, now: datetime) -> str:
+    return f"limits:seen:{identity}:{now.astimezone(UTC):%Y-%m-%d}"
 
-    Returns the number of views remaining **after** this one (``UNLIMITED`` for an
-    unlimited tier). Raises :class:`LimitExceeded` — without consuming — when the
-    budget is already spent.
+
+async def consume_match_view(
+    redis: Redis,
+    *,
+    identity: str,
+    fixture_id: uuid.UUID,
+    limit: int,
+    now: datetime | None = None,
+) -> int:
+    """Count a view of ``fixture_id`` against the day's budget of distinct matches.
+
+    A match already viewed today costs nothing. Returns the number of views
+    remaining (``UNLIMITED`` for an unlimited tier). Raises :class:`LimitExceeded`
+    — without counting or recording the match — when the budget is already spent
+    and the match is new today.
     """
     if limit == UNLIMITED:
         return UNLIMITED
     now = now or datetime.now(UTC)
-    count = await incr_within_limit(
-        redis, _key(identity, now), limit=limit, ttl_seconds=seconds_until_utc_midnight(now)
+    count = await incr_distinct_within_limit(
+        redis,
+        _key(identity, now),
+        _seen_key(identity, now),
+        str(fixture_id),
+        limit=limit,
+        ttl_seconds=seconds_until_utc_midnight(now),
     )
     if count is None:
         raise LimitExceeded

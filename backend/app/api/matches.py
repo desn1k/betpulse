@@ -5,9 +5,10 @@ that power the frontend match list and match card. No authentication needed:
 ``TierContextDep`` resolves the caller to a tier (guest per client IP, a signed-in
 user per account) and the limits are enforced server-side:
 
-- The match card consumes one unit of the tier's daily match-view quota; past it
-  the card answers 403 with ``tier_required`` (the next tier up). The list
-  reports the remaining quota without consuming it.
+- Opening a match card consumes one unit of the tier's daily quota of distinct
+  matches; the same match again that UTC day (the page refetches every 60 s) is
+  free. Past the quota a new match answers 403 with ``tier_required`` (the next
+  tier up). The list reports the remaining quota without consuming it.
 - Per-method bars are returned only to tiers whose ``methods`` flag shows them
   (``all`` / ``all_weights``); guest (``blurred_consensus``, the frontend blurs
   the consensus) and free (``consensus``) get an empty ``methods`` list plus the
@@ -366,10 +367,15 @@ async def get_match(
     # an unknown id never spends it (ER-M-05). Deliberately after the 404: an
     # exhausted caller can tell a real id from a made-up one, which is accepted
     # because /matches lists them publicly. Guests are counted per client IP,
-    # authenticated callers per user id (see get_tier_context).
+    # authenticated callers per user id (see get_tier_context). A match already
+    # viewed today costs nothing (F6).
     try:
         await consume_match_view(
-            redis, identity=tier_ctx.identity, limit=tier_ctx.tier.matches_per_day(), now=now
+            redis,
+            identity=tier_ctx.identity,
+            fixture_id=fixture_id,
+            limit=tier_ctx.tier.matches_per_day(),
+            now=now,
         )
     except LimitExceeded as exc:
         raise HTTPException(
