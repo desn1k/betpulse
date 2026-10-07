@@ -23,7 +23,7 @@ from app.services.llm.analysis import (
     _next_utc_midnight,
     get_or_create_analysis,
 )
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Anchor to today at noon UTC so the budget key's expireat (next UTC midnight) is
@@ -101,6 +101,32 @@ def _stub_completion(
     return calls
 
 
+async def _journal(
+    session: AsyncSession, fixture_id: uuid.UUID
+) -> list[tuple[str, int, int, Decimal]]:
+    """The ``llm_generations`` rows of a fixture (language, tokens in/out, cost)."""
+    rows = await session.execute(
+        text(
+            "SELECT language, tokens_in, tokens_out, cost FROM llm_generations "
+            "WHERE fixture_id = :fid ORDER BY created_at, language"
+        ),
+        {"fid": fixture_id},
+    )
+    return [(r[0], r[1], r[2], r[3]) for r in rows.all()]
+
+
+def _stub_by_language(monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
+    """A completion whose text names the language the prompt asked for."""
+    calls = {"n": 0}
+
+    async def _fake(config: LlmConfig, *, system: str, user: str) -> tuple[str, int, int]:
+        calls["n"] += 1
+        return ("ru text" if "Respond in Russian" in system else "en text"), 100, 50
+
+    monkeypatch.setattr(analysis_service, "generate_completion", _fake)
+    return calls
+
+
 @pytest.mark.asyncio
 async def test_generates_persists_and_charges_budget(
     session: AsyncSession, monkeypatch: pytest.MonkeyPatch
@@ -129,6 +155,8 @@ async def test_generates_persists_and_charges_budget(
     ).scalar_one()
     assert row.model == "test-model"
     assert float(row.cost) == pytest.approx(0.125)
+    # The generation is journaled with its cost, in the same transaction.
+    assert await _journal(session, fixture_id) == [("en", 100, 50, Decimal("0.125000"))]
     # Budget charged with the total tokens, TTL set.
     assert int(await redis.get(_budget_key(_NOW))) == 150
     assert await redis.ttl(_budget_key(_NOW)) > 0
@@ -165,6 +193,51 @@ async def test_cache_hit_skips_second_call(
         )
     ).scalar_one()
     assert count == 1
+    # A cache hit is not a generation: one journal row only.
+    assert len(await _journal(session, fixture_id)) == 1
+
+
+@pytest.mark.asyncio
+async def test_each_language_is_generated_and_cached_on_its_own(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # ER-H-02: the cache used to ignore the language, so an English request
+    # after a Russian one was served the Russian text.
+    await _seed_config(session)
+    fixture_id = await _seed_fixture(session)
+    await session.commit()
+    calls = _stub_by_language(monkeypatch)
+    redis = get_redis()
+
+    ru = await get_or_create_analysis(
+        session, redis, fixture_id=fixture_id, language="ru", now=_NOW
+    )
+    await session.commit()
+    en = await get_or_create_analysis(
+        session, redis, fixture_id=fixture_id, language="en", now=_NOW + timedelta(seconds=10)
+    )
+    await session.commit()
+    ru_again = await get_or_create_analysis(
+        session, redis, fixture_id=fixture_id, language="ru", now=_NOW + timedelta(seconds=20)
+    )
+    await session.commit()
+
+    assert (ru.content, ru.language, ru.cached) == ("ru text", "ru", False)
+    assert (en.content, en.language, en.cached) == ("en text", "en", False)
+    assert (ru_again.content, ru_again.language, ru_again.cached) == ("ru text", "ru", True)
+    assert calls["n"] == 2
+    cached = (
+        await session.execute(
+            select(LlmAnalysis.language, LlmAnalysis.content).where(
+                LlmAnalysis.fixture_id == fixture_id
+            )
+        )
+    ).all()
+    assert sorted((lang, content) for lang, content in cached) == [
+        ("en", "en text"),
+        ("ru", "ru text"),
+    ]
+    assert [row[0] for row in await _journal(session, fixture_id)] == ["ru", "en"]
 
 
 @pytest.mark.asyncio
@@ -187,6 +260,8 @@ async def test_stale_cache_regenerates(
 
     assert regen.cached is False
     assert calls["n"] == 2
+    # The overwritten cache row's generation stays in the journal.
+    assert len(await _journal(session, fixture_id)) == 2
 
 
 @pytest.mark.asyncio
