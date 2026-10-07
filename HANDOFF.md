@@ -1721,9 +1721,11 @@ ignored. Line numbers are as of `5eedb0b` and will drift.
       outcome, model_version)` and training inserts with `ON CONFLICT DO NOTHING`
       (`ml/training.py`), so a re-run under the same model version writes nothing, and it has no
       `prediction_time` (only `created_at`), feature-set version or odds snapshot.
-    - **After settlement** the closing odds and the result are attached to those records, so
-      CLV and a true forward test (predictions frozen before kickoff, scored after) are computed
-      from them. This is the §11 ML follow-up "a real forward test".
+    - **After settlement** the closing odds and the result are stored **outside** the immutable
+      prediction records (a separate settlement record per fixture, or per prediction, that
+      references them) and associated with them, never written into the prediction rows; CLV and
+      a true forward test (predictions frozen before kickoff, scored after) are computed from the
+      pair. This is the §11 ML follow-up "a real forward test".
     - **A feature-set version identifier** is introduced with ER-C-01, so predictions made under
       different feature definitions are never compared blindly. Today there is none: each MLflow
       run logs `feature_schema.json` (`ml/mlflow_utils.py`, from `ml/features.feature_schema()`),
