@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from logging.config import fileConfig
+from typing import Any
 
 from alembic import context
 from app.core.config import get_settings
@@ -29,6 +31,18 @@ config.set_main_option("sqlalchemy.url", get_settings().database_url)
 
 target_metadata = Base.metadata
 
+# Postgres messages a migration raises (RAISE NOTICE / WARNING, extension
+# notices). asyncpg drops them unless a listener is registered; forward them to
+# the alembic logger, which alembic.ini prints to stderr at INFO. stdout (what
+# `alembic heads` / `current` print) is untouched.
+_server_log = logging.getLogger("alembic")
+
+
+def _log_server_message(_connection: Any, message: Any) -> None:
+    severity = str(getattr(message, "severity", "NOTICE"))
+    level = logging.WARNING if severity.upper() == "WARNING" else logging.INFO
+    _server_log.log(level, "postgres %s: %s", severity, message.message)
+
 
 def run_migrations_offline() -> None:
     context.configure(
@@ -43,6 +57,8 @@ def run_migrations_offline() -> None:
 
 
 def _do_run_migrations(connection) -> None:  # type: ignore[no-untyped-def]
+    # Online mode only: offline (--sql) never connects.
+    connection.connection.driver_connection.add_log_listener(_log_server_message)
     context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
     with context.begin_transaction():
         context.run_migrations()
