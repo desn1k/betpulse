@@ -90,6 +90,13 @@ function MatchProbe() {
   return null;
 }
 
+/** Renders the first listed home team, so stale data would be visible. */
+function ListProbe() {
+  const query = useQuery({ queryKey: ["matches", "list", {}], queryFn: () => fetchMatches({}) });
+  const first = query.data?.items[0] as { home_team?: string } | undefined;
+  return <p>{first?.home_team ?? "loading"}</p>;
+}
+
 function renderApp() {
   return render(
     <NextIntlClientProvider locale="en" messages={en} timeZone="UTC">
@@ -226,6 +233,27 @@ describe("the gate never deadlocks", () => {
   });
 });
 
+describe("logout races", () => {
+  it("a refresh that completes after logout does not sign the tab back in", async () => {
+    let finish: (res: Response) => void = () => undefined;
+    stubFetch({
+      "/api/auth/refresh": () => new Promise<Response>((resolve) => (finish = resolve)),
+      "/api/auth/logout": () => new Response(null, { status: 200 }),
+    });
+    await signIn();
+    sleepFor(16 * 60_000);
+    const pending = fetchMatch("m1").catch(() => undefined); // starts the refresh
+
+    await useAuthStore.getState().logout();
+    finish(Response.json(session("tok-late")));
+    await pending;
+    await vi.advanceTimersByTimeAsync(TTL_S * 1000);
+
+    expect(useAuthStore.getState().accessToken).toBeNull();
+    expect(useAuthStore.getState().user).toBeNull();
+  });
+});
+
 describe("mutations never go out as a guest", () => {
   it.each([
     ["promo redeem", () => redeemPromo("ABCD-EFGH"), "/api/promo/redeem"],
@@ -338,6 +366,30 @@ describe("the app", () => {
     expect(screen.queryByText(U1.email)).not.toBeInTheDocument();
     expect(useAuthStore.getState().accessToken).toBeNull();
     expect(screen.queryByText(/session has expired/)).not.toBeInTheDocument();
+  });
+
+  it("after an account switch the previous account's data is not shown while reloading", async () => {
+    const listOf = (team: string) => () =>
+      Response.json({ ...LIST, items: [{ home_team: team }], total: 1 });
+    stubFetch({
+      "/api/auth/refresh": [ok(session("tok-1")), ok(session("tok-9", U2))],
+      "/api/matches": [listOf("Team of one"), never],
+    });
+    render(
+      <NextIntlClientProvider locale="en" messages={en} timeZone="UTC">
+        <Providers>
+          <AuthMenu />
+          <ListProbe />
+        </Providers>
+      </NextIntlClientProvider>,
+    );
+    await tick(1);
+    expect(screen.getByText("Team of one")).toBeInTheDocument();
+
+    await tick((TTL_S - 60) * 1000); // the refresh returns U2; its list never arrives
+
+    expect(screen.getByText(U2.email)).toBeInTheDocument();
+    expect(screen.queryByText("Team of one")).not.toBeInTheDocument();
   });
 
   it("a refresh that returns another account switches the header and refetches", async () => {
