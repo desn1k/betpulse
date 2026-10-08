@@ -127,7 +127,7 @@ covered by Vitest + React Testing Library.
 
 ## 6. Conventions that bite if ignored
 
-- **Migrations** are hand-written in `backend/migrations/versions/` (`0001`–`0018` today). Enums via
+- **Migrations** are hand-written in `backend/migrations/versions/` (`0001`–`0019` today). Enums via
   `postgresql.ENUM(..., name=...)` created with `checkfirst=True` and `create_type=False` on the
   column; dropped in `downgrade`. Timescale hypertables are guarded by a `pg_available_extensions`
   check so CI (plain PG) and prod (timescaledb) both pass. **Every migration must survive the
@@ -217,6 +217,34 @@ covered by Vitest + React Testing Library.
   `RATE_LIMIT_ACCOUNT_SECURITY_WINDOW_SECONDS`, `RATE_LIMIT_TOTP_SETUP_PER_HOUR`. Login keeps
   its own rules: per-IP 5/min first, then the per-account failure counter and lockout, which a
   wrong TOTP code feeds exactly like a wrong password.
+- **Access tokens die when the credentials change (ER2-01, 2026-10-09).**
+  `users.credentials_changed_at` (migration 0019, NULL until the first event) is set by a
+  password change, `reset-2fa` and an admin disabling the account
+  (`services.auth.mark_credentials_changed`; each audit row carries the value). Every access
+  token carries it as the `cca` claim — whole microseconds since the epoch, integer arithmetic,
+  or null — and `core.security.token_state` accepts a token only when the claim **equals** the
+  column: no comparison with `iat` (whole seconds), so a token from the second of a change is
+  decided correctly both ways. A token **without** the claim (issued before 0019) is accepted
+  while the column is NULL (the deploy signs nobody out) and, once it is set, only when `iat`
+  is a whole second later. A non-null claim against a NULL column (0019 downgraded and upgraded
+  again) is refused; a refresh repairs it. A claim of any other type (string, float, bool) is an
+  invalid token: 401 on protected routes, guest on public ones, never a 500.
+  - A genuine, unexpired but **revoked** token gets **401 `Session revoked` with
+    `X-Session-Revoked: true` on every route, public ones included** (`get_current_user` and
+    `get_optional_user`, raised from the auth dependency before the route runs). Expired or
+    garbage tokens on public routes stay a guest, as before.
+  - The BFF relays it on every path: `RELAYED_RESPONSE_HEADERS` in `lib/server/backendProxy.ts`
+    (`retry-after`, `x-2fa-required`, `x-session-revoked`) is shared by `proxyBackendGet` and
+    `proxyAuth`; `routeHandlers.test.ts` keeps handlers from calling `backendFetch` or building
+    their own responses (exceptions with reasons: `health`, `ready`).
+  - The client sends a bearer only through `authFetch` (`lib/auth/store.ts`; `bearer.test.ts`
+    forbids `authHeaders()` elsewhere). On 401 + `X-Session-Revoked` for a request that carried
+    a token: one forced refresh, one replay. Refresh works (another tab of the same browser
+    changed the password, the cookie is already new) → the replay goes out with the new token;
+    refresh refused (another device) → signed out with "session expired"; the replay revoked
+    again → signed out; the refresh unreachable → the session stays and the 401 is returned.
+    Replaying a mutation is safe because the 401 comes from the auth dependency, before the
+    route did any work.
 - **Database connection budget (two pools per API process).** A failed login holds its request
   connection while it opens the security transaction, so `independent_transaction()` draws from a
   **separate** pool (`DB_SECURITY_POOL_SIZE`=2 + `DB_SECURITY_MAX_OVERFLOW`=3); the request pool is
@@ -488,6 +516,10 @@ lock; unmapped API-Football team/league during live → structured warning + ski
   so a rollback in either direction only changes how fetches are counted that day. The list is free
   and reports `matches_remaining`.
 - **SSE gating** now reads the same `live_recompute` flag (was the `UserTier.can_stream_live` enum).
+- **Revoked sessions (ER2-01) differ from expired tokens:** an expired token on a public route
+  is still treated as a guest (F9: the client renews before expiry), but a token revoked by a
+  credentials change answers 401 + `X-Session-Revoked` everywhere, and `authFetch` renews or
+  signs out on that very request (§6).
 - **Frontend auth is minimal** (spec allows): access token in a Zustand store (memory only), refresh
   token in the backend's httpOnly cookie. `/api/auth/*` route handlers proxy to the backend and relay
   Set-Cookie; the proxy rewrites the refresh cookie `Path=/auth/refresh` → `/` so logout/refresh work
@@ -1354,6 +1386,29 @@ exception), the owner ran the browser checks.
   day blocks the F6 check; `docker run --env-file` does not expand `${VAR}` inside `.env`
   values (compose does), which broke the first seed attempt.
 
+### v0.0.1-rc7 (planned)
+
+The owner rehearses it on the local stack after ER2-01; checklist by the agent. Besides the
+rc6 items that still apply (deploy over data, migration log, drills), it must check by hand:
+- **Migration 0019** in the deploy log (one `Running upgrade 0018_llm_generations ->
+  0019_credentials_changed_at`), `credentials_changed_at` NULL for every existing user, and
+  nobody signed out by the deploy (an open signed-in tab keeps working).
+- **F10 on the real stack:** the stand's admin (password changed, TOTP on in rc6) signs in with
+  the code step; Admin → Users grants and removes a tier through the site; the full first
+  sign-in on a clean database (separate compose project): initial password → forced change → QR
+  in an authenticator app (the QR key equals the text key) → code → admin panel → sign out →
+  sign in with a code.
+- **reset-2fa** through `scripts/prod-compose.sh run --rm api python -m app.cli reset-2fa …`:
+  one output line, no secret; the admin signs in with the password alone and is led to set up
+  TOTP again; an open tab of that admin signs out on its next request.
+- **Limits:** the sixth wrong password change or TOTP code in a row says "Too many attempts".
+- **Password change with TOTP on:** the form asks for the code, not the sign-in screen.
+- **ER2-01 across browsers:** change the password in browser A; an open tab in browser B signs
+  out with "session expired" on its next action; a second tab in browser A keeps working.
+- **Admin disable/enable:** disable a signed-in test user, enable them again: their open tab is
+  signed out and does not come back to life.
+- No "Sign in" flash on fast reloads (F14); a regular user can turn TOTP on and off with a code.
+
 ### Launch blockers before the first VPS run
 
 None of these is done; the site is not opened before all are.
@@ -1860,7 +1915,7 @@ fails the request (fail-closed), as on `/analysis`.
 
 Found while checking the ER-M-05 follow-up; the F-series continues the rehearsal findings (F1–F4,
 §9i). F6, F8 (2026-10-07) and F9 (2026-10-08, found while planning F8) are fixed; F5 and F7 are open.
-F10–F17 were found in the rc6 rehearsal (below); F10, F11, F12 and F14 are fixed.
+F10–F18 were found in the rc6 rehearsal and after it (below); F10, F11, F12 and F14 are fixed.
 
 - **F5 — all IPv6 guests may share one identity. LAUNCH BLOCKER for the first VPS run.** Caddy
   publishes `[::]:80`/`[::]:443`, but the `betpulse` network is IPv4-only, so Docker hands IPv6
@@ -2076,6 +2131,14 @@ the failing test named here.
   "Delta vs market", which needs a consensus. Without a consensus (today: under 200 matches)
   the market reference is shown nowhere. The guest's four blurred rows are a fixed placeholder,
   not data. Whether to show the market on its own is a product question (backlog).
+- **F18 — logout ends the refresh family, not the access token.** `POST /auth/logout` revokes
+  the tab's refresh family; the access token in memory is dropped by that tab and by the other
+  tabs of the same browser (BroadcastChannel), but the token itself stays valid until it expires
+  (≤ 15 minutes) if it was copied elsewhere, and sessions on other devices are not touched
+  (another family). Low: it needs a stolen access token, which expires on its own. Options if it
+  matters: bump `credentials_changed_at` on "log out everywhere" (a new button) — the same
+  mechanism as ER2-01 — or a short deny-list of logged-out `jti`s in Redis until their `exp`.
+  Slot: with O2.
 - **F17 — an accepted TOTP code can be used again within its window.** `verify_totp` checks
   `valid_window=1` (the current 30 s step ± one) and remembers nothing, so a code that just
   signed someone in is accepted again for up to ~90 s, at login and on enable/disable. Low: a
@@ -2093,7 +2156,7 @@ main `314029b`**; line numbers will drift. Labels `ER2-` keep them apart from th
 
 | ID | Verdict | Evidence | Severity | Smallest fix | First failing test | Slot |
 |---|---|---|---|---|---|---|
-| ER2-01 | Confirmed | `get_current_user` checks only signature, expiry and `is_active` (`core/deps.py:49-79`); `change_password` revokes refresh tokens only (`services/auth.py:589-593`); no `token_version` / `password_changed_at`. An issued access JWT stays valid ≤ 15 min after a password change. Not routed by the BFF today | Medium before a password-change UI (**there is one since F10**) | `users.password_changed_at`; reject tokens with `iat` before it in `get_current_user` and `get_optional_user` | token issued before a password change → 401 on `/auth/me` | its own PR right after F10 |
+| ER2-01 | **Fixed 2026-10-09** (`credentials_changed_at`, §6) | `get_current_user` checks only signature, expiry and `is_active` (`core/deps.py:49-79`); `change_password` revokes refresh tokens only (`services/auth.py:589-593`); no `token_version` / `password_changed_at`. An issued access JWT stays valid ≤ 15 min after a password change. Not routed by the BFF today | Medium before a password-change UI (**there is one since F10**) | `users.password_changed_at`; reject tokens with `iat` before it in `get_current_user` and `get_optional_user` | token issued before a password change → 401 on `/auth/me` | done |
 | ER2-02 | **Fixed 2026-10-08 (with F10)** | `POST /auth/change-password` had no rate limit or failure counter (`api/auth.py:235-256`); with a stolen access token the current password can be brute-forced, each try an Argon2 hash | Medium | per-user fixed window (`counters.incr_with_ttl`) **before** `verify_password` | 6th wrong try → 429, `verify_password` not called | done: §6, "Account security limits" |
 | ER2-03 | Confirmed | `register_user` checks then inserts (`services/auth.py:142-153`); `users.email` is unique; no `IntegrityError` handler (`main.py:62` registers only the validation handler) → a concurrent duplicate is a 500. Not routed today | Low | catch `IntegrityError` on the flush → `EmailAlreadyRegistered` (after O2: the same answer either way) | two concurrent registrations of one address → no 500 | O2 |
 | ER2-04 | Confirmed (doc gap) | O2 / ER-M-04 did not say where the limit runs; `register_user` hashes at `services/auth.py:148` | Medium (CPU DoS through Argon2) | limit as a dependency before the handler body; recorded in O2 and ER-M-04 | over the limit → 429, `hash_password` not called | O2 |
@@ -2124,19 +2187,17 @@ main `314029b`**; line numbers will drift. Labels `ER2-` keep them apart from th
   transaction open for the whole LLM call (the OpenAI SDK's default timeout is 600 s), and an open
   SSE stream holds one too (ER-H-06); 60 s would kill both.
 
-### Queue (owner, 2026-10-08)
+### Queue (owner, 2026-10-09)
 
-1. **F8**, **F9**, **v0.0.1-rc6**, **F12** — done (rc6 rehearsal accepted 2026-10-08, §9i).
-2. **F10 + F11 + F14** — done together with this HANDOFF update.
-3. **ER2-01** (old access tokens valid ≤ 15 min after a password change): its own PR right
-   after F10, now that the password change has a UI.
-4. **F13** — option C, A first then B (§9m); pre-launch group.
-5. **Launch blockers:** F5, F7, ER2-05, Redis `requirepass` and memory policy, `docs/DEPLOY_VPS.md`.
-6. **Cleanup PR:** ER2-09 (`BATCH_MAX` 10 000), ER2-13 (dead settings), F15 (stale-note time in
+1. **F8**, **F9**, **v0.0.1-rc6**, **F12**, **F10 + F11 + F14**, **ER2-01** — done.
+2. **v0.0.1-rc7** — the owner, by hand; checklist by the agent (§9i, "v0.0.1-rc7 (planned)").
+3. **F13** — option C, A first then B (§9m); pre-launch group.
+4. **Launch blockers:** F5, F7, ER2-05, Redis `requirepass` and memory policy, `docs/DEPLOY_VPS.md`.
+5. **Cleanup PR:** ER2-09 (`BATCH_MAX` 10 000), ER2-13 (dead settings), F15 (stale-note time in
    the viewer's time zone), F16 (no follow toggle on finished matches).
-7. **O2** (registration) with ER2-03, ER2-04, ER-M-04 and F17 (ER2-02 is done with F10).
-8. **Live to Sportmonks** with ER2-06/ER2-07, ER-H-01, ER-M-02.
-9. **Later:** ER2-10, ER2-17.
+6. **O2** (registration) with ER2-03, ER2-04, ER-M-04, F17 and F18.
+7. **Live to Sportmonks** with ER2-06/ER2-07, ER-H-01, ER-M-02.
+8. **Later:** ER2-10, ER2-17.
 
 ## 10. How to resume
 
