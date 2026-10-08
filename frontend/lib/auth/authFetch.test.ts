@@ -101,6 +101,45 @@ describe("authFetch", () => {
     expect(useAuthStore.getState().sessionExpired).toBe(true);
   });
 
+  it("does not sign out when a newer token arrived while the replay was in flight", async () => {
+    const fetchMock = route({
+      "/api/matches/m1": [
+        revoked,
+        () => {
+          // A concurrent renewal (or a sign-in) replaced the token meanwhile.
+          useAuthStore.setState({ accessToken: "newer" });
+          return revoked();
+        },
+      ],
+      "/api/auth/refresh": [() => session("new")],
+    });
+
+    const res = await authFetch("/api/matches/m1");
+
+    expect(res.status).toBe(401);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(useAuthStore.getState().user?.email).toBe(USER.email);
+    expect(useAuthStore.getState().accessToken).toBe("newer");
+  });
+
+  it("replays at once with the token a concurrent request already renewed", async () => {
+    const fetchMock = route({
+      "/api/matches/m1": [
+        () => {
+          useAuthStore.setState({ accessToken: "fresh" });
+          return revoked();
+        },
+        () => Response.json({ ok: true }),
+      ],
+    });
+
+    const res = await authFetch("/api/matches/m1");
+
+    expect(res.status).toBe(200);
+    expect(urls(fetchMock)).toEqual(["/api/matches/m1", "/api/matches/m1"]);
+    expect(bearerOf(fetchMock, 1)).toBe("Bearer fresh");
+  });
+
   it("leaves an ordinary 401 alone (no header: no renewal)", async () => {
     const fetchMock = route({
       "/api/auth/me": [() => Response.json({ detail: "Not authenticated" }, { status: 401 })],

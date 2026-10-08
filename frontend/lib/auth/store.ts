@@ -389,28 +389,46 @@ function sessionRevoked(res: Response): boolean {
  * nothing. ``init.body`` must be replayable (a string; every caller sends JSON).
  */
 export async function authFetch(input: string, init: RequestInit = {}): Promise<Response> {
-  let sentBearer = false;
-  const send = async () => {
+  // Each attempt remembers the token it actually carried: the store may move on
+  // (a concurrent renewal or sign-in) while a request is in flight.
+  const send = async (): Promise<{ res: Response; token: string | null }> => {
     const bearer = await authHeaders();
-    sentBearer = "authorization" in bearer;
-    return fetch(input, {
+    const token = bearer.authorization?.startsWith("Bearer ")
+      ? bearer.authorization.slice("Bearer ".length)
+      : null;
+    const res = await fetch(input, {
       ...init,
       headers: { ...((init.headers as Record<string, string> | undefined) ?? {}), ...bearer },
     });
+    return { res, token };
   };
   const first = await send();
   // Only a token this request carried can have been revoked; a guest has no
   // session to renew.
-  if (!sessionRevoked(first) || !sentBearer) return first;
-  try {
-    await refreshSession();
-  } catch {
-    return first;
+  if (!sessionRevoked(first.res) || first.token === null) return first.res;
+  // A concurrent request may already have renewed the session: then replay with
+  // that token instead of renewing again.
+  if (useAuthStore.getState().accessToken === first.token) {
+    try {
+      await refreshSession();
+    } catch {
+      return first.res;
+    }
   }
-  if (useAuthStore.getState().accessToken === null) return first;
+  if (useAuthStore.getState().accessToken === null) return first.res;
+  const epoch = sessionEpoch;
   const replay = await send();
-  if (sessionRevoked(replay)) clearSessionRef({ expired: true });
-  return replay;
+  // Sign out only if the token refused now is still the current one of this tab
+  // and the session did not end or restart meanwhile; otherwise a newer one exists.
+  if (
+    sessionRevoked(replay.res) &&
+    replay.token !== null &&
+    useAuthStore.getState().accessToken === replay.token &&
+    epoch === sessionEpoch
+  ) {
+    clearSessionRef({ expired: true });
+  }
+  return replay.res;
 }
 
 /**
