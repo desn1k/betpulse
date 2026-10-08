@@ -24,7 +24,7 @@ import {
 } from "@/lib/push";
 
 function signIn() {
-  useAuthStore.setState({ user: { id: "u1", email: "a@b.c", role: "user" }, accessToken: "t" });
+  useAuthStore.setState({ user: { id: "u1", email: "a@b.c", role: "user", totp_enabled: false, must_change_password: false, two_factor_required: false }, accessToken: "t" });
 }
 
 describe("NotificationsSettings", () => {

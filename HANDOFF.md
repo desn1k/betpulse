@@ -32,6 +32,13 @@ independent methods plus a calibrated consensus. The full brief is
    (ORM / bound params only). If the spec is ambiguous, **ask — do not guess.**
 7. **No AI or model attribution** (model names, "generated with", co-author lines) in commits,
    PRs, code, or any pushed artifact.
+8. **Verify a merge yourself before any post-merge step** (owner, 2026-10-08). Before deleting a
+   branch, syncing `main` or starting the next task: `gh pr view <n>` must show `MERGED`, and
+   `origin/main` must contain the merge commit (`git merge-base --is-ancestor <merge> origin/main`).
+   A message saying "merged" is not evidence. If the PR is not merged, stop and say so; never
+   delete an unmerged branch, and treat git's "not yet merged" warning as a stop signal.
+   (Deleting a PR's head branch on GitHub closes the PR: that is how #120 got closed unmerged
+   once and had to be restored at the same head.)
 
 ## 3. Stack & repo layout
 
@@ -200,6 +207,16 @@ covered by Vitest + React Testing Library.
   to a key that lost one, so leftovers heal on use. The push daily budget is **reserved before
   delivery** (`reserve_push`) and released if nothing was delivered (`release_push`, also on an
   exception); a crash in between loses one unit — fewer pushes, never more.
+- **Account security limits (F10 / ER2-02, 2026-10-08).** Per user, fixed windows
+  (`rate_limit.enforce_user_limit`, keys `rl:{scope}:user:{id}`), as **route dependencies** so
+  they run before the handler body: `/auth/change-password` 5 per 15 min before Argon2;
+  `/auth/2fa/enable` and `/auth/2fa/disable` 5 per 15 min (one shared bucket) before the code
+  check; `/auth/2fa/setup` 5 per hour before a new secret. Every attempt counts, successes
+  included; over the limit → 429 `Too many attempts` with `Retry-After`. Settings:
+  `RATE_LIMIT_PASSWORD_CHANGE_ATTEMPTS`, `RATE_LIMIT_TOTP_CODE_ATTEMPTS`,
+  `RATE_LIMIT_ACCOUNT_SECURITY_WINDOW_SECONDS`, `RATE_LIMIT_TOTP_SETUP_PER_HOUR`. Login keeps
+  its own rules: per-IP 5/min first, then the per-account failure counter and lockout, which a
+  wrong TOTP code feeds exactly like a wrong password.
 - **Database connection budget (two pools per API process).** A failed login holds its request
   connection while it opens the security transaction, so `independent_transaction()` draws from a
   **separate** pool (`DB_SECURITY_POOL_SIZE`=2 + `DB_SECURITY_MAX_OVERFLOW`=3); the request pool is
@@ -1342,8 +1359,6 @@ exception), the owner ran the browser checks.
 None of these is done; the site is not opened before all are.
 - **F5** — IPv6 / userland-proxy identity collapse (§9m).
 - **F7** — rate limit on `/matches`, and limits enforced before tier resolution (§9m).
-- **F10** — the admin UI is unusable for a bootstrapped admin: no password-change or TOTP
-  screens, no TOTP at login (§9m, found in the rc6 rehearsal; with F11 and F14).
 - **ER2-05** — API-only `statement_timeout` 15 s and `lock_timeout` 5 s (§9m, external review 2).
 - **Redis `requirepass`** (§9i, "Published ports").
 - **Redis persistence and memory policy.** Decide and document both in `infra/` and the runbook:
@@ -1354,7 +1369,13 @@ None of these is done; the site is not opened before all are.
   evict them. An evicted counter hands its caller a fresh quota; an evicted seen set charges a
   match again (F6). Raised by CodeRabbit on #116.
 - **`docs/DEPLOY_VPS.md`** — the VPS runbook and first-VPS checklist. **It does not exist yet**;
-  writing it is a launch deliverable. It absorbs the list below.
+  writing it is a launch deliverable. It absorbs the list below, and must have a section
+  **"Lost authenticator"**: `scripts/prod-compose.sh run --rm api python -m app.cli reset-2fa
+  --email <address> [--require-password-change]` (needs shell access to the server; prints one
+  line, never the secret; turns TOTP off, ends every session, audits
+  `auth.2fa.reset_by_operator`), then the admin signs in with the password alone and is led to
+  set up TOTP again in the UI. Use `--require-password-change` when the device may have been
+  stolen together with the password.
 
 ### First VPS launch: items no rehearsal could verify
 
@@ -1839,7 +1860,7 @@ fails the request (fail-closed), as on `/analysis`.
 
 Found while checking the ER-M-05 follow-up; the F-series continues the rehearsal findings (F1–F4,
 §9i). F6, F8 (2026-10-07) and F9 (2026-10-08, found while planning F8) are fixed; F5 and F7 are open.
-F10–F16 were found in the rc6 rehearsal (below).
+F10–F17 were found in the rc6 rehearsal (below); F10, F11, F12 and F14 are fixed.
 
 - **F5 — all IPv6 guests may share one identity. LAUNCH BLOCKER for the first VPS run.** Caddy
   publishes `[::]:80`/`[::]:443`, but the `betpulse` network is IPv4-only, so Docker hands IPv6
@@ -1958,30 +1979,48 @@ F10–F16 were found in the rc6 rehearsal (below).
     derives the limit identity (verified token subject, or the guest IP bucket) and enforces the
     limit before tier resolution, so `/analysis` and `/matches/{id}` stay alike.
 
-### Found in the rc6 rehearsal (2026-10-08): F10–F16
+### Found in the rc6 rehearsal (2026-10-08): F10–F17
 
 Read-only investigations on the rehearsal stack (§9i, rc6 rehearsal); every fix starts with
 the failing test named here.
 
-- **F10 — a bootstrapped admin cannot use the admin UI. LAUNCH BLOCKER.** `require_admin`
-  (`core/deps.py`) needs `must_change_password = false` and, with `ADMIN_2FA_REQUIRED=true`,
-  `totp_enabled`; `create-admin` sets `must_change_password = true`. The frontend has no
-  password-change or TOTP-setup screen, the BFF proxies only `login`/`logout`/`me`/`refresh`,
-  and `LoginForm` sends no TOTP code, so an admin with TOTP cannot sign in through the site at
-  all. The backend routes exist (`/auth/change-password`, `/auth/2fa/setup|enable|disable`) but
-  Caddy does not route `/auth/*` to the API. The rehearsal used
-  `admin-setup-rehearsal.sh` (production API inside the api container) instead. Earlier
-  rehearsals only checked the admin login, not an admin route. Fix: change-password and TOTP
-  setup screens (QR + manual key) with BFF routes, and a TOTP step at login. First failing
-  test: a signed-in admin with `must_change_password` is led to the password change, then to
-  TOTP setup, then reaches `/admin` (Vitest + Playwright). Slot: with F11 and F14, right after
-  F12.
-- **F11 — `POST /auth/2fa/setup` silently resets an enabled TOTP.** `setup_totp`
-  (`services/twofa.py`) writes a new secret and sets `totp_enabled = False` without a code, so
-  a stolen access token alone can switch 2FA off or move it to the thief's authenticator.
-  Fix: answer 409 while TOTP is enabled (rotation only through `disable` with a valid code).
-  First failing test: setup on an account with TOTP enabled → 409, secret and
-  `totp_enabled` unchanged. Slot: with F10.
+- **F10 — a bootstrapped admin could not use the admin UI. LAUNCH BLOCKER. Fixed 2026-10-08.**
+  `require_admin` (`core/deps.py`) needs `must_change_password = false` and, with
+  `ADMIN_2FA_REQUIRED=true`, `totp_enabled`; `create-admin` sets `must_change_password = true`.
+  The frontend had no password-change or TOTP screen and no TOTP step at login (the rc6
+  rehearsal used `admin-setup-rehearsal.sh` instead). **Now:**
+  - `/account/security` (any signed-in user; "Безопасность" in the header): password change,
+    then an automatic sign-in with the new password (a change revokes every refresh token), with
+    the TOTP code asked when the account has TOTP on; TOTP setup with a QR code (SVG drawn from
+    `qrcode-generator`'s module matrix, no injected markup) and the manual key, confirmed by a
+    code; turning TOTP off with a code.
+  - The admin panel sends an admin to `/account/security` until the initial password is changed
+    and, when the server requires it, TOTP is on. `UserOut.two_factor_required` (computed:
+    admin and `ADMIN_2FA_REQUIRED`) lets the client follow the server instead of guessing.
+  - Sign-in asks for the code only after the server answers 401 with `X-2FA-Required`
+    (relayed by the BFF with `Retry-After`; no other backend header). A wrong code is answered
+    like a wrong password ("Invalid credentials") and counts on the same per-account failure
+    counter and lockout and the same per-IP window (5/min), so the code step is no faster to
+    brute-force than the password (`tests/api/test_auth_account_security.py`). That the code
+    step appears at all tells a caller the password was right — inherent to a two-step login;
+    password guesses are limited by the same counters.
+  - The TOTP secret is shown once and lives only in the setup component's state: never in
+    storage, the URL or a log; every `/api/auth/*` answer is `no-store`. Leaving the page
+    before confirming leaves TOTP off (the server activates it only on enable), and a new setup
+    issues a new secret.
+  - BFF routes `/api/auth/change-password` and `/api/auth/2fa/{setup,enable,disable}` go through
+    `proxyAuth` with the bearer token from memory, so no CSRF token is needed (a cross-site page
+    cannot attach it); the backend routes were already `U` in the route policy (#110).
+  - **Lost authenticator:** `python -m app.cli reset-2fa --email … [--require-password-change]`
+    (§9i, "`docs/DEPLOY_VPS.md`").
+  - Wording: "Панель администратора" / "Admin panel" everywhere (was «Админка»); the audit
+    subtitle says «действий администраторов». The privacy policy now says the encrypted TOTP
+    secret is stored for anyone who turns 2FA on (mandatory for administrators).
+- **F11 — `POST /auth/2fa/setup` silently reset an enabled TOTP. Fixed 2026-10-08.** `setup_totp`
+  wrote a new secret and set `totp_enabled = False` without a code. Now it answers **409**
+  `two_factor_already_enabled` and changes nothing; rotation is `disable` with a valid code, then
+  setup and enable. A wrong code on enable/disable is audited in a transaction of its own
+  (`auth.2fa.failure` used to be rolled back with the 400).
 - **F12 — the 18+ gate is never remembered. LAUNCH BLOCKER. Fixed 2026-10-08.** The root layout
   (a server component) imported `AGE_GATE_COOKIE` from `components/legal/AgeGate.tsx`, a
   `"use client"` module. On the server every export of a client module is a client reference,
@@ -2006,16 +2045,22 @@ the failing test named here.
   `REFRESH_REUSE_GRACE_SECONDS` (10 s) later is treated as reuse and revokes the whole family
   (`services/auth.py`); within 10 s it gets 409 and still no new token. Seen once on the stand
   (rc5, 2026-10-08 16:20 UTC: one `auth.token.reuse_detected`, no `refresh_conflict`, last
-  rotation 10 minutes earlier). Medium: no security loss, random logouts. Options (owner's
-  choice pending): A — client `keepalive: true` on the refresh and stop waiting at 10 s without
-  aborting; B — server idempotent replay: the replacement token is kept encrypted in Redis for
-  a short window, and a re-presentation of the old token while the replacement is unused gets
-  that same replacement back; C — A and B; D — accept and document. Slot: pre-launch group.
-- **F14 — the header flashes "Sign in" before the session is restored.** `AuthMenu` renders the
-  signed-out state whenever `user` is null, including while `hydrated` is false and in the
-  server HTML. Display only: data requests wait for the restore (F9). Fix: a neutral
-  placeholder of the same width until `hydrated`. First failing test: `AuthMenu` with
-  `{hydrated: false, user: null}` shows no "Sign in" button. Slot: with F10.
+  rotation 10 minutes earlier). Medium: no security loss, random logouts.
+  **Decision (owner, 2026-10-08): option C, two PRs, A first; pre-launch group, not now.**
+  - **A (client):** `keepalive: true` on the refresh request; at the 10 s timeout stop waiting
+    but do not abort the request, so its `Set-Cookie` still lands. Covers reloads, navigation
+    and the client timeout; not a network drop after the server committed.
+  - **B (server), after A:** at rotation T1 → T2 the server keeps T2 Fernet-encrypted in Redis
+    for **60 s**, keyed by T1's hash. A re-presentation of T1 inside the window, while T2 is
+    unused (not revoked, not rotated) **and** the user-agent hash and the client subnet (IPv4
+    /24, IPv6 /64) match the rotating request, gets **the same T2** back with a new access
+    token — no new refresh token. Anything else follows today's logic (409 inside 10 s, family
+    revocation after). Tests for each refusal path (window passed, T2 used, T2 revoked, other
+    user agent, other subnet).
+- **F14 — the header flashed "Sign in" before the session was restored. Fixed 2026-10-08.**
+  `AuthMenu` rendered the signed-out state whenever `user` was null, including while `hydrated`
+  was false and in the server HTML. It now renders a neutral placeholder of the same size until
+  the page-load restore settles.
 - **F15 — the F8 stale note shows the time in UTC** ("17:22" for a viewer at UTC+4). next-intl's
   time zone is pinned to UTC app-wide (`i18n/request.ts`) so server and client render kickoff
   times identically; the note only appears in the browser, so it can use the viewer's time
@@ -2031,6 +2076,14 @@ the failing test named here.
   "Delta vs market", which needs a consensus. Without a consensus (today: under 200 matches)
   the market reference is shown nowhere. The guest's four blurred rows are a fixed placeholder,
   not data. Whether to show the market on its own is a product question (backlog).
+- **F17 — an accepted TOTP code can be used again within its window.** `verify_totp` checks
+  `valid_window=1` (the current 30 s step ± one) and remembers nothing, so a code that just
+  signed someone in is accepted again for up to ~90 s, at login and on enable/disable. Low: a
+  replay needs the password too (or a live session for disable) and a code observed or relayed
+  within that minute and a half, and the failure counters still apply. Fix: remember the last
+  accepted time step per user (a column, or Redis `SET NX` with a ~2-minute TTL) and refuse a
+  code from that step or an earlier one. First failing test: the same code twice in one step →
+  the second login is 401. Slot: with O2 (auth hardening), or earlier if 2FA becomes common.
 
 ### External review 2 (2026-10-07) — verified backlog
 
@@ -2040,8 +2093,8 @@ main `314029b`**; line numbers will drift. Labels `ER2-` keep them apart from th
 
 | ID | Verdict | Evidence | Severity | Smallest fix | First failing test | Slot |
 |---|---|---|---|---|---|---|
-| ER2-01 | Confirmed | `get_current_user` checks only signature, expiry and `is_active` (`core/deps.py:49-79`); `change_password` revokes refresh tokens only (`services/auth.py:589-593`); no `token_version` / `password_changed_at`. An issued access JWT stays valid ≤ 15 min after a password change. Not routed by the BFF today | Medium before a password-change UI | `users.password_changed_at`; reject tokens with `iat` before it in `get_current_user` and `get_optional_user` | token issued before a password change → 401 on `/auth/me` | O2 |
-| ER2-02 | Confirmed | `POST /auth/change-password` has no rate limit or failure counter (`api/auth.py:235-256`); with a stolen access token the current password can be brute-forced, each try an Argon2 hash | Medium | per-user fixed window (`counters.incr_with_ttl`) **before** `verify_password` | 6th wrong try → 429, `verify_password` not called | O2 |
+| ER2-01 | Confirmed | `get_current_user` checks only signature, expiry and `is_active` (`core/deps.py:49-79`); `change_password` revokes refresh tokens only (`services/auth.py:589-593`); no `token_version` / `password_changed_at`. An issued access JWT stays valid ≤ 15 min after a password change. Not routed by the BFF today | Medium before a password-change UI (**there is one since F10**) | `users.password_changed_at`; reject tokens with `iat` before it in `get_current_user` and `get_optional_user` | token issued before a password change → 401 on `/auth/me` | its own PR right after F10 |
+| ER2-02 | **Fixed 2026-10-08 (with F10)** | `POST /auth/change-password` had no rate limit or failure counter (`api/auth.py:235-256`); with a stolen access token the current password can be brute-forced, each try an Argon2 hash | Medium | per-user fixed window (`counters.incr_with_ttl`) **before** `verify_password` | 6th wrong try → 429, `verify_password` not called | done: §6, "Account security limits" |
 | ER2-03 | Confirmed | `register_user` checks then inserts (`services/auth.py:142-153`); `users.email` is unique; no `IntegrityError` handler (`main.py:62` registers only the validation handler) → a concurrent duplicate is a 500. Not routed today | Low | catch `IntegrityError` on the flush → `EmailAlreadyRegistered` (after O2: the same answer either way) | two concurrent registrations of one address → no 500 | O2 |
 | ER2-04 | Confirmed (doc gap) | O2 / ER-M-04 did not say where the limit runs; `register_user` hashes at `services/auth.py:148` | Medium (CPU DoS through Argon2) | limit as a dependency before the handler body; recorded in O2 and ER-M-04 | over the limit → 429, `hash_password` not called | O2 |
 | ER2-05 | Confirmed | no `statement_timeout`, `lock_timeout` or `idle_in_transaction_session_timeout` on any engine (`core/db.py:30-79`) | Medium; **launch blocker** | see below | API session: `pg_sleep` past the limit fails; a worker session does not | pre-launch protection group (with F7) |
@@ -2073,15 +2126,15 @@ main `314029b`**; line numbers will drift. Labels `ER2-` keep them apart from th
 
 ### Queue (owner, 2026-10-08)
 
-1. **F8**, **F9**, **v0.0.1-rc6** — done (rc6 rehearsal accepted 2026-10-08, §9i).
-2. **F12** (age gate never remembered) — fixed together with this HANDOFF update.
-3. **F10 + F11 + F14** — admin first login in the UI (password change, TOTP setup, TOTP at
-   login), `2fa/setup` refusing an enabled TOTP, no "Sign in" flash. One PR; plan first.
-4. **F13** (aborted refresh → family revoked) — options A–D in §9m; waiting for the owner's choice.
+1. **F8**, **F9**, **v0.0.1-rc6**, **F12** — done (rc6 rehearsal accepted 2026-10-08, §9i).
+2. **F10 + F11 + F14** — done together with this HANDOFF update.
+3. **ER2-01** (old access tokens valid ≤ 15 min after a password change): its own PR right
+   after F10, now that the password change has a UI.
+4. **F13** — option C, A first then B (§9m); pre-launch group.
 5. **Launch blockers:** F5, F7, ER2-05, Redis `requirepass` and memory policy, `docs/DEPLOY_VPS.md`.
 6. **Cleanup PR:** ER2-09 (`BATCH_MAX` 10 000), ER2-13 (dead settings), F15 (stale-note time in
    the viewer's time zone), F16 (no follow toggle on finished matches).
-7. **O2** (registration) with ER2-01…ER2-04 and ER-M-04.
+7. **O2** (registration) with ER2-03, ER2-04, ER-M-04 and F17 (ER2-02 is done with F10).
 8. **Live to Sportmonks** with ER2-06/ER2-07, ER-H-01, ER-M-02.
 9. **Later:** ER2-10, ER2-17.
 

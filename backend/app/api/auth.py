@@ -37,9 +37,76 @@ from app.schemas.auth import (
 from app.services import auth as auth_service
 from app.services import twofa as twofa_service
 from app.services.auth import IssuedTokens
-from app.services.rate_limit import RateLimitExceeded, enforce_login_ip_limit
+from app.services.rate_limit import (
+    RateLimitExceeded,
+    enforce_login_ip_limit,
+    enforce_user_limit,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+# --- Per-user limits on account-security actions (ER2-02) ---------------------
+# Route dependencies, so they run before the handler body: the password change
+# is counted before Argon2, a TOTP code before it is checked, a setup before a
+# new secret is generated.
+
+
+async def _enforce_account_limit(
+    redis: Redis, *, scope: str, user_id: str, limit: int, window_seconds: int
+) -> None:
+    try:
+        await enforce_user_limit(
+            redis, scope=scope, user_id=user_id, limit=limit, window_seconds=window_seconds
+        )
+    except RateLimitExceeded as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many attempts",
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from exc
+
+
+async def limit_password_change(
+    user: CurrentUser,
+    redis: Annotated[Redis, Depends(get_redis_dep)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> None:
+    await _enforce_account_limit(
+        redis,
+        scope="password_change",
+        user_id=str(user.id),
+        limit=settings.rate_limit_password_change_attempts,
+        window_seconds=settings.rate_limit_account_security_window_seconds,
+    )
+
+
+async def limit_totp_code(
+    user: CurrentUser,
+    redis: Annotated[Redis, Depends(get_redis_dep)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> None:
+    await _enforce_account_limit(
+        redis,
+        scope="totp_code",
+        user_id=str(user.id),
+        limit=settings.rate_limit_totp_code_attempts,
+        window_seconds=settings.rate_limit_account_security_window_seconds,
+    )
+
+
+async def limit_totp_setup(
+    user: CurrentUser,
+    redis: Annotated[Redis, Depends(get_redis_dep)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> None:
+    await _enforce_account_limit(
+        redis,
+        scope="totp_setup",
+        user_id=str(user.id),
+        limit=settings.rate_limit_totp_setup_per_hour,
+        window_seconds=3600,
+    )
 
 
 def _set_auth_cookies(response: Response, tokens: IssuedTokens, settings: Settings) -> None:
@@ -232,7 +299,11 @@ async def me(user: CurrentUser) -> UserOut:
     return UserOut.model_validate(user)
 
 
-@router.post("/change-password", response_model=MessageResponse)
+@router.post(
+    "/change-password",
+    response_model=MessageResponse,
+    dependencies=[Depends(limit_password_change)],
+)
 async def change_password(
     payload: ChangePasswordRequest,
     request: Request,
@@ -274,16 +345,30 @@ async def verify_email(
     return MessageResponse(detail="Email verified")
 
 
-@router.post("/2fa/setup", response_model=TwoFASetupResponse)
+@router.post(
+    "/2fa/setup",
+    response_model=TwoFASetupResponse,
+    dependencies=[Depends(limit_totp_setup)],
+)
 async def twofa_setup(
     user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> TwoFASetupResponse:
-    secret, uri = await twofa_service.setup_totp(session, user)
+    try:
+        secret, uri = await twofa_service.setup_totp(session, user)
+    except twofa_service.TwoFactorAlreadyEnabled as exc:
+        # F11: an enabled second factor is rotated only through disable + code.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="two_factor_already_enabled"
+        ) from exc
     return TwoFASetupResponse(secret=secret, provisioning_uri=uri)
 
 
-@router.post("/2fa/enable", response_model=MessageResponse)
+@router.post(
+    "/2fa/enable",
+    response_model=MessageResponse,
+    dependencies=[Depends(limit_totp_code)],
+)
 async def twofa_enable(
     payload: TwoFACodeRequest,
     user: CurrentUser,
@@ -300,7 +385,11 @@ async def twofa_enable(
     return MessageResponse(detail="Two-factor authentication enabled")
 
 
-@router.post("/2fa/disable", response_model=MessageResponse)
+@router.post(
+    "/2fa/disable",
+    response_model=MessageResponse,
+    dependencies=[Depends(limit_totp_code)],
+)
 async def twofa_disable(
     payload: TwoFACodeRequest,
     user: CurrentUser,

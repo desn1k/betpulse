@@ -56,6 +56,16 @@ async def enforce_match_detail_limit(
     )
 
 
+async def enforce_user_limit(
+    redis: Redis, *, scope: str, user_id: str, limit: int, window_seconds: int
+) -> None:
+    """Per-user fixed window for an account-security action (password change,
+    TOTP setup or code check). Every attempt counts, successes included."""
+    await enforce_fixed_window(
+        redis, key=f"rl:{scope}:user:{user_id}", limit=limit, window_seconds=window_seconds
+    )
+
+
 async def enforce_admin_mutation_ip_limit(redis: Redis, *, ip: str, limit: int) -> None:
     """Per-IP admin mutation limit (per minute; IPv6 per /64)."""
     await enforce_fixed_window(

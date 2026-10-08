@@ -10,7 +10,7 @@ describe("BacktesterView", () => {
   beforeEach(() => {
     useAuthStore.setState({
       accessToken: "tok",
-      user: { id: "u1", email: "x@y.com", role: "user" },
+      user: { id: "u1", email: "x@y.com", role: "user", totp_enabled: false, must_change_password: false, two_factor_required: false },
       pending: false,
     });
   });

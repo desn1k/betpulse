@@ -28,12 +28,20 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const hydrated = useAuthStore((s) => s.hydrated);
 
   const isAdmin = user?.role === "admin";
+  // The backend refuses admin routes until the initial password is changed and,
+  // when it requires one, TOTP is on (require_admin); lead the admin there (F10).
+  const needsSecurity =
+    isAdmin &&
+    user !== null &&
+    (user.must_change_password || (user.two_factor_required && !user.totp_enabled));
 
   // Wait for the silent-refresh to settle, then bounce non-admins. The backend
   // enforces RBAC regardless; this is the UX guard.
   useEffect(() => {
-    if (hydrated && !isAdmin) router.replace("/");
-  }, [hydrated, isAdmin, router]);
+    if (!hydrated) return;
+    if (!isAdmin) router.replace("/");
+    else if (needsSecurity) router.replace("/account/security");
+  }, [hydrated, isAdmin, needsSecurity, router]);
 
   if (!hydrated) {
     return (
@@ -42,7 +50,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       </div>
     );
   }
-  if (!isAdmin) return null;
+  if (!isAdmin || needsSecurity) return null;
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8 sm:flex-row">

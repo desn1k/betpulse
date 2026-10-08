@@ -151,7 +151,7 @@ export const en: LegalDocuments = {
           "Purpose 1. Registration, account management and sign-in.",
           {
             list: [
-              "Data: e-mail address; password as an irreversible hash (Argon2id); role and access tier; account status and verification flags; for administrators, the encrypted two-factor authentication secret; hashes of session and e-mail verification tokens; failed sign-in count and temporary lock time; record creation and update times.",
+              "Data: e-mail address; password as an irreversible hash (Argon2id); role and access tier; account status and verification flags; the encrypted two-factor authentication secret (when it is turned on; mandatory for administrators); hashes of session and e-mail verification tokens; failed sign-in count and temporary lock time; record creation and update times.",
               "Grounds: performance of an agreement to which the user is a party (Art. 6(1)(5) 152-FZ); the user's consent (Art. 6(1)(1)).",
             ],
           },
