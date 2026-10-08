@@ -140,6 +140,24 @@ describe("authFetch", () => {
     expect(bearerOf(fetchMock, 1)).toBe("Bearer fresh");
   });
 
+  it("never replays as another account (the renewal returned a different user)", async () => {
+    const other = { ...USER, id: "u2", email: "two@betpulse.dev" };
+    const fetchMock = route({
+      "/api/admin/users/u9/tier": [revoked],
+      // Someone signed in as another user in another tab: the shared refresh
+      // cookie now belongs to that account.
+      "/api/auth/refresh": [
+        () => Response.json({ access_token: "other", token_type: "bearer", expires_in: 900, user: other }),
+      ],
+    });
+
+    const res = await authFetch("/api/admin/users/u9/tier", { method: "POST", body: "{}" });
+
+    expect(res.status).toBe(401);
+    expect(urls(fetchMock)).toEqual(["/api/admin/users/u9/tier", "/api/auth/refresh"]);
+    expect(useAuthStore.getState().user?.id).toBe("u2"); // switched, not signed out
+  });
+
   it("leaves an ordinary 401 alone (no header: no renewal)", async () => {
     const fetchMock = route({
       "/api/auth/me": [() => Response.json({ detail: "Not authenticated" }, { status: 401 })],
