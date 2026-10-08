@@ -237,3 +237,39 @@ describe("proxyAuth", () => {
     expect(res.headers.get("set-cookie")).toBeNull();
   });
 });
+
+describe("proxyAuth for account security (F10)", () => {
+  it.each(["/auth/change-password", "/auth/2fa/setup", "/auth/2fa/enable", "/auth/2fa/disable"])(
+    "%s answers are never cached and carry the bearer token",
+    async (path) => {
+      const fetchMock = mockFetch(() => Response.json({ secret: "S", provisioning_uri: "otpauth://x" }));
+
+      const res = await proxyAuth(
+        request({ authorization: "Bearer tok" }, { method: "POST" }),
+        path,
+      );
+
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      expect(sentHeaders(fetchMock).get("authorization")).toBe("Bearer tok");
+    },
+  );
+
+  it("relays X-2FA-Required and Retry-After, and no other backend header", async () => {
+    mockFetch(() =>
+      Response.json(
+        { detail: "Two-factor code required" },
+        {
+          status: 401,
+          headers: { "x-2fa-required": "true", "retry-after": "60", "x-internal": "leak" },
+        },
+      ),
+    );
+
+    const res = await proxyAuth(request({}, { method: "POST" }), "/auth/login");
+
+    expect(res.status).toBe(401);
+    expect(res.headers.get("x-2fa-required")).toBe("true");
+    expect(res.headers.get("retry-after")).toBe("60");
+    expect(res.headers.get("x-internal")).toBeNull();
+  });
+});
