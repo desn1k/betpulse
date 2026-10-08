@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { AGE_GATE_COOKIE } from "@/components/legal/AgeGate";
+import { AGE_GATE_COOKIE } from "@/lib/ageGate";
 import { fillLegalValues, LEGAL_VALUES, legalValues } from "@/config/legal";
 import { LOCALE_COOKIE } from "@/i18n/config";
 

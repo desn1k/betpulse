@@ -1203,6 +1203,8 @@ Redis budget, then its upsert fails: paid calls, error responses, and no journal
 reachable in production**: the first VPS launch starts at a release with 0018, so no pre-0018
 release is ever deployed there to roll back to. It matters only where a pre-0018 release ran
 before, i.e. the local rehearsal of rc5 → rc6: disable LLM there before any rollback drill.
+**Not verified in rc6:** the rehearsal has no LLM provider configured, so the expected failure
+of a pre-0018 image's LLM generation on the 0018 schema was never provoked; it stays open.
 
 - [ ] **Before any downgrade of 0018**, dump the journal (the only spend history) and the cache, and
   keep the file off the host:
@@ -1278,36 +1280,70 @@ stack over rc4 with its data (not from scratch), in the rehearsal clone that hol
   `prod-compose.sh config` on the rc4 digests; then rc5 deployed again (exit 0).
 - `.release/.deploy.lock` was gone after every step; no volume was removed.
 
-### v0.0.1-rc6 (planned)
+### rc6 rehearsal (2026-10-08)
 
-- **When and who:** after F8 and F9 are merged; the owner publishes and rehearses it by hand,
-  with an explicit `IMAGE_TAG=v0.0.1-rc6` (never `latest`). The agent prepares the checklist
-  before the run.
-- **The checklist must cover at least:**
-  - deploy rc5 → rc6 over rc5's data: migration 0018 runs, exit 0, all app containers on the rc6
-    digests;
-  - F6 on the real stack: a guest with one match tab open for several minutes still has
-    `matches_remaining` = 2;
-  - **an exit-3 drill that fails in the health / `/api/ready` wait**, not in `compose up` (the
-    rc5 drill only reached the `compose up` failure): the rollback's `compose up` must succeed and
-    its readiness wait must fail, e.g. by pausing (not stopping) `api` once the rollback's
-    `compose up` has returned; exact steps in the checklist;
-  - **before any rollback drill across 0018** (the exit-2 and exit-3 drills included): disable LLM
-    in Admin → LLM, or confirm `is_enabled` is false; the automatic rollback does not do it (§9i);
-  - the rollback note for 0018: images roll back, the schema does not (ER-H-08). Expected (§9i):
-    rc5 on the 0018 schema fails LLM generation and serves the rest of the site; with LLM
-    disabled it answers `disabled`. Check both; then the dump + `alembic downgrade
-    0017_single_champion` path and its NOTICE line;
-  - **F9:** a signed-in Pro user keeps the method bars and the Pro tier after 20+ minutes on a match
-    page (the access token lives 15 minutes);
-  - **F8:** a failed background refetch keeps the card (e.g. stop `api` for one poll): the
-    "Couldn't refresh" note appears, and the card updates again once `api` is back.
+`v0.0.1-rc6` (main `17d508a`, release run 37807788266) was deployed on the local Docker Desktop
+stack over rc5 **with data**, in the rehearsal clone that holds `.release/`. Checklist:
+`rc6-checklist.md` in that clone; the agent ran the release, deploy and drills (owner's one-time
+exception), the owner ran the browser checks.
+- **Seed before the run.** rc5's database was empty. A one-off container from the rc5 api
+  image (by digest, `ENVIRONMENT=development`, on the stack network) ran `bootstrap-history`
+  for EPL 2023-24 from the committed CSV (10 finished matches) and `train` (Elo, Glicko-2,
+  Dixon-Coles, market; LightGBM and consensus skipped below 200 samples); a test user was
+  registered through the production API inside the api container. The stack's own production
+  image still refused football-data (exit 2), so the licence gate was untouched. These
+  football-data rows exist only in the rehearsal database. Helper scripts (untracked, in the
+  clone): `seed-rehearsal.sh`, `verify-rehearsal.sh` (read-only summary),
+  `admin-setup-rehearsal.sh` (admin password change, TOTP, tier grants through the production
+  API — the workaround for F10), `watch-pause-api.sh` (exit-3 drill).
+- **Release:** a pre-release on `17d508a` with `release-v0.0.1-rc6.digests`; the GHCR rc6 tags
+  match the file; `latest` did not move (api, web unchanged; mlflow has none).
+- **Deploy rc5 → rc6:** exit 0; exactly one `Running upgrade 0017_single_champion ->
+  0018_llm_generations`; no NOTICE/WARNING besides psql's "extension timescaledb is already
+  installed"; one unique constraint left on `llm_analyses`
+  (`uq_llm_analysis_fixture_model_language`); `llm_generations` exists with 0 rows (the
+  back-fill had nothing to copy: `llm_analyses` was empty); all six app containers on the rc6
+  digests.
+- **Browser (owner):** F6 (all steps: one tab for 5 minutes keeps `matches_remaining` = 2, the
+  same match again is free, the fourth match shows the limit), F8 (card and stale note while
+  `api` was stopped; note gone without a reload once it was back), F9 (Pro bars through
+  reloads and after 20+ minutes, no "session expired"; logout in another tab signs the match tab
+  out quietly), and the home-page counter stable over many reloads (on rc5 it jumped between
+  the guest and the user value: the first list request went out before the session was
+  restored — the F9 page-load bug).
+- **Drills** (LLM confirmed off first: `llm_config` has no row):
+
+  | Drill | Result |
+  |---|---|
+  | exit 2: redeploy rc5 over the 0018 schema | rc5's `alembic upgrade head` failed (`Can't locate revision identified by '0018_llm_generations'`), automatic rollback to rc6 "healthy and ready", **exit 2**; rc5's app never started. The schema note says "the migrations of v0.0.1-rc5 already ran" because the flag is set before Alembic runs — expected wording |
+  | exit 3 through the wait, not `compose up` | same failing deploy; `watch-pause-api.sh` paused `api` on the rollback's last `compose up` line (`Container betpulse-api-1 Healthy`, ~2 s window); `Service api did not become healthy after rollback.`, `AUTOMATIC ROLLBACK TO v0.0.1-rc6 FAILED`, **exit 3**, no `dependency failed`. First live exit 3 through the wait (rc5's only reached `compose up`). Unpause + `rollback.sh` rc6: exit 0; `.release/` unchanged by the failed rollback |
+  | manual rc6 → rc5 on the 0018 schema | exit 0, rc5 by digest, schema stays 0018; `/api/ready`, `/` and match pages 200 |
+  | back to rc6 | exit 0, no migration ran |
+
+- **Not verified in rc6:** LLM generation by a pre-0018 image on the 0018 schema (no LLM
+  provider is configured, so the expected failure could not be provoked; still open, §9i).
+  Also skipped by the owner: the `disabled` answer through the API (needs Expert: the tier
+  check runs first and the seeded matches have no LLM rank), the lock drill (unchanged since
+  rc5) and the 0018 downgrade drill.
+- `.release/.deploy.lock` was gone after every step; no volume was removed; the stack is left on
+  rc6.
+- **Findings:** F10–F16 (§9m, "Found in the rc6 rehearsal").
+- **Checklist corrections for the next rehearsal:** a Pro user sees three method bars, not four
+  (the market is not a bar, §9m); with `MSYS2_ARG_CONV_EXCL=/dev/null` Git Bash's Windows curl
+  cannot write to `/dev/null` (exit 23): use `-o NUL`; schannel curl needs `--ssl-no-revoke`
+  with Caddy's local root (`--cacert`, chain still verified); `tail -F` polls once a second,
+  too slow for the ~2 s exit-3 window: the watcher uses `-s 0.1`; on Docker Desktop the browser
+  and curl share one guest identity (`172.29.89.1`), so a guest quota spent earlier that UTC
+  day blocks the F6 check; `docker run --env-file` does not expand `${VAR}` inside `.env`
+  values (compose does), which broke the first seed attempt.
 
 ### Launch blockers before the first VPS run
 
 None of these is done; the site is not opened before all are.
 - **F5** — IPv6 / userland-proxy identity collapse (§9m).
 - **F7** — rate limit on `/matches`, and limits enforced before tier resolution (§9m).
+- **F10** — the admin UI is unusable for a bootstrapped admin: no password-change or TOTP
+  screens, no TOTP at login (§9m, found in the rc6 rehearsal; with F11 and F14).
 - **ER2-05** — API-only `statement_timeout` 15 s and `lock_timeout` 5 s (§9m, external review 2).
 - **Redis `requirepass`** (§9i, "Published ports").
 - **Redis persistence and memory policy.** Decide and document both in `infra/` and the runbook:
@@ -1371,6 +1407,8 @@ courtesy translation.
   fails if a cookie the app sets is missing from it.
 - Footer links all five pages; the 18+ age gate links to them and is not shown on `/legal/*`; it
   re-prompts when `bp_age_ok` expires (`AGE_GATE_CONSENT_DAYS`, passed to the `web` container).
+  Until 2026-10-08 it re-prompted on every page load (F12, §9m): the cookie name now lives in
+  `lib/ageGate.ts`, not in the client component.
 - Disclaimers: full §19 text in the footer, on the match page and under backtester results; a short form
   on every match card; "past performance does not predict future results" next to every ROI figure.
 
@@ -1761,7 +1799,8 @@ ignored. Line numbers are as of `5eedb0b` and will drift.
       of `llm_generations` rows it drops (shown in the alembic log, see §6); dump first (§9i,
       pre-deploy checklist, exact command there);
     - **rollback incompatibility (ER-H-08):** an image before 0018 fails LLM generation on the
-      0018 schema (§9i); disable LLM or downgrade first. The rc6 rehearsal checks it.
+      0018 schema (§9i); disable LLM or downgrade first. Not verified in the rc6 rehearsal (no LLM
+      provider configured); still open.
 - **ER-H-09 — required tag** (fixed with F2, see §9i "Release images and digests"). Before the
   fix, `infra/docker-compose.prod.yml` fell back to `${IMAGE_TAG:-latest}` (lines 21, 46, 89):
   `deploy.sh` refused `latest`, a manual `docker compose up` did not. The overlay now requires
@@ -1780,7 +1819,7 @@ ignored. Line numbers are as of `5eedb0b` and will drift.
 | ER-H-08 | Confirmed (policy) | Rollback restores images, not schema (`scripts/deploy.sh:123-131,141`); `scripts/rollback.sh:97` does so on purpose | Medium–High at the first upgrade with migrations | Expand/contract migration policy + PR checklist | CI job: release N−1's tests against head schema (design separately) | Before the first public release. **First real case: `0018`** — a pre-0018 image fails LLM generation on its schema; disable LLM or downgrade first (§9i) |
 | ER-H-09 | Confirmed, plus fallback | Tags are not pinned to digests (`.github/workflows/release.yml:74-76,89-91`); `${IMAGE_TAG:-latest}` in prod compose (see note) | Medium | With F2: record digests in the release, deploy by digest, `${IMAGE_TAG:?}` | Release-tooling test: `compose config` without `IMAGE_TAG` fails | With F2 |
 | ER-H-10 | Partly true | Order is `(kickoff_at, id)` only (`ml/chronology.py:30-38`); date-only fixtures sit at 12:00 UTC. Production never uses football-data, and Sportmonks has kickoff times, so this hits dev data and old CSV seasons | Low for production; Medium for dev-metric honesty | Conservative chronology: a league-day with any unknown-time fixture is one batch | An unknown-time match's result never changes a same-day known-time match's prediction | Later |
-| ER-M-01 | Confirmed | `/health/ready` returns `ready` unconditionally (`api/health.py:42-49`); also §9g 12d item 1 | Medium | `SELECT 1` + Redis `PING` with timeouts, 503 on failure | Redis ping fails → 503 | Before the first public release |
+| ER-M-01 | Confirmed | `/health/ready` returns `ready` unconditionally (`api/health.py:42-49`); also §9g 12d item 1 | Medium | `SELECT 1` + Redis `PING` with timeouts, 503 on failure | Redis ping fails → 503 | Before the first public release. Prior work: PR #26 (`codex-wybhg7`, closed unmerged, last commit 2026-07-19: extended system health and readiness, 24 files, out of date; reference only) |
 | ER-M-02 | Confirmed | If the enqueue in `finally` fails (`workers/tasks.py:120-127`), the self-rescheduling chain ends until a worker restart (seeded only at start-up, `workers/arq_app.py:80-84`) | Medium | A cron re-seeds the poll with a fixed `_job_id` | Enqueue in `finally` raises → the cron restores the chain | With ER-H-01 |
 | ER-M-03 | Confirmed | `BatchCreate.size` has no upper bound (`schemas/promo.py`), loop in `services/promo.py:144`; admin + TOTP only | Low | `le=100_000` | `size=100_500` → 422 | **Fixed 2026-10-06** (schema `le=100_000` + `BATCH_MAX` in the service) |
 | ER-M-04 | Confirmed | `/auth/register` has no rate limit and answers 409 for a known address; not routed today (the BFF has only login/logout/me/refresh) | Medium before sign-up opens | §11 O2; the limit runs **before `hash_password`** (ER2-04) | §11 O2 | O2 |
@@ -1800,6 +1839,7 @@ fails the request (fail-closed), as on `/analysis`.
 
 Found while checking the ER-M-05 follow-up; the F-series continues the rehearsal findings (F1–F4,
 §9i). F6, F8 (2026-10-07) and F9 (2026-10-08, found while planning F8) are fixed; F5 and F7 are open.
+F10–F16 were found in the rc6 rehearsal (below).
 
 - **F5 — all IPv6 guests may share one identity. LAUNCH BLOCKER for the first VPS run.** Caddy
   publishes `[::]:80`/`[::]:443`, but the `betpulse` network is IPv4-only, so Docker hands IPv6
@@ -1918,6 +1958,80 @@ Found while checking the ER-M-05 follow-up; the F-series continues the rehearsal
     derives the limit identity (verified token subject, or the guest IP bucket) and enforces the
     limit before tier resolution, so `/analysis` and `/matches/{id}` stay alike.
 
+### Found in the rc6 rehearsal (2026-10-08): F10–F16
+
+Read-only investigations on the rehearsal stack (§9i, rc6 rehearsal); every fix starts with
+the failing test named here.
+
+- **F10 — a bootstrapped admin cannot use the admin UI. LAUNCH BLOCKER.** `require_admin`
+  (`core/deps.py`) needs `must_change_password = false` and, with `ADMIN_2FA_REQUIRED=true`,
+  `totp_enabled`; `create-admin` sets `must_change_password = true`. The frontend has no
+  password-change or TOTP-setup screen, the BFF proxies only `login`/`logout`/`me`/`refresh`,
+  and `LoginForm` sends no TOTP code, so an admin with TOTP cannot sign in through the site at
+  all. The backend routes exist (`/auth/change-password`, `/auth/2fa/setup|enable|disable`) but
+  Caddy does not route `/auth/*` to the API. The rehearsal used
+  `admin-setup-rehearsal.sh` (production API inside the api container) instead. Earlier
+  rehearsals only checked the admin login, not an admin route. Fix: change-password and TOTP
+  setup screens (QR + manual key) with BFF routes, and a TOTP step at login. First failing
+  test: a signed-in admin with `must_change_password` is led to the password change, then to
+  TOTP setup, then reaches `/admin` (Vitest + Playwright). Slot: with F11 and F14, right after
+  F12.
+- **F11 — `POST /auth/2fa/setup` silently resets an enabled TOTP.** `setup_totp`
+  (`services/twofa.py`) writes a new secret and sets `totp_enabled = False` without a code, so
+  a stolen access token alone can switch 2FA off or move it to the thief's authenticator.
+  Fix: answer 409 while TOTP is enabled (rotation only through `disable` with a valid code).
+  First failing test: setup on an account with TOTP enabled → 409, secret and
+  `totp_enabled` unchanged. Slot: with F10.
+- **F12 — the 18+ gate is never remembered. LAUNCH BLOCKER. Fixed 2026-10-08.** The root layout
+  (a server component) imported `AGE_GATE_COOKIE` from `components/legal/AgeGate.tsx`, a
+  `"use client"` module. On the server every export of a client module is a client reference,
+  so the layout got a function stub (`registerClientReference(…, "AGE_GATE_COOKIE")` in the
+  built chunk), `cookies().get(stub)` never matched, `consented` was always `false` and the gate
+  came back on every page load, although the browser stored `bp_age_ok=1` correctly (180 days,
+  `path=/`, `samesite=lax`, set by the client). Present since the legal pages (`723a3a2`,
+  2026-10-02), i.e. in every release; independent of domain and TLS, so every visitor on a VPS
+  would have seen it. Vitest did not catch it (it imports the real module) and the e2e tests
+  never checked the gate after a reload. Fix: the name lives in `lib/ageGate.ts` (no
+  directive); `e2e/age-gate.spec.ts` checks the server HTML and the dialog after a confirm +
+  reload and with the cookie preset; `lib/clientBoundary.test.ts` fails when a module without
+  `"use client"` imports anything but a component from a client module, or a client module
+  imports `next/headers`, `server-only` or `lib/server/*`. The same guard moved
+  `MATCH_CARD_HEIGHT` to `components/match/matchCardLayout.ts` (no bug today: the skeleton is
+  rendered only by the client `MatchList`).
+- **F13 — an aborted refresh can end in family revocation and a forced logout.** Every page
+  load posts `/api/auth/refresh`. If the server rotates the token but the response never reaches
+  the browser (reload or navigation mid-flight, the client's own 10 s timeout aborting the
+  fetch, a network drop), the new `Set-Cookie` never lands and the browser keeps the old token,
+  which the server has already rotated; presenting it again more than
+  `REFRESH_REUSE_GRACE_SECONDS` (10 s) later is treated as reuse and revokes the whole family
+  (`services/auth.py`); within 10 s it gets 409 and still no new token. Seen once on the stand
+  (rc5, 2026-10-08 16:20 UTC: one `auth.token.reuse_detected`, no `refresh_conflict`, last
+  rotation 10 minutes earlier). Medium: no security loss, random logouts. Options (owner's
+  choice pending): A — client `keepalive: true` on the refresh and stop waiting at 10 s without
+  aborting; B — server idempotent replay: the replacement token is kept encrypted in Redis for
+  a short window, and a re-presentation of the old token while the replacement is unused gets
+  that same replacement back; C — A and B; D — accept and document. Slot: pre-launch group.
+- **F14 — the header flashes "Sign in" before the session is restored.** `AuthMenu` renders the
+  signed-out state whenever `user` is null, including while `hydrated` is false and in the
+  server HTML. Display only: data requests wait for the restore (F9). Fix: a neutral
+  placeholder of the same width until `hydrated`. First failing test: `AuthMenu` with
+  `{hydrated: false, user: null}` shows no "Sign in" button. Slot: with F10.
+- **F15 — the F8 stale note shows the time in UTC** ("17:22" for a viewer at UTC+4). next-intl's
+  time zone is pinned to UTC app-wide (`i18n/request.ts`) so server and client render kickoff
+  times identically; the note only appears in the browser, so it can use the viewer's time
+  zone. Whether kickoff times should also move to local time is a separate product decision.
+  First failing test: with a UTC+4 zone, a refetch failure after an update at 17:22Z shows
+  "21:22". Slot: cleanup PR.
+- **F16 — the follow ("Notify me") toggle is offered on finished matches.** `NotifyToggle` has
+  no status check and `follow_match` accepts any fixture; a finished match never swings. Fix:
+  hide it for `finished` and answer 409 on the server. First failing tests: Vitest (no toggle
+  for `finished`) and pytest (PUT follow on a finished fixture → 409). Slot: cleanup PR.
+- **Not a defect — the market is not a method bar.** `GET /matches/{id}` excludes `market`
+  and `consensus` from `methods` and serves the market separately; the UI shows it only as
+  "Delta vs market", which needs a consensus. Without a consensus (today: under 200 matches)
+  the market reference is shown nowhere. The guest's four blurred rows are a fixed placeholder,
+  not data. Whether to show the market on its own is a product question (backlog).
+
 ### External review 2 (2026-10-07) — verified backlog
 
 Two static-analysis reports (no tests run). Every finding was **verified by reading the code at
@@ -1957,16 +2071,19 @@ main `314029b`**; line numbers will drift. Labels `ER2-` keep them apart from th
   transaction open for the whole LLM call (the OpenAI SDK's default timeout is 600 s), and an open
   SSE stream holds one too (ER-H-06); 60 s would kill both.
 
-### Queue (owner, 2026-10-07)
+### Queue (owner, 2026-10-08)
 
-1. **F8** — done.
-2. **F9** — done.
-3. **v0.0.1-rc6** — the owner, by hand; checklist by the agent.
-4. **Launch blockers:** F5, F7, ER2-05, Redis `requirepass` and memory policy, `docs/DEPLOY_VPS.md`.
-5. **Cleanup PR:** ER2-09 (`BATCH_MAX` 10 000), ER2-13 (dead settings).
-6. **O2** (registration) with ER2-01…ER2-04 and ER-M-04.
-7. **Live to Sportmonks** with ER2-06/ER2-07, ER-H-01, ER-M-02.
-8. **Later:** ER2-10, ER2-17.
+1. **F8**, **F9**, **v0.0.1-rc6** — done (rc6 rehearsal accepted 2026-10-08, §9i).
+2. **F12** (age gate never remembered) — fixed together with this HANDOFF update.
+3. **F10 + F11 + F14** — admin first login in the UI (password change, TOTP setup, TOTP at
+   login), `2fa/setup` refusing an enabled TOTP, no "Sign in" flash. One PR; plan first.
+4. **F13** (aborted refresh → family revoked) — options A–D in §9m; waiting for the owner's choice.
+5. **Launch blockers:** F5, F7, ER2-05, Redis `requirepass` and memory policy, `docs/DEPLOY_VPS.md`.
+6. **Cleanup PR:** ER2-09 (`BATCH_MAX` 10 000), ER2-13 (dead settings), F15 (stale-note time in
+   the viewer's time zone), F16 (no follow toggle on finished matches).
+7. **O2** (registration) with ER2-01…ER2-04 and ER-M-04.
+8. **Live to Sportmonks** with ER2-06/ER2-07, ER-H-01, ER-M-02.
+9. **Later:** ER2-10, ER2-17.
 
 ## 10. How to resume
 

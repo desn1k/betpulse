@@ -2,7 +2,7 @@ import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { cn } from "@/lib/utils";
 
-import { MATCH_CARD_HEIGHT } from "./MatchCard";
+import { MATCH_CARD_HEIGHT } from "./matchCardLayout";
 
 /**
  * Loading placeholder for a MatchCard. It reuses MATCH_CARD_HEIGHT and mirrors
