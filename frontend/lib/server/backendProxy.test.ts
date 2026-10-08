@@ -7,6 +7,7 @@ import {
   buildBackendHeaders,
   clientIpFromForwardedFor,
   proxyBackendGet,
+  RELAYED_RESPONSE_HEADERS,
 } from "./backendProxy";
 
 function request(
@@ -271,5 +272,37 @@ describe("proxyAuth for account security (F10)", () => {
     expect(res.headers.get("x-2fa-required")).toBe("true");
     expect(res.headers.get("retry-after")).toBe("60");
     expect(res.headers.get("x-internal")).toBeNull();
+  });
+});
+
+describe("X-Session-Revoked reaches the browser on every bearer path (ER2-01)", () => {
+  const revoked = () =>
+    Response.json(
+      { detail: "Session revoked" },
+      { status: 401, headers: { "x-session-revoked": "true", "www-authenticate": "Bearer" } },
+    );
+
+  it("proxyBackendGet relays it", async () => {
+    mockFetch(revoked);
+    const res = await proxyBackendGet(request({ authorization: "Bearer old" }), "/matches");
+    expect(res.status).toBe(401);
+    expect(res.headers.get("x-session-revoked")).toBe("true");
+    expect(res.headers.get("www-authenticate")).toBeNull();
+  });
+
+  it.each(["GET", "POST", "PUT", "PATCH", "DELETE"])("proxyAuth relays it on %s", async (method) => {
+    mockFetch(revoked);
+    const res = await proxyAuth(
+      request({ authorization: "Bearer old" }, { method, ...(method === "GET" ? {} : { body: "{}" }) }),
+      "/admin/users",
+    );
+    expect(res.status).toBe(401);
+    expect(res.headers.get("x-session-revoked")).toBe("true");
+  });
+
+  it("both helpers share one allowlist", () => {
+    expect([...RELAYED_RESPONSE_HEADERS].sort()).toEqual(
+      ["retry-after", "x-2fa-required", "x-session-revoked"].sort(),
+    );
   });
 });
