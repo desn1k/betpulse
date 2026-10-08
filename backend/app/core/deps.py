@@ -91,10 +91,12 @@ async def get_current_user(
         ) from exc
 
     user = await session.get(User, user_id)
-    if user is None or not user.is_active:
+    if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive"
         )
+    # Revocation first: disabling an account also sets the timestamp, and the
+    # revoked answer makes the client sign out instead of just failing.
     state = token_state(claims, user.credentials_changed_at)
     if state == TokenState.REVOKED:
         raise _session_revoked()
@@ -103,6 +105,10 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive"
         )
     return user
 
@@ -131,12 +137,14 @@ async def get_optional_user(
     except (jwt.PyJWTError, KeyError, ValueError):
         return None
     user = await session.get(User, user_id)
-    if user is None or not user.is_active:
+    if user is None:
         return None
+    # Revocation first (a disabled account's tokens are revoked too), then the
+    # inactive-account guest fallback.
     state = token_state(claims, user.credentials_changed_at)
     if state == TokenState.REVOKED:
         raise _session_revoked()
-    if state == TokenState.INVALID:
+    if state == TokenState.INVALID or not user.is_active:
         return None
     return user
 

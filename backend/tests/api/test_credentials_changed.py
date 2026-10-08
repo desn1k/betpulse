@@ -309,3 +309,32 @@ async def test_disable_then_enable_does_not_bring_old_tokens_back(client: AsyncC
         assert audit.meta["credentials_changed_at"] == changed.isoformat()
     # The user signs in again normally.
     assert (await _login(client, email, PASSWORD)).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_a_disabled_account_gets_the_revoked_answer_on_every_route(
+    client: AsyncClient,
+) -> None:
+    """Disabling sets the timestamp too; the token is classified as revoked before
+    the inactive account is refused, so the client signs out on its next request
+    instead of turning into a guest on public routes."""
+    from app.core.security import create_access_token
+
+    email, old = await _signed_in(client)
+    user = await _user(email)
+    async with _write_sessionmaker()() as s:
+        admin = User(
+            email=f"admin-{uuid.uuid4().hex[:6]}@example.com",
+            password_hash="x",
+            role=UserRole.admin,
+            totp_enabled=True,
+            must_change_password=False,
+        )
+        s.add(admin)
+        await s.commit()
+        admin_token = create_access_token(subject=str(admin.id), role="admin")
+    r = await client.post(f"/admin/users/{user.id}/disable", headers=_bearer(admin_token))
+    assert r.status_code == 200, r.text
+
+    _assert_revoked(await client.get("/auth/me", headers=_bearer(old)))
+    _assert_revoked(await client.get("/matches", headers=_bearer(old)))

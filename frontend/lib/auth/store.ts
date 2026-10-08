@@ -408,15 +408,14 @@ function sessionRevoked(res: Response): boolean {
 export async function authFetch(input: string, init: RequestInit = {}): Promise<Response> {
   // Each attempt remembers the token it actually carried and whose it was: the
   // store may move on (a concurrent renewal, a sign-in) while a request is in flight.
-  const send = async (): Promise<{ res: Response; snapshot: BearerSnapshot }> => {
-    const snapshot = await bearerSnapshot();
+  const send = async (snapshot: BearerSnapshot): Promise<{ res: Response; snapshot: BearerSnapshot }> => {
     const res = await fetch(input, {
       ...init,
       headers: { ...((init.headers as Record<string, string> | undefined) ?? {}), ...snapshot.headers },
     });
     return { res, snapshot };
   };
-  const first = await send();
+  const first = await send(await bearerSnapshot());
   // Only a token this request carried can have been revoked; a guest has no
   // session to renew.
   if (!sessionRevoked(first.res) || first.snapshot.token === null) return first.res;
@@ -436,9 +435,14 @@ export async function authFetch(input: string, init: RequestInit = {}): Promise<
   // belongs to the account that sent it. The account change itself reloads the
   // queries (the "account-changed" session event).
   if (current.user?.id !== first.snapshot.userId) return first.res;
+  // The replay's own header is taken (it may renew once more) and checked
+  // before anything is sent.
+  const replaySnapshot = await bearerSnapshot();
+  if (replaySnapshot.token === null || replaySnapshot.userId !== first.snapshot.userId) {
+    return first.res;
+  }
   const epoch = sessionEpoch;
-  const replay = await send();
-  if (replay.snapshot.userId !== first.snapshot.userId) return replay.res;
+  const replay = await send(replaySnapshot);
   // Sign out only if the token refused now is still the current one of this tab
   // and the session did not end or restart meanwhile; otherwise a newer one exists.
   if (

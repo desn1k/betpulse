@@ -158,6 +158,29 @@ describe("authFetch", () => {
     expect(useAuthStore.getState().user?.id).toBe("u2"); // switched, not signed out
   });
 
+  it("checks the account before the replay is sent, not after", async () => {
+    const other = { ...USER, id: "u2", email: "two@betpulse.dev" };
+    const fetchMock = route({
+      "/api/admin/users/u9/tier": [revoked],
+      "/api/auth/refresh": [
+        // Renewed for the same user, but so close to expiry that taking the
+        // replay's header renews again …
+        () => Response.json({ access_token: "same", token_type: "bearer", expires_in: 30, user: USER }),
+        // … and by then the shared cookie belongs to another account.
+        () => Response.json({ access_token: "other", token_type: "bearer", expires_in: 900, user: other }),
+      ],
+    });
+
+    const res = await authFetch("/api/admin/users/u9/tier", { method: "POST", body: "{}" });
+
+    expect(res.status).toBe(401);
+    expect(urls(fetchMock)).toEqual([
+      "/api/admin/users/u9/tier",
+      "/api/auth/refresh",
+      "/api/auth/refresh",
+    ]);
+  });
+
   it("leaves an ordinary 401 alone (no header: no renewal)", async () => {
     const fetchMock = route({
       "/api/auth/me": [() => Response.json({ detail: "Not authenticated" }, { status: 401 })],
