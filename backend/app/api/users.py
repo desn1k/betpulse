@@ -131,7 +131,12 @@ async def disable_user(
         actor_user_id=admin.id,
         target=f"user:{user.id}",
         ip=get_client_ip(request),
-        meta={"revoked_tokens": revoked},
+        meta={
+            "revoked_tokens": revoked,
+            "credentials_changed_at": (
+                user.credentials_changed_at.isoformat() if user.credentials_changed_at else None
+            ),
+        },
     )
     await session.commit()
     return DisableOut(id=user.id, is_active=user.is_active, revoked_tokens=revoked)

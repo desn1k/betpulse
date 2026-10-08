@@ -16,7 +16,12 @@ from app.core.client_ip import rate_limit_bucket, resolve_client_ip
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.core.redis import get_redis
-from app.core.security import constant_time_equals, decode_access_token
+from app.core.security import (
+    TokenState,
+    constant_time_equals,
+    decode_access_token,
+    token_state,
+)
 from app.models.user import User, UserRole
 from app.services.tiers import ResolvedTier, resolve_tier_context
 
@@ -43,6 +48,19 @@ def get_client_ip(request: Request) -> str:
     peer = request.client.host if request.client is not None else None
     return resolve_client_ip(
         peer, request.headers.get("x-forwarded-for"), get_settings().trusted_proxy_networks
+    )
+
+
+def _session_revoked() -> HTTPException:
+    """A genuine, unexpired access token issued before the account's credentials
+    changed (ER2-01). The same answer on every route, public ones included, so the
+    client renews the session (or signs out) on its next request; the header tells
+    it apart from an ordinary 401. Raised from the auth dependency, before the
+    route does any work, so the client may replay the request after renewing."""
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Session revoked",
+        headers={"WWW-Authenticate": "Bearer", "X-Session-Revoked": "true"},
     )
 
 
@@ -77,6 +95,15 @@ async def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive"
         )
+    state = token_state(claims, user.credentials_changed_at)
+    if state == TokenState.REVOKED:
+        raise _session_revoked()
+    if state == TokenState.INVALID:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return user
 
 
@@ -92,6 +119,9 @@ async def get_optional_user(
     No credentials → guest. A present-but-invalid/expired token is also treated
     as guest (best-effort) rather than 401, so a public page still renders for a
     client whose access token has lapsed; the client refreshes out of band.
+    A genuine, unexpired token revoked by a credentials change is the exception:
+    401 with ``X-Session-Revoked``, so the session ends (or renews) on the next
+    request instead of silently turning into a guest (ER2-01).
     """
     if credentials is None:
         return None
@@ -102,6 +132,11 @@ async def get_optional_user(
         return None
     user = await session.get(User, user_id)
     if user is None or not user.is_active:
+        return None
+    state = token_state(claims, user.credentials_changed_at)
+    if state == TokenState.REVOKED:
+        raise _session_revoked()
+    if state == TokenState.INVALID:
         return None
     return user
 

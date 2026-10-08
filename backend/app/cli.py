@@ -215,7 +215,7 @@ async def _reset_2fa(email: str, *, require_password_change: bool) -> int:
 
     from app.models.user import User
     from app.services.audit import AuditAction, record_event
-    from app.services.auth import revoke_all_user_tokens
+    from app.services.auth import mark_credentials_changed, revoke_all_user_tokens
 
     normalized = email.strip().lower()
     async with _write_sessionmaker()() as session:
@@ -228,6 +228,8 @@ async def _reset_2fa(email: str, *, require_password_change: bool) -> int:
         user.totp_secret_encrypted = None
         if require_password_change:
             user.must_change_password = True
+        # Live access tokens die too, not only the refresh tokens (ER2-01).
+        changed_at = mark_credentials_changed(user)
         revoked = await revoke_all_user_tokens(session, user.id)
         await record_event(
             session,
@@ -237,6 +239,7 @@ async def _reset_2fa(email: str, *, require_password_change: bool) -> int:
                 "was_enabled": was_enabled,
                 "refresh_tokens_revoked": revoked,
                 "require_password_change": require_password_change,
+                "credentials_changed_at": changed_at.isoformat(),
             },
         )
         await session.commit()
