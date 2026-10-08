@@ -20,12 +20,32 @@ interface AuthState {
   sessionExpired: boolean;
   // Renewing the session keeps failing (network or 5xx); retries are scheduled.
   refreshFailing: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, totpCode?: string) => Promise<void>;
   logout: () => Promise<void>;
   hydrate: () => Promise<void>;
+  /** Re-read the signed-in user (after a TOTP or password change). */
+  reloadUser: () => Promise<void>;
 }
 
-export class LoginError extends Error {}
+/** Why a sign-in failed. The server answers a wrong password and a wrong TOTP
+ * code the same way; the form knows which step it was on. */
+export type LoginFailure = "invalid_credentials" | "totp_required" | "rate_limited" | "login_failed";
+
+export class LoginError extends Error {
+  constructor(
+    readonly reason: LoginFailure,
+    /** Seconds from Retry-After on a 429 (lockout or per-IP limit). */
+    readonly retryAfterSeconds: number | null = null,
+  ) {
+    super(reason);
+    this.name = "LoginError";
+  }
+}
+
+export function retryAfterSeconds(res: Response): number | null {
+  const value = Number(res.headers.get("retry-after"));
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
 
 /** The session could not be renewed (network, 5xx, timeout); the request was
  * not sent, so it never goes out as a guest. Not an ApiError on purpose. */
@@ -237,16 +257,23 @@ export const useAuthStore = create<AuthState>((set, get) => {
     sessionExpired: false,
     refreshFailing: false,
 
-    login: async (email, password) => {
+    login: async (email, password, totpCode) => {
       set({ pending: true });
       try {
         const res = await fetch("/api/auth/login", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ email, password }),
+          body: JSON.stringify(
+            totpCode === undefined ? { email, password } : { email, password, totp_code: totpCode },
+          ),
         });
         if (!res.ok) {
-          throw new LoginError(res.status === 401 ? "invalid_credentials" : "login_failed");
+          if (res.status === 401 && res.headers.get("x-2fa-required") === "true") {
+            throw new LoginError("totp_required");
+          }
+          if (res.status === 401) throw new LoginError("invalid_credentials");
+          if (res.status === 429) throw new LoginError("rate_limited", retryAfterSeconds(res));
+          throw new LoginError("login_failed");
         }
         applySession((await res.json()) as AccessTokenResponse, { recovered: false });
         // The session state is known now; no restore needs to run first.
@@ -271,6 +298,14 @@ export const useAuthStore = create<AuthState>((set, get) => {
       const bus = channel();
       bus?.postMessage({ type: "logout" });
       bus?.close();
+    },
+
+    reloadUser: async () => {
+      const res = await fetch("/api/auth/me", {
+        headers: { accept: "application/json", ...(await authHeaders()) },
+      });
+      if (!res.ok) throw new Error(`reload user failed: ${res.status}`);
+      set({ user: (await res.json()) as AuthUser });
     },
 
     // Silent refresh on app mount: if a refresh session exists (CSRF cookie

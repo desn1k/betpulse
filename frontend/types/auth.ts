@@ -3,6 +3,10 @@ export interface AuthUser {
   id: string;
   email: string;
   role: "user" | "admin";
+  totp_enabled: boolean;
+  must_change_password: boolean;
+  /** The server requires TOTP before this account's protected routes (F10). */
+  two_factor_required: boolean;
 }
 
 export interface AccessTokenResponse {

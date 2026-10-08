@@ -13,10 +13,13 @@ import { matchKeys } from "@/lib/queries";
 
 import { LoginForm } from "./LoginForm";
 
-/** Header auth control: a login popover when signed out, email + logout when in. */
+/** Header auth control: a login popover when signed out, email + logout when in.
+ * Until the page-load session restore settles it shows a neutral placeholder of
+ * the same size, so a signed-in reload never flashes "Sign in" (F14). */
 export function AuthMenu() {
   const t = useTranslations();
   const user = useAuthStore((s) => s.user);
+  const hydrated = useAuthStore((s) => s.hydrated);
   const logout = useAuthStore((s) => s.logout);
   const sessionExpired = useAuthStore((s) => s.sessionExpired);
   const refreshFailing = useAuthStore((s) => s.refreshFailing);
@@ -27,6 +30,10 @@ export function AuthMenu() {
   async function onLogout() {
     await logout();
     await queryClient.invalidateQueries({ queryKey: matchKeys.all });
+  }
+
+  if (!hydrated && !user) {
+    return <div aria-busy="true" className="h-9 w-20 rounded-md bg-surface-muted" />;
   }
 
   if (user) {
@@ -40,12 +47,18 @@ export function AuthMenu() {
         <span className="hidden max-w-[12rem] truncate text-sm text-muted-strong sm:inline">
           {user.email}
         </span>
+        <Link
+          href="/account/security"
+          className="text-sm font-semibold text-muted-strong hover:text-foreground"
+        >
+          {t("auth.securityLink")}
+        </Link>
         {user.role === "admin" && (
           <Link
             href="/admin"
             className="text-sm font-semibold text-muted-strong hover:text-foreground"
           >
-            {t("admin.title")}
+            {t("security.adminPanel")}
           </Link>
         )}
         <div className="relative">
