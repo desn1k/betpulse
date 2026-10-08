@@ -2001,7 +2001,8 @@ the failing test named here.
 - **F13 — an aborted refresh can end in family revocation and a forced logout.** Every page
   load posts `/api/auth/refresh`. If the server rotates the token but the response never reaches
   the browser (reload or navigation mid-flight, the client's own 10 s timeout aborting the
-  fetch, a network drop), the browser keeps the rotated token; the next refresh more than
+  fetch, a network drop), the new `Set-Cookie` never lands and the browser keeps the old token,
+  which the server has already rotated; presenting it again more than
   `REFRESH_REUSE_GRACE_SECONDS` (10 s) later is treated as reuse and revokes the whole family
   (`services/auth.py`); within 10 s it gets 409 and still no new token. Seen once on the stand
   (rc5, 2026-10-08 16:20 UTC: one `auth.token.reuse_detected`, no `refresh_conflict`, last
