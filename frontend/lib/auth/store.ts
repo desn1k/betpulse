@@ -301,9 +301,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
     },
 
     reloadUser: async () => {
-      const res = await fetch("/api/auth/me", {
-        headers: { accept: "application/json", ...(await authHeaders()) },
-      });
+      const res = await authFetch("/api/auth/me", { headers: { accept: "application/json" } });
       if (!res.ok) throw new Error(`reload user failed: ${res.status}`);
       set({ user: (await res.json()) as AuthUser });
     },
@@ -367,6 +365,52 @@ export async function authHeaders(): Promise<Record<string, string>> {
   }
   const token = useAuthStore.getState().accessToken;
   return token ? { authorization: `Bearer ${token}` } : {};
+}
+
+function sessionRevoked(res: Response): boolean {
+  return res.status === 401 && res.headers.get("x-session-revoked") === "true";
+}
+
+/**
+ * fetch with the bearer header — the only way client code sends one (a static
+ * test forbids authHeaders() elsewhere). A 401 with ``X-Session-Revoked`` means
+ * the access token predates a change of the account's credentials (ER2-01): the
+ * session is renewed once and the request replayed once.
+ *
+ * - The renewal works (another tab of this browser changed the password, so the
+ *   refresh cookie is already new): the replay goes out with the new token.
+ * - The renewal is refused (the refresh family was revoked: another device):
+ *   ``refreshSession`` has signed out with "session expired"; no replay.
+ * - The replay is revoked again: sign out; never a loop.
+ * - The renewal cannot reach the server: keep the session, return the 401.
+ *
+ * Replaying a mutation is safe: the backend raises this 401 from the auth
+ * dependency, before the route does any work, so the first attempt changed
+ * nothing. ``init.body`` must be replayable (a string; every caller sends JSON).
+ */
+export async function authFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  let sentBearer = false;
+  const send = async () => {
+    const bearer = await authHeaders();
+    sentBearer = "authorization" in bearer;
+    return fetch(input, {
+      ...init,
+      headers: { ...((init.headers as Record<string, string> | undefined) ?? {}), ...bearer },
+    });
+  };
+  const first = await send();
+  // Only a token this request carried can have been revoked; a guest has no
+  // session to renew.
+  if (!sessionRevoked(first) || !sentBearer) return first;
+  try {
+    await refreshSession();
+  } catch {
+    return first;
+  }
+  if (useAuthStore.getState().accessToken === null) return first;
+  const replay = await send();
+  if (sessionRevoked(replay)) clearSessionRef({ expired: true });
+  return replay;
 }
 
 /**

@@ -6,7 +6,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ApiError, runBacktest } from "@/lib/api";
-import { authHeaders, SessionRefreshError, useAuthStore } from "@/lib/auth/store";
+import { authFetch, SessionRefreshError, useAuthStore } from "@/lib/auth/store";
 import type { BacktestResult, BetType, RunRequest, StrategyFilter } from "@/types/backtester";
 
 import { BacktestResults } from "./BacktestResults";
@@ -77,19 +77,18 @@ export function BacktesterView() {
   async function onSave() {
     setSaveMsg(null);
     const req = currentRequest();
-    let headers: Record<string, string>;
+    let res: Response;
     try {
-      headers = await authHeaders();
+      res = await authFetch("/api/backtester/strategies", {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ name: `${betType}/${pick}`, ...req }),
+      });
     } catch {
-      // The session could not be renewed: do not send the save as a guest.
+      // The session could not be renewed: the save was not sent as a guest.
       setSaveMsg(t("auth.sessionRefreshFailed"));
       return;
     }
-    const res = await fetch("/api/backtester/strategies", {
-      method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json", ...headers },
-      body: JSON.stringify({ name: `${betType}/${pick}`, ...req }),
-    });
     setSaveMsg(res.status === 201 ? t("backtester.saved") : t("backtester.saveUpgrade"));
   }
 
