@@ -5,8 +5,9 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field
 
+from app.core.config import get_settings
 from app.models.user import UserRole
 from app.schemas.base import RequestModel
 
@@ -37,6 +38,14 @@ class UserOut(BaseModel):
     totp_enabled: bool
     must_change_password: bool
     created_at: datetime
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def two_factor_required(self) -> bool:
+        """Whether the server requires TOTP before this account's protected routes
+        (admins, when ``ADMIN_2FA_REQUIRED``), so the client guard follows the
+        server instead of guessing the setting (F10)."""
+        return self.role == UserRole.admin and get_settings().admin_2fa_required
 
 
 class AccessTokenResponse(BaseModel):

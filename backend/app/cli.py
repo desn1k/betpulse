@@ -9,6 +9,7 @@ Usage:
     python -m app.cli map-team         --provider NAME --alias "Raw Name"
                                        (--team-id UUID | --team NAME [--country C])
                                        [--external-id ID]
+    python -m app.cli reset-2fa        --email ADDRESS [--require-password-change]
 
 ``--offline-dir`` reads committed CSV fixtures instead of downloading — used by
 CI. Without it, CSVs are fetched from football-data.co.uk (local dev / VPS).
@@ -201,6 +202,52 @@ async def _train() -> int:
     return 0
 
 
+async def _reset_2fa(email: str, *, require_password_change: bool) -> int:
+    """Operator path for a lost authenticator (needs shell access to the server).
+
+    Turns TOTP off and forgets the secret, revokes every refresh token of the
+    account (all its sessions end within one access-token lifetime), optionally
+    forces a password change at the next sign-in, and audits the reset with no
+    actor. Prints one line and never the secret. An admin then signs in with the
+    password alone and is led to set up TOTP again.
+    """
+    from sqlalchemy import select
+
+    from app.models.user import User
+    from app.services.audit import AuditAction, record_event
+    from app.services.auth import revoke_all_user_tokens
+
+    normalized = email.strip().lower()
+    async with _write_sessionmaker()() as session:
+        user = await session.scalar(select(User).where(User.email == normalized))
+        if user is None:
+            print("reset-2fa: no user with that email; nothing changed")
+            return 1
+        was_enabled = user.totp_enabled
+        user.totp_enabled = False
+        user.totp_secret_encrypted = None
+        if require_password_change:
+            user.must_change_password = True
+        revoked = await revoke_all_user_tokens(session, user.id)
+        await record_event(
+            session,
+            action=AuditAction.TWOFA_RESET_BY_OPERATOR,
+            target=user.email,
+            meta={
+                "was_enabled": was_enabled,
+                "refresh_tokens_revoked": revoked,
+                "require_password_change": require_password_change,
+            },
+        )
+        await session.commit()
+    print(
+        f"reset-2fa: {normalized}: two-factor authentication turned off "
+        f"(was {'on' if was_enabled else 'off'}), {revoked} refresh tokens revoked, "
+        f"password change required: {'yes' if require_password_change else 'no'}"
+    )
+    return 0
+
+
 def _provider_record(args: argparse.Namespace) -> int:
     from app.providers.recording import ProviderKeys, load_manifest, plan_text, record
 
@@ -253,6 +300,15 @@ def main(argv: list[str] | None = None) -> int:
     mapping.add_argument("--country", default=None)
     mapping.add_argument("--external-id", default=None, help="the provider's stable team id")
     sub.add_parser("train")
+    reset = sub.add_parser(
+        "reset-2fa", help="lost authenticator: turn TOTP off and end every session"
+    )
+    reset.add_argument("--email", required=True)
+    reset.add_argument(
+        "--require-password-change",
+        action="store_true",
+        help="also force a password change at the next sign-in",
+    )
     rec = sub.add_parser("provider-record", help="record real provider responses as fixtures")
     rec.add_argument("--provider", required=True, choices=["sportmonks", "the_odds_api"])
     rec.add_argument("--manifest", required=True, help="JSON list of calls")
@@ -275,6 +331,10 @@ def main(argv: list[str] | None = None) -> int:
             _map_team(
                 args.provider, args.alias, args.team_id, args.team, args.country, args.external_id
             )
+        )
+    if args.command == "reset-2fa":
+        return asyncio.run(
+            _reset_2fa(args.email, require_password_change=args.require_password_change)
         )
     if args.command == "train":
         return asyncio.run(_train())

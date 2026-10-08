@@ -229,6 +229,13 @@ class Settings(BaseSettings):
     # and guests behind one NAT share a bucket, hence the headroom.
     rate_limit_match_detail_per_window: int = 120
     rate_limit_match_detail_window_seconds: int = 60
+    # Account security, per user, counted before the expensive or guessable
+    # check (ER2-02): password change before Argon2, TOTP enable/disable before
+    # the 6-digit code (one shared bucket), TOTP setup before a new secret.
+    rate_limit_password_change_attempts: int = 5
+    rate_limit_totp_code_attempts: int = 5
+    rate_limit_account_security_window_seconds: int = 900
+    rate_limit_totp_setup_per_hour: int = 5
 
     # --- Reverse proxies ----------------------------------------------------
     # Comma-separated CIDRs whose X-Forwarded-For is honoured (Caddy and the

@@ -29,6 +29,7 @@ class AuditAction:
     TWOFA_ENABLED = "auth.2fa.enabled"
     TWOFA_DISABLED = "auth.2fa.disabled"
     TWOFA_FAILURE = "auth.2fa.failure"
+    TWOFA_RESET_BY_OPERATOR = "auth.2fa.reset_by_operator"
     PASSWORD_CHANGED = "auth.password.changed"  # nosec B105  (action name)
     EMAIL_VERIFIED = "auth.email.verified"
 
