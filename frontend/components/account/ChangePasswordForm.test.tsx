@@ -128,6 +128,28 @@ describe("ChangePasswordForm", () => {
     expect(useAuthStore.getState().sessionExpired).toBe(false);
   });
 
+  it("signs out when the re-sign-in after a change is rate-limited (no stale session)", async () => {
+    routeFetch({
+      "/api/auth/change-password": [() => Response.json({ detail: "Password changed" })],
+      "/api/auth/login": [
+        () =>
+          Response.json(
+            { detail: "Too many login attempts" },
+            { status: 429, headers: { "retry-after": "60" } },
+          ),
+      ],
+      "/api/auth/logout": [() => Response.json({ detail: "Logged out" })],
+    });
+    const user = userEvent.setup();
+    const { getByRole } = renderWithProviders(<ChangePasswordForm />);
+
+    await fill(user, OLD, NEW);
+    await user.click(getByRole("button", { name: "Сменить пароль" }));
+
+    await vi.waitFor(() => expect(useAuthStore.getState().user).toBeNull());
+    expect(useAuthStore.getState().accessToken).toBeNull();
+  });
+
   it("reports a wrong current password", async () => {
     routeFetch({
       "/api/auth/change-password": [

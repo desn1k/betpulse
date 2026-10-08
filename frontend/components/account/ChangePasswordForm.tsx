@@ -53,7 +53,11 @@ export function ChangePasswordForm({ onChanged }: { onChanged?: () => void }) {
       } else if (err instanceof LoginError && err.reason === "invalid_credentials" && totpCode) {
         setError(t("auth.totpInvalid"));
       } else if (err instanceof LoginError && err.reason === "rate_limited") {
+        // The password changed and every refresh token is revoked: end the old
+        // session rather than keep a stale user (must_change_password) around.
+        // Signing in again later shows the wait from Retry-After.
         setError(t("auth.tooManyAttempts", { minutes: waitMinutes(err.retryAfterSeconds) }));
+        await logout();
       } else {
         setError(t("security.reloginFailed"));
         await logout();
