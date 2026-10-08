@@ -6,8 +6,7 @@ import { useState } from "react";
 import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/Button";
-
-export const AGE_GATE_COOKIE = "bp_age_ok";
+import { AGE_GATE_COOKIE } from "@/lib/ageGate";
 
 // Documents a visitor may need to read before confirming their age.
 const GATE_DOCUMENTS = ["terms", "privacy", "consent", "responsible"] as const;

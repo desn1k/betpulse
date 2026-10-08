@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { summaryFixture } from "@/test/fixtures";
 import { renderWithProviders } from "@/test/test-utils";
 
-import { MatchCard, MATCH_CARD_HEIGHT } from "./MatchCard";
+import { MatchCard } from "./MatchCard";
+import { MATCH_CARD_HEIGHT } from "./matchCardLayout";
 import { MatchCardSkeleton } from "./MatchCardSkeleton";
 
 describe("MatchCard", () => {

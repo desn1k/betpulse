@@ -8,12 +8,9 @@ import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/utils";
 import type { MatchSummary } from "@/types/match";
 
+import { MATCH_CARD_HEIGHT } from "./matchCardLayout";
 import { MatchStatus } from "./MatchStatus";
 import { ProbabilityBar } from "./ProbabilityBar";
-
-// Shared fixed height so the card and its skeleton occupy the exact same box —
-// swapping one for the other causes zero layout shift (a hard requirement).
-export const MATCH_CARD_HEIGHT = "h-[208px]";
 
 function Score({ value }: { value: number | null }) {
   return <span className="tabular-nums">{value ?? "–"}</span>;

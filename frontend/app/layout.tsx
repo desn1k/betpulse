@@ -5,10 +5,11 @@ import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages, getTranslations } from "next-intl/server";
 
 import "./globals.css";
-import { AgeGate, AGE_GATE_COOKIE } from "@/components/legal/AgeGate";
+import { AgeGate } from "@/components/legal/AgeGate";
 import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
 import { ageGateConsentDays } from "@/config/legal";
+import { AGE_GATE_COOKIE } from "@/lib/ageGate";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
