@@ -74,7 +74,26 @@ def needs_rehash(password_hash: str) -> bool:
 # --- JWT access tokens ------------------------------------------------------
 
 
-def create_access_token(*, subject: str, role: str) -> str:
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+CREDENTIALS_CLAIM = "cca"
+
+
+def credentials_stamp(value: datetime | None) -> int | None:
+    """``users.credentials_changed_at`` as whole microseconds since the epoch.
+
+    Integer arithmetic on the timedelta, never float seconds, so the value read
+    back from Postgres (microsecond precision) maps to exactly the same number.
+    """
+    if value is None:
+        return None
+    return (value - _EPOCH) // timedelta(microseconds=1)
+
+
+def create_access_token(
+    *, subject: str, role: str, credentials_changed_at: datetime | None = None
+) -> str:
+    """Sign an access token. ``cca`` is always present (null while the account's
+    credentials never changed): its absence marks a token issued before 0019."""
     settings = get_settings()
     now = datetime.now(UTC)
     claims: dict[str, Any] = {
@@ -84,8 +103,43 @@ def create_access_token(*, subject: str, role: str) -> str:
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(minutes=settings.jwt_access_ttl_minutes)).timestamp()),
         "jti": uuid.uuid4().hex,
+        CREDENTIALS_CLAIM: credentials_stamp(credentials_changed_at),
     }
     return jwt.encode(claims, settings.secret_key, algorithm=settings.jwt_algorithm)
+
+
+class TokenState:
+    VALID = "valid"
+    REVOKED = "revoked"  # genuine and unexpired, but the credentials changed since
+    INVALID = "invalid"  # a claim of the wrong type: treated like any bad token
+
+
+def token_state(claims: dict[str, Any], credentials_changed_at: datetime | None) -> str:
+    """Whether a decoded access token still belongs to the account's credentials (ER2-01).
+
+    - Claim present (issued since 0019): valid only when it **equals** the column
+      (null for null). Equality, not a comparison with ``iat`` (whole seconds),
+      decides the second of a change both ways: a token issued just before it
+      carries the old value, one issued just after the new one. A non-null claim
+      against a NULL column means the column was rewritten (0019 downgraded and
+      upgraded again): refused; a refresh issues a matching token.
+    - Claim absent (issued before 0019): valid while the column is NULL, so the
+      deploy signs nobody out; once it is set, only when ``iat`` is a whole second
+      after it (a token from the change's own second is refused).
+    - Claim of any other type than int/null (bool included): invalid.
+    """
+    expected = credentials_stamp(credentials_changed_at)
+    if CREDENTIALS_CLAIM in claims:
+        claim = claims[CREDENTIALS_CLAIM]
+        if claim is not None and (isinstance(claim, bool) or not isinstance(claim, int)):
+            return TokenState.INVALID
+        return TokenState.VALID if claim == expected else TokenState.REVOKED
+    if credentials_changed_at is None:
+        return TokenState.VALID
+    iat = claims.get("iat")
+    if isinstance(iat, bool) or not isinstance(iat, int):
+        return TokenState.INVALID
+    return TokenState.VALID if iat > int(credentials_changed_at.timestamp()) else TokenState.REVOKED
 
 
 def decode_access_token(token: str) -> dict[str, Any]:

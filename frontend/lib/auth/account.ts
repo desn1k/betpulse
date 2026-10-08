@@ -3,7 +3,7 @@
 // token; the TOTP secret returned by setup lives only in the caller's component
 // state — never in storage, the URL or a log.
 
-import { authHeaders, retryAfterSeconds } from "@/lib/auth/store";
+import { authFetch, retryAfterSeconds } from "@/lib/auth/store";
 
 export class AccountError extends Error {
   constructor(
@@ -17,12 +17,11 @@ export class AccountError extends Error {
 }
 
 async function post<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(path, {
+  const res = await authFetch(path, {
     method: "POST",
     headers: {
       accept: "application/json",
       ...(body === undefined ? {} : { "content-type": "application/json" }),
-      ...(await authHeaders()),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });

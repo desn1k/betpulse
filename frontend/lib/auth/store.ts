@@ -301,9 +301,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
     },
 
     reloadUser: async () => {
-      const res = await fetch("/api/auth/me", {
-        headers: { accept: "application/json", ...(await authHeaders()) },
-      });
+      const res = await authFetch("/api/auth/me", { headers: { accept: "application/json" } });
       if (!res.ok) throw new Error(`reload user failed: ${res.status}`);
       set({ user: (await res.json()) as AuthUser });
     },
@@ -344,6 +342,12 @@ function needsRefresh(now = Date.now()): boolean {
   return accessToken !== null && expiresAt !== null && now >= expiresAt - REFRESH_MARGIN_MS;
 }
 
+interface BearerSnapshot {
+  headers: Record<string, string>;
+  token: string | null;
+  userId: string | null;
+}
+
 /**
  * Bearer header for an API call — the only way client code gets one. On a page
  * load it first waits for the session restore (a signed-in user's first request
@@ -351,9 +355,11 @@ function needsRefresh(now = Date.now()): boolean {
  * close to or past its expiry is renewed first (single-flight), so no request
  * leaves with a token known to be expired. If renewal fails while the token is
  * still valid, the current token is used; once it has expired the call fails
- * with SessionRefreshError and is not sent (never as a guest).
+ * with SessionRefreshError and is not sent (never as a guest). The header, the
+ * token and the account it belongs to are read in one synchronous step after any
+ * wait, so they always agree.
  */
-export async function authHeaders(): Promise<Record<string, string>> {
+async function bearerSnapshot(): Promise<BearerSnapshot> {
   // Page load: queries start before Providers runs hydrate(), so the first
   // request restores the session itself instead of going out as a guest.
   if (!useAuthStore.getState().hydrated) await useAuthStore.getState().hydrate();
@@ -365,8 +371,89 @@ export async function authHeaders(): Promise<Record<string, string>> {
       if (expiresAt === null || Date.now() >= expiresAt) throw error;
     }
   }
-  const token = useAuthStore.getState().accessToken;
-  return token ? { authorization: `Bearer ${token}` } : {};
+  const { accessToken, user } = useAuthStore.getState();
+  return {
+    headers: accessToken ? { authorization: `Bearer ${accessToken}` } : {},
+    token: accessToken,
+    userId: accessToken ? (user?.id ?? null) : null,
+  };
+}
+
+export async function authHeaders(): Promise<Record<string, string>> {
+  return (await bearerSnapshot()).headers;
+}
+
+
+function sessionRevoked(res: Response): boolean {
+  return res.status === 401 && res.headers.get("x-session-revoked") === "true";
+}
+
+/**
+ * fetch with the bearer header — the only way client code sends one (a static
+ * test forbids authHeaders() elsewhere). A 401 with ``X-Session-Revoked`` means
+ * the access token predates a change of the account's credentials (ER2-01): the
+ * session is renewed once and the request replayed once.
+ *
+ * - The renewal works (another tab of this browser changed the password, so the
+ *   refresh cookie is already new): the replay goes out with the new token.
+ * - The renewal is refused (the refresh family was revoked: another device):
+ *   ``refreshSession`` has signed out with "session expired"; no replay.
+ * - The replay is revoked again: sign out; never a loop.
+ * - The renewal cannot reach the server: keep the session, return the 401.
+ *
+ * Replaying a mutation is safe: the backend raises this 401 from the auth
+ * dependency, before the route does any work, so the first attempt changed
+ * nothing. ``init.body`` must be replayable (a string; every caller sends JSON).
+ */
+export async function authFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  // Each attempt remembers the token it actually carried and whose it was: the
+  // store may move on (a concurrent renewal, a sign-in) while a request is in flight.
+  const send = async (snapshot: BearerSnapshot): Promise<{ res: Response; snapshot: BearerSnapshot }> => {
+    const res = await fetch(input, {
+      ...init,
+      headers: { ...((init.headers as Record<string, string> | undefined) ?? {}), ...snapshot.headers },
+    });
+    return { res, snapshot };
+  };
+  const first = await send(await bearerSnapshot());
+  // Only a token this request carried can have been revoked; a guest has no
+  // session to renew.
+  if (!sessionRevoked(first.res) || first.snapshot.token === null) return first.res;
+  // A concurrent request may already have renewed the session: then replay with
+  // that token instead of renewing again.
+  if (useAuthStore.getState().accessToken === first.snapshot.token) {
+    try {
+      await refreshSession();
+    } catch {
+      return first.res;
+    }
+  }
+  const current = useAuthStore.getState();
+  if (current.accessToken === null) return first.res;
+  // Never replay as another account: if the renewal returned a different user
+  // (a sign-in as someone else moved the shared refresh cookie), the request
+  // belongs to the account that sent it. The account change itself reloads the
+  // queries (the "account-changed" session event).
+  if (current.user?.id !== first.snapshot.userId) return first.res;
+  // The replay's own header is taken (it may renew once more) and checked
+  // before anything is sent.
+  const replaySnapshot = await bearerSnapshot();
+  if (replaySnapshot.token === null || replaySnapshot.userId !== first.snapshot.userId) {
+    return first.res;
+  }
+  const epoch = sessionEpoch;
+  const replay = await send(replaySnapshot);
+  // Sign out only if the token refused now is still the current one of this tab
+  // and the session did not end or restart meanwhile; otherwise a newer one exists.
+  if (
+    sessionRevoked(replay.res) &&
+    replay.snapshot.token !== null &&
+    useAuthStore.getState().accessToken === replay.snapshot.token &&
+    epoch === sessionEpoch
+  ) {
+    clearSessionRef({ expired: true });
+  }
+  return replay.res;
 }
 
 /**

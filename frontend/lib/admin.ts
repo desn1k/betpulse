@@ -3,7 +3,7 @@
 // backend enforces admin RBAC.
 
 import { ApiError } from "@/lib/api";
-import { authHeaders } from "@/lib/auth/store";
+import { authFetch } from "@/lib/auth/store";
 import type {
   AdminUserList,
   AuditLogList,
@@ -31,9 +31,9 @@ import type {
 } from "@/types/admin";
 
 async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(url, {
+  const res = await authFetch(url, {
     ...init,
-    headers: { accept: "application/json", ...(init.headers ?? {}), ...(await authHeaders()) },
+    headers: { accept: "application/json", ...((init.headers as Record<string, string> | undefined) ?? {}) },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => null);

@@ -57,6 +57,31 @@ describe("app/api route handlers", () => {
     },
   );
 
+  // ER2-01: the helpers relay X-Session-Revoked (and Retry-After, X-2FA-Required);
+  // a handler that builds its own response from a backend answer, or calls
+  // backendFetch itself, could drop them and the client would never sign out.
+  // Exceptions, each with a reason: health answers itself (no backend); ready
+  // rewrites a 404 for the deploy script and carries no bearer.
+  const OWN_RESPONSE_ROUTES = new Set(["app/api/health/route.ts", "app/api/ready/route.ts"]);
+
+  it.each(handlers.map((file) => [relativePath(file), file]))(
+    "%s returns the helper's response, so its relayed headers reach the browser",
+    (name, file) => {
+      const source = readFileSync(file, "utf8");
+      expect(source, `${name} must not call backendFetch directly`).not.toMatch(/\bbackendFetch\s*\(/);
+      if (!OWN_RESPONSE_ROUTES.has(name)) {
+        expect(source, `${name} must not build its own response`).not.toMatch(
+          /NextResponse\.json\s*\(|new\s+NextResponse\s*\(|\.headers\.(set|append|delete)\s*\(/,
+        );
+      }
+    },
+  );
+
+  it("every allow-listed own-response route still exists", () => {
+    const names = new Set(handlers.map(relativePath));
+    for (const name of OWN_RESPONSE_ROUTES) expect(names).toContain(name);
+  });
+
   it("every allow-listed no-backend route still exists", () => {
     const names = new Set(handlers.map(relativePath));
     for (const name of NO_BACKEND_ROUTES) expect(names).toContain(name);

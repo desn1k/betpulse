@@ -57,3 +57,11 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # Per-account lockout state (exponential backoff, never a permanent lock).
     failed_login_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # ER2-01: every access token issued before this instant is dead. Bumped by a
+    # password change, reset-2fa and an admin disabling the account; NULL until
+    # the first such event (migration 0019). Tokens carry it as the ``cca`` claim
+    # and are accepted only when it matches exactly (app.core.deps).
+    credentials_changed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

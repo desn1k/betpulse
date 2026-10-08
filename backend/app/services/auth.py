@@ -308,8 +308,20 @@ async def authenticate(
 
 def _access_for(user: User) -> tuple[str, int]:
     settings = get_settings()
-    token = create_access_token(subject=str(user.id), role=user.role.value)
+    token = create_access_token(
+        subject=str(user.id),
+        role=user.role.value,
+        credentials_changed_at=user.credentials_changed_at,
+    )
     return token, settings.jwt_access_ttl_minutes * 60
+
+
+def mark_credentials_changed(user: User) -> datetime:
+    """Every access token issued before now is dead (ER2-01). The caller commits
+    together with the change itself; the next token is issued from the stored
+    value, so its claim matches exactly."""
+    user.credentials_changed_at = _now()
+    return user.credentials_changed_at
 
 
 async def _store_refresh(
@@ -590,6 +602,7 @@ async def change_password(
         raise InvalidCredentials
     user.password_hash = hash_password(new_password)
     user.must_change_password = False
+    changed_at = mark_credentials_changed(user)
     await revoke_all_user_tokens(session, user.id)
     await record_event(
         session,
@@ -598,5 +611,6 @@ async def change_password(
         target=user.email,
         ip=ip,
         user_agent=user_agent,
+        meta={"credentials_changed_at": changed_at.isoformat()},
     )
     await session.flush()

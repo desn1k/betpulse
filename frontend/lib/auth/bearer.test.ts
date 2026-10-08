@@ -30,4 +30,15 @@ describe("bearer header", () => {
     });
     expect(offenders).toEqual([]);
   });
+
+  // ER2-01: requests with a bearer go through authFetch, the one place that turns
+  // a 401 + X-Session-Revoked into a renewal (or a sign-out). A fetch built on
+  // authHeaders() elsewhere would ignore it.
+  it("is attached only by authFetch: authHeaders() is not called outside the auth store", () => {
+    const offenders = sources().filter((file) => {
+      if (file === STORE) return false;
+      return /\bauthHeaders\s*\(/.test(readFileSync(join(frontendRoot, file), "utf8"));
+    });
+    expect(offenders).toEqual([]);
+  });
 });

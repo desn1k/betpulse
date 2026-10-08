@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tier import Subscription, SubscriptionSource, Tier
 from app.models.user import User
-from app.services.auth import revoke_all_user_tokens
+from app.services.auth import mark_credentials_changed, revoke_all_user_tokens
 
 
 @dataclass(frozen=True)
@@ -165,6 +165,9 @@ async def disable_user(session: AsyncSession, *, user: User) -> int:
     Returns the number of tokens revoked. The caller commits.
     """
     user.is_active = False
+    # is_active already refuses every token; the timestamp also keeps them dead
+    # after a later enable_user, within their 15 minutes (ER2-01).
+    mark_credentials_changed(user)
     # Same family-locked revocation as a password change, so a refresh rotating
     # at this moment cannot leave a live token behind.
     revoked = await revoke_all_user_tokens(session, user.id)

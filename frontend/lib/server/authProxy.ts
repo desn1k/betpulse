@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { backendFetch } from "./backendProxy";
-
-const RELAYED_HEADERS = ["x-2fa-required", "retry-after"] as const;
+import { backendFetch, relayResponseHeaders } from "./backendProxy";
 
 /**
  * Rewrite the httpOnly refresh cookie's Path so it is scoped to the frontend's
@@ -43,11 +41,8 @@ export async function proxyAuth(request: NextRequest, backendPath: string): Prom
   for (const cookie of backendRes.headers.getSetCookie()) {
     response.headers.append("set-cookie", rewriteRefreshPath(cookie));
   }
-  // The login form needs to know a TOTP code is required, and a 429 (lockout,
-  // per-IP or per-user limit) how long to wait. No other backend header passes.
-  for (const name of RELAYED_HEADERS) {
-    const value = backendRes.headers.get(name);
-    if (value !== null) response.headers.set(name, value);
-  }
+  // The shared allowlist: a TOTP code required, how long a 429 lasts, a revoked
+  // session (ER2-01). No other backend header passes.
+  relayResponseHeaders(backendRes.headers, response.headers);
   return response;
 }
