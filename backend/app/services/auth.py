@@ -24,10 +24,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from redis.asyncio import Redis
 from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
+from app.core.client_ip import replay_subnet
 from app.core.config import get_settings
 from app.core.crypto import decrypt_secret
 from app.core.db import independent_transaction
@@ -45,6 +47,7 @@ from app.core.security import (
 from app.models.email_verification_token import EmailVerificationToken
 from app.models.refresh_token import RefreshToken
 from app.models.user import User, UserRole
+from app.services import refresh_replay
 from app.services.audit import AuditAction, record_event
 
 
@@ -390,13 +393,93 @@ async def _is_benign_duplicate(session: AsyncSession, row: RefreshToken) -> bool
     return bool(db_now - child.created_at <= grace)
 
 
+@dataclass(slots=True)
+class _Rotated:
+    tokens: IssuedTokens
+    # The new token's id after a rotation; None after a replay (nothing issued).
+    new_token_id: uuid.UUID | None
+
+
+async def _try_replay(
+    session: AsyncSession,
+    row: RefreshToken,
+    *,
+    redis: Redis,
+    token_hash: str,
+    ip: str | None,
+    user_agent: str | None,
+) -> IssuedTokens | str:
+    """F13 B: hand back ``row``'s direct replacement (T2) when ``row`` (T1) is
+    presented again within the replay window, from the rotating request's
+    user-agent and subnet, while T2 is unused and the account unchanged.
+    Runs under the family lock. Returns the tokens, or the refusal reason that
+    goes on the audit row of the ordinary outcome."""
+    entry = await refresh_replay.load(redis, token_hash)
+    if isinstance(entry, str):
+        return entry
+    if row.replaced_by is None or entry.token_id != row.replaced_by:
+        return "entry_invalid"
+    child = (
+        await session.execute(
+            select(RefreshToken)
+            .where(RefreshToken.id == row.replaced_by)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    if child is None or not hmac.compare_digest(child.token_hash, hash_token(entry.token)):
+        return "entry_invalid"
+    if child.replaced_by is not None:
+        return "t2_used"
+    if child.revoked or child.expires_at <= _now():
+        return "t2_revoked"
+    db_now = (await session.execute(select(func.clock_timestamp()))).scalar_one()
+    age = db_now - child.created_at
+    if age > timedelta(seconds=get_settings().refresh_replay_window_seconds):
+        return "window_passed"
+    user = await get_user_by_id(session, row.user_id)
+    if user is None or not user.is_active:
+        return "user_inactive"
+    if refresh_replay.credentials_stamp(user.credentials_changed_at) != entry.cca:
+        return "credentials_changed"
+    ua = refresh_replay.user_agent_fingerprint(user_agent)
+    if ua is None or not hmac.compare_digest(ua, entry.ua):
+        return "ua_mismatch"
+    if ip is None or replay_subnet(ip) != entry.subnet:
+        return "subnet_mismatch"
+    uses = await refresh_replay.claim(redis, token_hash, ip=ip)
+    if isinstance(uses, str):
+        return uses
+
+    access, expires_in = _access_for(user)
+    await record_event(
+        session,
+        action=AuditAction.TOKEN_REFRESH_REPLAYED,
+        actor_user_id=user.id,
+        ip=ip,
+        user_agent=user_agent,
+        meta={
+            "family_id": str(row.family_id),
+            "uses": uses,
+            "age_seconds": int(age.total_seconds()),
+        },
+    )
+    return IssuedTokens(
+        access_token=access,
+        expires_in=expires_in,
+        refresh_token=entry.token,
+        csrf_token=generate_csrf_token(),
+        user=user,
+    )
+
+
 async def _rotate_locked(
     session: AsyncSession,
     token_hash: str,
     *,
     ip: str | None,
     user_agent: str | None,
-) -> IssuedTokens | AuthError:
+    redis: Redis | None,
+) -> _Rotated | AuthError:
     """Decide and apply one rotation; errors are returned, not raised, so the
     caller can commit their security state first."""
     family_id = await session.scalar(
@@ -416,6 +499,13 @@ async def _rotate_locked(
 
     if row.revoked or row.replaced_by is not None:
         meta: dict[str, Any] = {"family_id": str(row.family_id)}
+        if redis is not None and refresh_replay.enabled():
+            replayed = await _try_replay(
+                session, row, redis=redis, token_hash=token_hash, ip=ip, user_agent=user_agent
+            )
+            if isinstance(replayed, IssuedTokens):
+                return _Rotated(tokens=replayed, new_token_id=None)
+            meta["replay"] = replayed
         if await _is_benign_duplicate(session, row):
             await record_event(
                 session,
@@ -458,13 +548,14 @@ async def _rotate_locked(
         ip=ip,
         user_agent=user_agent,
     )
-    return IssuedTokens(
+    tokens = IssuedTokens(
         access_token=access,
         expires_in=expires_in,
         refresh_token=new_plain,
         csrf_token=generate_csrf_token(),
         user=user,
     )
+    return _Rotated(tokens=tokens, new_token_id=new_row.id)
 
 
 async def rotate_refresh_token(
@@ -472,6 +563,7 @@ async def rotate_refresh_token(
     refresh_token: str,
     ip: str | None = None,
     user_agent: str | None = None,
+    redis: Redis | None = None,
 ) -> IssuedTokens:
     """Rotate ``refresh_token`` atomically in a transaction of its own.
 
@@ -481,14 +573,30 @@ async def rotate_refresh_token(
     the window, or of a revoked token, revokes the whole family and raises
     :class:`TokenReuseDetected`. Every outcome is committed before returning or
     raising, so revocations and their audit rows persist.
+
+    With ``redis`` (F13 B), a rotation leaves its new token for an idempotent
+    replay, and a rotated token presented again may get that same token back
+    instead (:func:`_try_replay`); the entry is written after the commit, so no
+    Redis call is made while the family lock is held on the ordinary path.
     """
+    token_hash = hash_token(refresh_token)
     async with _commit_security_state() as security_session:
         outcome = await _rotate_locked(
-            security_session, hash_token(refresh_token), ip=ip, user_agent=user_agent
+            security_session, token_hash, ip=ip, user_agent=user_agent, redis=redis
         )
     if isinstance(outcome, AuthError):
         raise outcome
-    return outcome
+    if redis is not None and outcome.new_token_id is not None and refresh_replay.enabled():
+        await refresh_replay.remember(
+            redis,
+            presented_hash=token_hash,
+            token=outcome.tokens.refresh_token,
+            token_id=outcome.new_token_id,
+            user_agent=user_agent,
+            ip=ip,
+            credentials_changed_at=outcome.tokens.user.credentials_changed_at,
+        )
+    return outcome.tokens
 
 
 async def logout(

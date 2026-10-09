@@ -103,6 +103,17 @@ def resolve_client_ip(
     return client.compressed
 
 
+def replay_subnet(client_ip: str) -> str | None:
+    """The client's network for binding a refresh-token replay (F13 B): IPv4
+    /24, IPv6 /64. ``None`` for an unknown or malformed address, which never
+    matches anything."""
+    address = _parse_ip(client_ip)
+    if address is None:
+        return None
+    prefix = _IPV6_BUCKET_PREFIX if isinstance(address, ipaddress.IPv6Address) else 24
+    return ipaddress.ip_network(f"{address}/{prefix}", strict=False).compressed
+
+
 def rate_limit_bucket(client_ip: str) -> str:
     """Key for per-IP rate limits and guest quotas: IPv4 per address, IPv6 per /64."""
     address = _parse_ip(client_ip)
