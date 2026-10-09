@@ -62,15 +62,34 @@ caching for strict CSP.
 
 ## Sensitive rate limits
 
-Phase 13b adds or verifies Redis-backed limits on security-sensitive request
-surfaces:
+Every request limit is a Redis fixed window (`app/services/rate_limit.py`,
+`app/services/limits.py`); every attempt counts, refused ones included, and an
+excess answers 429 with `Retry-After`. Thresholds come from `RATE_LIMIT_*`
+settings (`.env.example`).
 
-| Surface | Scope | Window | Default |
-|---|---|---:|---:|
-| Login attempts | Client IP | 1 minute | 5 |
-| Promo redemption attempts | User | 1 hour | 10 |
-| LLM analysis requests | User or guest IP | 1 minute | 20 |
-| Admin unsafe mutations (`POST`, `PUT`, `PATCH`, `DELETE` under `/admin`) | Client IP | 1 minute | 60 |
+| Surface | Identity | Threshold (default) | Position | Redis unavailable |
+|---|---|---|---|---|
+| `POST /auth/login` (password and TOTP step) | Client IP | 5 / 1 min | in the handler, before the user lookup and password hash | fails closed (500) |
+| `POST /auth/login` | Account | exponential lockout after failures | user row (database, not Redis) | not affected |
+| `POST /auth/refresh` (F7) | Client IP | 120 / 1 min | in the handler, before the rotation (a 429 rotates nothing, leaves the cookies) | **fails open**: no limit, a warning logged; the Redis call is bounded to 0.5 s |
+| Refresh-token replay (F13 B) | Client IP | 10 successful replays / 1 min | inside the rotation, after the replay checks | fails open: no replay, the ordinary rotation rules apply |
+| `GET /matches` list (F7) | Verified token subject, else guest IP | 120 / 60 s | route dependency, **before tier resolution** and any database read | fails closed (500) |
+| `GET /matches/{id}` | Verified token subject, else guest IP | 120 / 60 s | route dependency, before tier resolution and the fixture lookup | fails closed (500) |
+| `GET /matches/{id}/analysis` | Verified token subject, else guest IP | 20 / 1 min | route dependency, before tier resolution | fails closed (500) |
+| `POST /promo/redeem` | User | 10 / clock hour | in the handler, before the code lookup | fails closed (500) |
+| `POST /auth/change-password` | User | 5 / 15 min | before the current-password hash check | fails closed (500) |
+| TOTP enable / disable (one bucket) | User | 5 / 15 min | before the code check | fails closed (500) |
+| `POST /auth/2fa/setup` | User | 5 / 1 hour | before a new secret is generated | fails closed (500) |
+| Admin unsafe mutations (`POST`, `PUT`, `PATCH`, `DELETE` under `/admin`) | Client IP | 60 / 1 min | middleware, before routing and authentication | fails closed (500) |
+
+"Verified token subject" is the `sub` of an access token with a valid
+signature, type and expiry, read without a database query
+(`app.core.deps.rate_limit_identity`); a token that fails verification or has
+no UUID subject counts as a guest. The key holds only the canonical UUID or the
+guest's bucket, never token material. Why the refresh limit fails open: the
+rotation itself needs only the database, so failing closed would stop every
+signed-in user from renewing a session during a Redis outage; the routes that
+fail closed need Redis for their own work anyway (quotas, lockout counters).
 
 Daily product budgets (match detail views, backtester runs and delivered push
 notifications) remain tier limits rather than abuse controls.
