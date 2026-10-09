@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.schemas.system import ComponentHealth, SystemHealthOut
+from app.services.client_identity import check_client_identity
 
 
 async def _timed[T](coro: Awaitable[T]) -> tuple[T, int]:
@@ -55,6 +56,7 @@ async def build_system_health(
         await check_database(session),
         await check_redis(redis),
         check_ops_alerts(settings),
+        await check_client_identity(redis, settings),
     ]
     hard_failures = [c for c in components if c.status == "error"]
     soft_failures = [c for c in components if c.status in ("degraded", "not_configured")]

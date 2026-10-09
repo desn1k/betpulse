@@ -7,7 +7,10 @@
 # gets PUBLIC_DOMAIN (else the Caddyfile serves only `localhost`), that no
 # environment value is a comment (Compose reads `KEY=  # note` as `# note`), and
 # that every image is pinned by digest (`@sha256:...`) and none is built on the
-# server: a tag alone can be re-pushed (ER-H-09).
+# server: a tag alone can be re-pushed (ER-H-09). Since F5 it also checks the
+# dual-stack network: IPv6 enabled with one subnet per family, web and caddy
+# pinned in both, and TRUSTED_PROXY_CIDRS / INTERNAL_NETWORK_CIDRS of the API
+# and every worker naming exactly those addresses and subnets.
 #
 # Why a rendered check: in an override file `ports: []` is *appended* to the
 # base file's list, so it does not remove anything; only `ports: !reset []`
@@ -99,6 +102,73 @@ for name, service in sorted(config.get("services", {}).items()):
     if service.get("build"):
         problems.append(f"{name}: is built on the server; production runs published images only")
 
+# F5: the network is dual-stack, so Docker publishes Caddy's ports for IPv6
+# through ip6tables NAT (client addresses kept) instead of its userland proxy
+# (every IPv6 client seen as the gateway). The proxies are pinned in both
+# families, and the API and workers trust exactly those addresses and know the
+# network's subnets.
+import ipaddress
+
+network = (config.get("networks") or {}).get("default") or {}
+subnets = {}
+if network.get("enable_ipv6") is not True:
+    problems.append("network default: enable_ipv6 is not true (IPv6 clients would arrive as the gateway)")
+for entry in (network.get("ipam") or {}).get("config") or []:
+    try:
+        subnet = ipaddress.ip_network(entry.get("subnet") or "", strict=True)
+    except ValueError:
+        problems.append(f"network default: invalid subnet {entry.get('subnet')!r}")
+        continue
+    if subnet.version in subnets:
+        problems.append(f"network default: more than one IPv{subnet.version} subnet")
+    subnets[subnet.version] = subnet
+for version in (4, 6):
+    if version not in subnets:
+        problems.append(f"network default: no IPv{version} subnet")
+
+pinned = []
+for name in ("web", "caddy"):
+    entry = ((config.get("services", {}).get(name, {}).get("networks") or {}).get("default")) or {}
+    for version, key in ((4, "ipv4_address"), (6, "ipv6_address")):
+        value = entry.get(key)
+        if not value:
+            problems.append(f"{name}: no pinned IPv{version} address on the default network")
+            continue
+        try:
+            address = ipaddress.ip_address(value)
+        except ValueError:
+            problems.append(f"{name}: invalid IPv{version} address {value!r}")
+            continue
+        if address.version != version:
+            problems.append(f"{name}: {key} {value} is not an IPv{version} address")
+            continue
+        if version in subnets and address not in subnets[version]:
+            problems.append(f"{name}: IPv{version} address {value} is outside {subnets[version]}")
+        pinned.append(ipaddress.ip_network(f"{value}/{address.max_prefixlen}"))
+
+expected_trusted = sorted(map(str, pinned))
+expected_internal = sorted(str(s) for s in subnets.values())
+
+
+def cidr_set(raw):
+    try:
+        return sorted(str(ipaddress.ip_network(v.strip(), strict=True)) for v in raw.split(",") if v.strip())
+    except ValueError:
+        return None
+
+
+for name in ("api", "worker-realtime", "worker-batch", "worker-ml"):
+    env = config.get("services", {}).get(name, {}).get("environment") or {}
+    if isinstance(env, list):
+        env = dict(item.split("=", 1) for item in env if "=" in item)
+    for key, expected in (
+        ("TRUSTED_PROXY_CIDRS", expected_trusted),
+        ("INTERNAL_NETWORK_CIDRS", expected_internal),
+    ):
+        actual = cidr_set(env.get(key) or "")
+        if actual != expected:
+            problems.append(f"{name}: {key} is {env.get(key)!r}, expected {','.join(expected)}")
+
 if problems:
     print("Production Compose config is unsafe or miswired:", file=sys.stderr)
     for line in problems:
@@ -107,6 +177,8 @@ if problems:
 print(
     "OK: only caddy 80/tcp and 443/tcp are published; web reaches the API at "
     "http://api:8000; caddy gets PUBLIC_DOMAIN; no environment value is a comment; "
-    "every image is pinned by digest and none is built on the server."
+    "every image is pinned by digest and none is built on the server; the network is "
+    "dual-stack, web and caddy are pinned in both families, and the API and workers "
+    "trust exactly those addresses."
 )
 PY

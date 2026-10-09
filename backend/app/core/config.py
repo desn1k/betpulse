@@ -7,6 +7,7 @@ security-critical key is missing or weak.
 
 from __future__ import annotations
 
+import ipaddress
 import math
 from datetime import date
 from functools import lru_cache
@@ -15,7 +16,12 @@ from typing import Literal
 from pydantic import BaseModel, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.core.client_ip import IPNetwork, parse_trusted_proxies, validate_production_proxies
+from app.core.client_ip import (
+    IPNetwork,
+    parse_networks,
+    parse_trusted_proxies,
+    validate_production_proxies,
+)
 
 # --- placeholder / weak secret detection ---------------------------------------------
 # Docker Compose reads an env_file line `KEY=   # comment` as the value
@@ -162,6 +168,31 @@ DEFAULT_REFERENCE_BOOKMAKERS = [
 _DEV_TRUSTED_PROXIES = "127.0.0.1/32,::1/128"
 
 
+def _validate_internal_networks(
+    internal: tuple[IPNetwork, ...], trusted: tuple[IPNetwork, ...]
+) -> None:
+    """Production: our own network is listed, private, and holds every trusted
+    proxy (they are its pinned addresses), so the two settings cannot drift."""
+    if not internal:
+        raise ValueError(
+            "INTERNAL_NETWORK_CIDRS must be set in production (the Compose network's subnets)"
+        )
+    for network in internal:
+        if not network.is_private:
+            raise ValueError(f"INTERNAL_NETWORK_CIDRS: {network} is not a private network")
+    for proxy in trusted:
+        if not any(_within(proxy, network) for network in internal):
+            raise ValueError(f"TRUSTED_PROXY_CIDRS: {proxy} is outside INTERNAL_NETWORK_CIDRS")
+
+
+def _within(inner: IPNetwork, outer: IPNetwork) -> bool:
+    if isinstance(inner, ipaddress.IPv4Network) and isinstance(outer, ipaddress.IPv4Network):
+        return inner.subnet_of(outer)
+    if isinstance(inner, ipaddress.IPv6Network) and isinstance(outer, ipaddress.IPv6Network):
+        return inner.subnet_of(outer)
+    return False
+
+
 class Settings(BaseSettings):
     """Typed view over the process environment.
 
@@ -251,6 +282,12 @@ class Settings(BaseSettings):
     # Next.js BFF). Required in production; development/tests default to
     # loopback. See app/core/client_ip.py.
     trusted_proxy_cidrs: str | None = None
+    # Comma-separated CIDRs of our own Docker network (both address families).
+    # A client identity inside them is never a real client: it is the bridge
+    # gateway (Docker's userland proxy relayed the connection, F5) or an
+    # internal hop the API does not trust. The API logs and reports such
+    # requests (app/services/client_identity.py). Required in production.
+    internal_network_cidrs: str | None = None
 
     # --- Feature flags ------------------------------------------------------
     email_verification_required: bool = False
@@ -373,6 +410,12 @@ class Settings(BaseSettings):
         return parse_trusted_proxies(self.trusted_proxy_cidrs)
 
     @property
+    def internal_networks(self) -> tuple[IPNetwork, ...]:
+        if self.internal_network_cidrs is None:
+            return ()
+        return parse_networks(self.internal_network_cidrs, "INTERNAL_NETWORK_CIDRS")
+
+    @property
     def read_database_url(self) -> str:
         """Read-replica URL, falling back to the primary when unset."""
         return self.database_read_url or self.database_url
@@ -404,6 +447,7 @@ class Settings(BaseSettings):
     def _validate_security_settings(self) -> Settings:
         """Fail fast when production security settings are unsafe."""
         networks = self.trusted_proxy_networks  # raises on malformed CIDRs
+        internal = self.internal_networks  # likewise
         window = self.refresh_replay_window_seconds
         if window != 0 and not self.refresh_reuse_grace_seconds <= window <= 300:
             raise ValueError(
@@ -416,6 +460,7 @@ class Settings(BaseSettings):
             if self.trusted_proxy_cidrs is None:
                 raise ValueError("TRUSTED_PROXY_CIDRS must be set explicitly in production")
             validate_production_proxies(networks)
+            _validate_internal_networks(internal, networks)
             problem = secret_problem(self.secret_key)
             if problem:
                 raise ValueError(f"SECRET_KEY {problem}; set a random value in production")

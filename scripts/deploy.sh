@@ -185,6 +185,13 @@ rollback_on_failure() {
   schema_note
   exit 3
 }
+# Before the ERR trap and before anything is pulled or started: a project
+# network that no longer matches the Compose files (F5) is a refusal (exit 1)
+# with the one-time procedure, never a failed `up` and an automatic rollback.
+# shellcheck source=scripts/compose-network.sh
+. "$root_dir/scripts/compose-network.sh"
+check_project_network "IMAGE_TAG=$image_tag RELEASE_DIGESTS=$digests_file scripts/deploy.sh" || exit 1
+
 trap rollback_on_failure ERR
 
 compose pull "${app_services[@]}"

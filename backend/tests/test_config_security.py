@@ -16,6 +16,7 @@ def test_production_rejects_wildcard_cors_with_credentials() -> None:
             data_encryption_key=secrets.token_hex(32),
             cors_allowed_origins="*",
             trusted_proxy_cidrs="172.29.89.10/32",
+            internal_network_cidrs="172.29.89.0/24",
         )
 
 

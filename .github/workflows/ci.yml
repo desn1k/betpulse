@@ -296,7 +296,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck
 
       - name: Validate deployment scripts
-        run: shellcheck -x scripts/deploy.sh scripts/rollback.sh scripts/prod-compose.sh scripts/release-digests.sh scripts/release-version.sh scripts/caddy-smoke.sh scripts/check-compose-ports.sh scripts/caddy-domain-smoke.sh scripts/tests/deploy-scripts-test.sh
+        run: shellcheck -x scripts/deploy.sh scripts/rollback.sh scripts/prod-compose.sh scripts/release-digests.sh scripts/release-version.sh scripts/caddy-smoke.sh scripts/check-compose-ports.sh scripts/caddy-domain-smoke.sh scripts/edge-identity-smoke.sh scripts/compose-network.sh scripts/diagnose-client-ip.sh scripts/tests/deploy-scripts-test.sh scripts/tests/check-compose-ports-test.sh
 
       - name: Deploy/rollback readiness behaviour (stubbed docker)
         run: bash scripts/tests/deploy-scripts-test.sh
@@ -320,6 +320,8 @@ jobs:
           # and every image must be pinned by digest with nothing built on the server.
           docker compose version
           bash scripts/check-compose-ports.sh .env
+          # F5: the dual-stack network and the proxy addresses the API trusts.
+          bash scripts/tests/check-compose-ports-test.sh .env
           # ER-H-09: no tag or no digest -> the production config does not render.
           prod_config() {
             docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.prod.yml config --quiet
@@ -364,3 +366,11 @@ jobs:
           WEB_IMAGE_DIGEST: sha256:2222222222222222222222222222222222222222222222222222222222222222
           MLFLOW_IMAGE_DIGEST: sha256:3333333333333333333333333333333333333333333333333333333333333333
         run: bash scripts/caddy-domain-smoke.sh .env
+
+      # F5: an IPv4 and an IPv6 client reach the upstream behind Caddy as
+      # themselves, never as the Docker bridge gateway (Linux Docker only).
+      - name: Client identity at the edge (IPv4 and IPv6)
+        timeout-minutes: 5
+        env:
+          POSTGRES_PASSWORD: ci-postgres-password
+        run: bash scripts/edge-identity-smoke.sh .env

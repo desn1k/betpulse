@@ -104,6 +104,16 @@ verify_bff_ready() {
   return 1
 }
 
+# Before anything is pulled or started: a project network that no longer
+# matches the Compose files (F5) is a refusal with the one-time procedure.
+# shellcheck source=scripts/compose-network.sh
+. "$root_dir/scripts/compose-network.sh"
+rerun="IMAGE_TAG=$image_tag scripts/rollback.sh"
+if [[ -n "${RELEASE_DIGESTS:-}" ]]; then
+  rerun="IMAGE_TAG=$image_tag RELEASE_DIGESTS=$RELEASE_DIGESTS scripts/rollback.sh"
+fi
+check_project_network "$rerun" || exit 1
+
 compose pull "${app_services[@]}"
 # --remove-orphans stops services that the current Compose files no longer
 # define (e.g. the single pre-split `worker`).

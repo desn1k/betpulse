@@ -8,6 +8,10 @@
 # X-Forwarded-For and sends upstream only the connecting client's address. The
 # BFF and the API rely on that (see SECURITY.md). If a CDN/WAF is ever placed in
 # front of Caddy, configure `trusted_proxies` for it and re-review the chain.
+# The connecting address is the client's only because the Compose network is
+# dual-stack (F5, infra/docker-compose.yml): on an IPv4-only network Docker's
+# userland proxy relays IPv6 clients, and Caddy sees them all as the gateway.
+# scripts/edge-identity-smoke.sh (CI) checks both families.
 #
 # Routing and the X-Forwarded-For replacement are covered by
 # scripts/caddy-smoke.sh (run in CI).

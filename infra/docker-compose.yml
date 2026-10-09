@@ -111,9 +111,13 @@ services:
     env_file:
       - ../.env
     environment:
-      # Only the web container (Next.js BFF) may vouch for a client IP; the prod
-      # overlay adds Caddy. Requests published straight to :8000 use the peer.
-      TRUSTED_PROXY_CIDRS: ${BETPULSE_WEB_IP:-172.29.89.10}/32
+      # Only the web container (Next.js BFF) may vouch for a client IP, over
+      # either address family; the prod overlay adds Caddy. Requests published
+      # straight to :8000 use the peer.
+      TRUSTED_PROXY_CIDRS: "${BETPULSE_WEB_IP:-172.29.89.10}/32,${BETPULSE_WEB_IP6:-fd42:b7e1:5a29:89::10}/128"
+      # This network's subnets: a client identity inside them is the bridge
+      # gateway or an untrusted internal hop, never a client (F5 guard).
+      INTERNAL_NETWORK_CIDRS: "${BETPULSE_NETWORK_SUBNET:-172.29.89.0/24},${BETPULSE_NETWORK_SUBNET6:-fd42:b7e1:5a29:89::/64}"
     ports:
       - "8000:8000"
     depends_on:
@@ -184,6 +188,7 @@ services:
     networks:
       default:
         ipv4_address: ${BETPULSE_WEB_IP:-172.29.89.10}
+        ipv6_address: "${BETPULSE_WEB_IP6:-fd42:b7e1:5a29:89::10}"
     ports:
       - "3000:3000"
     depends_on:
@@ -204,10 +209,22 @@ volumes:
   mlflow_artifacts:
 
 # Pinned so the reverse proxies get stable addresses that the API can trust
-# (TRUSTED_PROXY_CIDRS). Override BETPULSE_NETWORK_SUBNET together with
-# BETPULSE_WEB_IP / BETPULSE_CADDY_IP if the range collides on the host.
+# (TRUSTED_PROXY_CIDRS). Override the subnets and gateways together with
+# BETPULSE_WEB_IP(6) / BETPULSE_CADDY_IP(6) if a range collides on the host.
+#
+# Dual-stack (F5): with an IPv6 subnet Docker publishes Caddy's ports for IPv6
+# through ip6tables NAT, which keeps the client's address. On an IPv4-only
+# network Docker's userland proxy relays IPv6 connections instead, and Caddy
+# sees every IPv6 client as the gateway: one shared identity for rate limits,
+# guest quotas and the refresh replay. The IPv6 subnet is a ULA, internal only.
+# Changing this block needs a one-time `scripts/prod-compose.sh down` (no -v)
+# on an existing stack: deploy.sh and rollback.sh refuse until then.
 networks:
   default:
+    enable_ipv6: true
     ipam:
       config:
         - subnet: ${BETPULSE_NETWORK_SUBNET:-172.29.89.0/24}
+          gateway: ${BETPULSE_NETWORK_GATEWAY:-172.29.89.1}
+        - subnet: "${BETPULSE_NETWORK_SUBNET6:-fd42:b7e1:5a29:89::/64}"
+          gateway: "${BETPULSE_NETWORK_GATEWAY6:-fd42:b7e1:5a29:89::1}"

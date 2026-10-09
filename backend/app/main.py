@@ -26,12 +26,14 @@ from app.api.push import router as push_router
 from app.api.system import audit_router
 from app.api.system import router as system_router
 from app.api.users import admin_router as users_admin_router
+from app.core.client_ip import internal_client
 from app.core.config import get_settings
 from app.core.deps import get_client_ip
 from app.core.outbound import install_log_safety
 from app.core.redis import get_redis
 from app.core.security_headers import SECURITY_HEADERS
 from app.core.validation import request_validation_handler
+from app.services import client_identity
 from app.services.rate_limit import RateLimitExceeded, enforce_admin_mutation_ip_limit
 
 _ADMIN_MUTATION_METHODS = frozenset({"DELETE", "PATCH", "POST", "PUT"})
@@ -60,6 +62,24 @@ def create_app() -> FastAPI:
     )
     # 422 bodies carry type/loc/msg only, never the submitted value.
     app.add_exception_handler(RequestValidationError, request_validation_handler)
+
+    @app.middleware("http")
+    async def watch_client_identity(
+        request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
+        # F5 guard: a client identity inside our own network (the bridge
+        # gateway) is logged once and shown on the admin system health page.
+        internal = settings.internal_networks
+        if internal:
+            client = internal_client(
+                request.client.host if request.client is not None else None,
+                request.headers.get("x-forwarded-for"),
+                settings.trusted_proxy_networks,
+                internal,
+            )
+            if client is not None:
+                await client_identity.observe(get_redis(), client, request.url.path)
+        return await call_next(request)
 
     @app.middleware("http")
     async def enforce_admin_mutation_rate_limit(
