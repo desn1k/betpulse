@@ -16,6 +16,9 @@ test("a visitor who confirmed their age is not asked again after a reload", asyn
   await page.goto("/", { waitUntil: "domcontentloaded" });
   const gate = page.getByRole("dialog");
   await expect(gate).toBeVisible();
+  // A click on the server-rendered button before React attached its handler is
+  // lost; wait for the hydration marker (app/providers.tsx).
+  await page.locator("html[data-hydrated]").waitFor({ state: "attached" });
   await gate.getByRole("button", { name: "I am 18 or older" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 

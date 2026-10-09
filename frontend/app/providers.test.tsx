@@ -53,3 +53,31 @@ describe("Providers: retry policy for every query", () => {
     expect(await attemptsFor(new TypeError("Failed to fetch"))).toBe(2);
   });
 });
+
+describe("Providers: hydration marker for the e2e tests", () => {
+  beforeEach(() => {
+    // Earlier tests in this file mounted Providers too.
+    delete document.documentElement.dataset.hydrated;
+  });
+  afterEach(() => {
+    delete document.documentElement.dataset.hydrated;
+  });
+
+  it("marks <html data-hydrated> only after mount, never in the server render", async () => {
+    const { renderToString } = await import("react-dom/server");
+    const html = renderToString(
+      <Providers>
+        <p>page</p>
+      </Providers>,
+    );
+    expect(html).not.toContain("data-hydrated");
+    expect(document.documentElement.dataset.hydrated).toBeUndefined();
+
+    render(
+      <Providers>
+        <p>page</p>
+      </Providers>,
+    );
+    expect(document.documentElement.dataset.hydrated).toBe("true");
+  });
+});

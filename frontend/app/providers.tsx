@@ -29,6 +29,14 @@ export function Providers({ children }: { children: ReactNode }) {
     void useAuthStore.getState().hydrate();
   }, []);
 
+  // <html data-hydrated>: set after mount, never in the server HTML (so no
+  // hydration mismatch), as a plain DOM attribute (no inline script, nothing for
+  // the CSP). The e2e tests wait for it before clicking: a click on server-rendered
+  // markup before React attached its handlers is lost.
+  useEffect(() => {
+    document.documentElement.dataset.hydrated = "true";
+  }, []);
+
   // Renew the session when the tab comes back, and follow a logout in another
   // tab (lib/auth/store.ts).
   useEffect(() => watchSession(), []);
