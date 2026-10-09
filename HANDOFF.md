@@ -11,24 +11,25 @@ constraints" section whenever they change.
 
 _Rewritten in every PR. Read this first; read other sections only when the task needs them._
 
-- **main:** `7ff1487` (#122, ER2-01). **This PR:** #123, F13 part A (refresh as keepalive,
-  never aborted) and the flaky age-gate e2e fix.
+- **main:** `b3a0929` (#123, F13 part A). **This PR** (`fix/f13b-refresh-replay`): F13 part
+  B, the server-side replay of the same T2 (§6 "Refresh replay"), and the session rules moved
+  into `AGENTS.md` (the agent's per-session rules; this file stays the project context).
 - **Last release:** `v0.0.1-rc6` (pre-release, main `17d508a`, 2026-10-08). The local
   rehearsal stack runs rc6 with a seeded database; nothing was released since (F10–F14,
-  ER2-01 and F13 A go into rc7).
-- **Next three (owner, 2026-10-09: pre-launch fixes first, then one rc7 rehearsal):**
-  1. F13 part B — server-side replay of the same T2 within 60 s (§9m, F13).
-  2. F5 — IPv6 / userland-proxy identity collapse (§9m, "Found later").
-  3. F7 — rate limit on `/matches`, limits before tier resolution (§9m, "Found later").
+  ER2-01 and F13 A and B go into rc7).
+- **Next (owner, 2026-10-09: pre-launch fixes first, then one rc7 rehearsal):**
+  1. F5 — IPv6 / userland-proxy identity collapse (§9m, "Found later"). **F13 B's subnet
+     binding is only as good as F5** (§9m, F13).
+  2. F7 — rate limits on `/matches` and `/auth/refresh`, limits before tier resolution
+     (§9m, "Found later").
 - **Launch blockers still open (§9i):** F5, F7, ER2-05 (API statement/lock timeouts),
   Redis `requirepass`, Redis persistence and memory policy, `docs/DEPLOY_VPS.md` (with the
-  "Lost authenticator" section); F13 part B is in the same pre-launch group.
+  "Lost authenticator" section).
 - **After those:** v0.0.1-rc7 rehearsal (§9i, "v0.0.1-rc7 (planned)"), then the cleanup PR
   (ER2-09, ER2-13, F15, F16), O2 (with F17, F18), live on Sportmonks (§9m queue).
 - **Read for the current work:**
-  - F13 B: §6 "Refresh rotation is atomic" and "Access tokens die when the credentials
-    change", §9b frontend auth notes, §9m F13.
-  - F5 / F7 / ER2-05: §9m "Found later" and "External review 2", §6 client IP and pools.
+  - F5 / F7 / ER2-05: §9m "Found later" and "External review 2", §6 client IP and pools,
+    §6 "Refresh replay" (what F5 changes for it).
   - Releases and rehearsals: §9i "Release images and digests", "rc6 rehearsal", "v0.0.1-rc7".
   - Any PR: §2 (rules), §5 (CI, e2e conventions, package-lock rule), §7 (environment).
 
@@ -238,6 +239,30 @@ covered by Vitest + React Testing Library.
   not the address. Every revocation of a user's tokens (logout, password change via
   `revoke_all_user_tokens`, admin `disable_user`) takes the family lock(s) first — all families in
   key order — so a rotation in flight can never leave a live token behind.
+- **Refresh replay (F13 B, 2026-10-09).** A rotation T1 → T2 whose answer was lost must not
+  end in a logout. After the commit, `rotate_refresh_token` stores an entry in Redis
+  (`auth:refresh_replay:<sha256 of T1>`, a hash: `data` = Fernet(`DATA_ENCRYPTION_KEY`) of T2,
+  T2's id, an HMAC (`SECRET_KEY`) of the user-agent, the client subnet (IPv4 /24, IPv6 /64,
+  `core.client_ip.replay_subnet`) and the account's `credentials_changed_at`; `uses` = 0), TTL
+  `REFRESH_REPLAY_WINDOW_SECONDS` (60; 0 turns it off; otherwise between the grace window and
+  300). No entry without a user-agent or a known client address. When T1 comes back, under the
+  family lock and **before** the grace check, `_try_replay` returns **the same T2** and a new
+  access token — no refresh token issued, audit `auth.token.refresh_replayed` (`family_id`,
+  `uses`, `age_seconds`) — only if all hold: the entry decrypts and names T1's direct
+  replacement; T2 is not rotated (`t2_used`) and not revoked or expired (`t2_revoked`); T2 is
+  ≤ the window old on the DB clock (`window_passed`); the account is active (`user_inactive`)
+  and its `credentials_changed_at` is unchanged (`credentials_changed`); the user-agent HMAC
+  and the subnet match (`ua_mismatch`, `subnet_mismatch`); fewer than
+  `REFRESH_REPLAY_MAX_USES` (3) replays of this T1 so far (`cap_reached`, Lua, atomic); and the
+  client IP bucket has fewer than `RATE_LIMIT_REFRESH_REPLAY_PER_MINUTE` (10) replays this
+  minute (`ip_limited`; the cap is given back, so only successful replays count). Otherwise the
+  rules above apply unchanged (409 inside 10 s, family revocation after) and the reason goes
+  into that audit row's `meta.replay` (also `no_entry`, `entry_invalid`, `store_unavailable`).
+  Redis is best effort: every call is bounded to 0.5 s, a failure or timeout is logged and means
+  "no replay", never a failed refresh; the ordinary path makes no Redis call under the lock.
+  **Not a theft control until F5 lands** (§9m, F13). No migration; rolling the image back
+  leaves only entries that expire within 60 s. Tests: `tests/test_refresh_replay.py`, every
+  window boundary on both sides by moving `created_at` on the DB clock (no sleeps).
 - **Redis counters are atomic Lua scripts** (`app/services/counters.py`); never write
   `INCR` + `EXPIRE` (or `INCR` … `DECR`) as separate commands again. `incr_with_ttl` (fixed-window
   rate limits: login/LLM/admin per IP, promo per user; push counting) increments and sets the TTL in
@@ -1454,7 +1479,8 @@ rc6 items that still apply (deploy over data, migration log, drills), it must ch
 
 None of these is done; the site is not opened before all are.
 - **F5** — IPv6 / userland-proxy identity collapse (§9m).
-- **F7** — rate limit on `/matches`, and limits enforced before tier resolution (§9m).
+- **F7** — rate limits on `/matches` and `/auth/refresh`, and limits enforced before tier
+  resolution (§9m).
 - **ER2-05** — API-only `statement_timeout` 15 s and `lock_timeout` 5 s (§9m, external review 2).
 - **Redis `requirepass`** (§9i, "Published ports").
 - **Redis persistence and memory policy.** Decide and document both in `infra/` and the runbook:
@@ -2066,6 +2092,14 @@ F10–F18 were found in the rc6 rehearsal and after it (below); F10, F11, F12 an
   (list, filters, consensus) and only `/matches/{id}` and `/analysis` are limited. Slot:
   **pre-launch protection group** (before the first public release, with ER-M-04 / §11 O2 and
   F5). Fix: the same per-caller fixed window, from settings.
+  - **Same group: `/auth/refresh` has no per-IP rate limit at all** (found 2026-10-09 while
+    doing F13 B; only successful replays are limited, §6 "Refresh replay"). Add one together
+    with the `/matches` limit, **after F5** (before it, every IPv6 client on a VPS would share
+    one bucket), with a generous threshold (every page load refreshes; users behind one NAT or
+    carrier-grade NAT share an address) and **429 handling in the client refresh path**
+    (`lib/auth/store.ts` today keeps the session on a 429 like on a 5xx and retries on its own
+    schedule, ignoring `Retry-After`; it must honour `Retry-After`, never sign out, and have a
+    test for it).
   - **Same group: rate limit before tier resolution** (CodeRabbit on the ER-M-05 follow-up).
     `/matches/{id}`, `/analysis` and (once limited) `/matches` check their limit inside the
     handler, after `get_tier_context` has run. For a guest that is no database work (no token →
@@ -2158,13 +2192,21 @@ the failing test named here.
     proxies); the whole browser closed or crashing, or a mobile OS unloading the tab; an answer
     slower than the 10 s reuse window, with a retry on the old cookie after the window;
     browsers without keepalive (Firefox before 133).
-  - **B (server), after A:** at rotation T1 → T2 the server keeps T2 Fernet-encrypted in Redis
-    for **60 s**, keyed by T1's hash. A re-presentation of T1 inside the window, while T2 is
-    unused (not revoked, not rotated) **and** the user-agent hash and the client subnet (IPv4
-    /24, IPv6 /64) match the rotating request, gets **the same T2** back with a new access
-    token — no new refresh token. Anything else follows today's logic (409 inside 10 s, family
-    revocation after). Tests for each refusal path (window passed, T2 used, T2 revoked, other
-    user agent, other subnet).
+  - **B (server) — done 2026-10-09.** At rotation T1 → T2 the server keeps T2
+    Fernet-encrypted in Redis for **60 s**, keyed by T1's hash. A re-presentation of T1 inside
+    the window, while T2 is unused, the account active and unchanged, **and** the user-agent
+    hash and the client subnet (IPv4 /24, IPv6 /64) match the rotating request, gets **the
+    same T2** back with a new access token — no new refresh token; at most 3 times per T1 and
+    10 per client IP a minute. Anything else follows the earlier logic (409 inside 10 s,
+    family revocation after). Details, refusal reasons and settings: §6 "Refresh replay". This
+    covers every case "left for B" above that reaches the server again within 60 s from the
+    same browser and network.
+  - **B depends on F5. Do not rely on it as a theft control before F5 lands; F5 is next.**
+    Until F5 is fixed, every IPv6 client on a VPS reaches the API as the Docker bridge gateway,
+    and on Docker Desktop every client does, so all of them share one "subnet" and the binding
+    reduces to the user-agent match — which a thief holding T1 can copy. In that state a T1
+    stolen and presented within 60 s while T2 is unused gets T2 instead of revoking the family.
+    The exposure is narrow (60 s, 3 uses, T2 still unused) but real.
 - **F14 — the header flashed "Sign in" before the session was restored. Fixed 2026-10-08.**
   `AuthMenu` rendered the signed-out state whenever `user` was null, including while `hydrated`
   was false and in the server HTML. It now renders a neutral placeholder of the same size until
@@ -2244,7 +2286,7 @@ main `314029b`**; line numbers will drift. Labels `ER2-` keep them apart from th
 
 1. **F8**, **F9**, **v0.0.1-rc6**, **F12**, **F10 + F11 + F14**, **ER2-01** — done.
 2. **v0.0.1-rc7** — the owner, by hand; checklist by the agent (§9i, "v0.0.1-rc7 (planned)").
-3. **F13** — part A done (2026-10-09); part B next in the pre-launch group (§9m).
+3. **F13** — parts A and B done (2026-10-09; §9m). B relies on F5 for its subnet binding.
 4. **Launch blockers:** F5, F7, ER2-05, Redis `requirepass` and memory policy, `docs/DEPLOY_VPS.md`.
 5. **Cleanup PR:** ER2-09 (`BATCH_MAX` 10 000), ER2-13 (dead settings), F15 (stale-note time in
    the viewer's time zone), F16 (no follow toggle on finished matches).
