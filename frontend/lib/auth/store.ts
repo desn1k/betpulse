@@ -64,6 +64,12 @@ export const REFRESH_MARGIN_MS = 60_000;
 export const REFRESH_TIMEOUT_MS = 10_000;
 /** Retry delays after a failed (network / 5xx) refresh; the last one repeats. */
 export const REFRESH_RETRY_DELAYS_MS = [5_000, 15_000, 30_000, 60_000] as const;
+/** A refresh answered 429 (the per-IP limit, F7) waits its Retry-After, clamped
+ * to 1–300 s (60 s when absent or unusable), plus up to this much random jitter
+ * so the tabs of one browser do not all fire when the window ends. */
+export const REFRESH_RATE_LIMIT_DEFAULT_S = 60;
+export const REFRESH_RATE_LIMIT_MAX_S = 300;
+export const REFRESH_RATE_LIMIT_JITTER_MS = 5_000;
 
 /** Name of the channel that tells the other tabs about a logout. */
 export const AUTH_CHANNEL = "betpulse-auth";
@@ -89,6 +95,9 @@ function emit(event: SessionEvent): void {
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let retryAttempt = 0;
+// After a 429 no refresh is sent before this instant (ms; 0 = none): not by a
+// caller, the renewal timer, or focus/online/visibility (F7).
+let rateLimitedUntil = 0;
 let inFlight: Promise<void> | null = null;
 // Bumped whenever the session ends here; a refresh started under an older
 // epoch must not bring the session back (a logout racing a renewal).
@@ -102,6 +111,14 @@ function clearTimers(): void {
   if (retryTimer !== null) clearTimeout(retryTimer);
   refreshTimer = null;
   retryTimer = null;
+}
+
+/** How long a refresh answered 429 waits: Retry-After clamped to 1–300 s (60 s
+ * when missing or unusable), plus jitter. */
+function rateLimitWaitMs(res: Response): number {
+  const seconds = retryAfterSeconds(res) ?? REFRESH_RATE_LIMIT_DEFAULT_S;
+  const clamped = Math.min(Math.max(seconds, 1), REFRESH_RATE_LIMIT_MAX_S);
+  return clamped * 1000 + Math.floor(Math.random() * REFRESH_RATE_LIMIT_JITTER_MS);
 }
 
 function channel(): BroadcastChannel | null {
@@ -170,6 +187,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
       refreshFailing: false,
     });
     retryAttempt = 0;
+    rateLimitedUntil = 0;
     clearTimers();
     refreshTimer = setTimeout(
       () => void refreshSession().catch(() => undefined),
@@ -185,6 +203,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
     sessionEpoch += 1;
     clearTimers();
     retryAttempt = 0;
+    rateLimitedUntil = 0;
     const hadSession = get().accessToken !== null || get().user !== null;
     set({
       accessToken: null,
@@ -267,6 +286,20 @@ export const useAuthStore = create<AuthState>((set, get) => {
       clearSession({ expired: true });
       return;
     }
+    if (res.status === 429) {
+      // The per-IP refresh limit (F7). The session stays (the server rotated
+      // nothing, the cookie is still the live token); one retry after
+      // Retry-After, and nothing is sent before it.
+      const wait = rateLimitWaitMs(res);
+      rateLimitedUntil = Date.now() + wait;
+      set({ refreshFailing: get().accessToken !== null });
+      if (retryTimer !== null) clearTimeout(retryTimer);
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        void refreshSession().catch(() => undefined);
+      }, wait);
+      throw new SessionRefreshError("session refresh rate limited");
+    }
     // 5xx, 502 from the BFF, or a conflict that did not clear: keep the session
     // and try again later.
     set({ refreshFailing: get().accessToken !== null });
@@ -277,6 +310,10 @@ export const useAuthStore = create<AuthState>((set, get) => {
   /** One refresh at a time per tab; every caller shares it. A settled attempt
    * is never reused: the next caller starts a new one. */
   function refreshSession(): Promise<void> {
+    // Inside a 429's window: fail at once, send nothing (F7).
+    if (inFlight === null && Date.now() < rateLimitedUntil) {
+      return Promise.reject(new SessionRefreshError("session refresh rate limited"));
+    }
     if (inFlight === null) {
       inFlight = runRefresh().finally(() => {
         inFlight = null;
