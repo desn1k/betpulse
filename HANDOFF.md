@@ -2223,8 +2223,9 @@ the failing test named here.
     (2026-10-09): the replay stays on by default.** F5 is a launch blocker, so no public
     deployment runs before it (a closed trial run only behind the provider firewall, §9i
     launch blockers), and rc7 must exercise the enabled path. Detection is delayed, not lost:
-    once either party rotates T2, the other's next presentation of a rotated token revokes the
-    family, unless it again qualifies for a replay (same fingerprint, inside 60 s, under the
+    once either party rotates T2, the other's next presentation of a rotated token follows the
+    ordinary rules — 409 while its direct successor is live and ≤ 10 s old, family revocation
+    otherwise — unless it again qualifies for a replay (same fingerprint, inside 60 s, under the
     cap). Verify the binding on the first VPS (§9i, first-VPS checklist).
 - **F14 — the header flashed "Sign in" before the session was restored. Fixed 2026-10-08.**
   `AuthMenu` rendered the signed-out state whenever `user` was null, including while `hydrated`
