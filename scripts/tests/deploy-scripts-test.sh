@@ -45,6 +45,39 @@ if [[ "${1:-}" == "inspect" ]]; then
   exit 0
 fi
 args=" $* "
+# The project network (F5). `compose config` renders the dual-stack network of
+# infra/docker-compose.yml; STUB_NETWORK says what exists on the host:
+#   absent  -> no such network yet (first deploy on an empty server)
+#   match   -> the dual-stack network as rendered
+#   ipv4    -> the IPv4-only network of releases before F5
+#   down    -> the Docker daemon cannot be reached
+if [[ "$args" == *" config --format json "* ]]; then
+  cat <<'JSON'
+{"name": "betpulse", "networks": {"default": {"name": "betpulse_default", "enable_ipv6": true,
+ "ipam": {"config": [{"subnet": "172.29.89.0/24", "gateway": "172.29.89.1"},
+                     {"subnet": "fd42:b7e1:5a29:89::/64", "gateway": "fd42:b7e1:5a29:89::1"}]}}}}
+JSON
+  exit 0
+fi
+if [[ "${1:-}" == "network" && "${2:-}" == "ls" ]]; then
+  case "${STUB_NETWORK:-match}" in
+    down) echo "Cannot connect to the Docker daemon" >&2; exit 1 ;;
+    absent) printf 'bridge\nhost\nnone\n' ;;
+    *) printf 'betpulse_default\nbridge\nhost\nnone\n' ;;
+  esac
+  exit 0
+fi
+if [[ "${1:-}" == "network" && "${2:-}" == "inspect" ]]; then
+  case "${STUB_NETWORK:-match}" in
+    ipv4)
+      echo '{"Name": "betpulse_default", "EnableIPv6": false, "IPAM": {"Config": [{"Subnet": "172.29.89.0/24", "Gateway": "172.29.89.1"}]}}'
+      ;;
+    *)
+      echo '{"Name": "betpulse_default", "EnableIPv6": true, "IPAM": {"Config": [{"Subnet": "172.29.89.0/24", "Gateway": "172.29.89.1"}, {"Subnet": "fd42:b7e1:5a29:89::/64", "Gateway": "fd42:b7e1:5a29:89::1"}]}}'
+      ;;
+  esac
+  exit 0
+fi
 # STUB_BLOCK_DIR: `compose pull` writes <dir>/started, then waits for <dir>/go
 # (a deploy held mid-run, to signal it) and writes <dir>/done. The wait is
 # bounded (STUB_BLOCK_TICKS x 0.1 s, default 30 s): a stub whose test is gone
@@ -121,8 +154,8 @@ DIGEST2="sha256:$(hex_of 2)"
 setup_root() {
   local root="$work/root-$1"
   mkdir -p "$root/scripts" "$root/.release"
-  cp "$repo_dir/scripts/deploy.sh" "$repo_dir/scripts/rollback.sh" \
-    "$repo_dir/scripts/prod-compose.sh" "$repo_dir/scripts/release-digests.sh" "$root/scripts/"
+  # Every script with the helpers it sources.
+  cp "$repo_dir"/scripts/*.sh "$root/scripts/"
   : >"$root/.env"
   echo "v1.0.0" >"$root/.release/last-successful-image-tag"
   write_digests "$root/.release/v1.0.0.digests" v1.0.0 1
@@ -139,6 +172,7 @@ run() {
   PATH="$work/bin:$PATH" STUB_LOG="$log" STUB_READY="$ready" IMAGE_TAG="$tag" \
     STUB_READY_FAIL_TAG="${READY_FAIL_TAG:-}" STUB_UNHEALTHY_TAG="${UNHEALTHY_TAG:-}" \
     STUB_TIMESCALE="${TIMESCALE:-absent}" STUB_PSQL_FAIL_DB="${PSQL_FAIL_DB:-}" \
+    STUB_NETWORK="${NETWORK:-match}" \
     BETPULSE_RELEASE_LOCK_PID="${LOCK_PID:-}" \
     RELEASE_DIGESTS="$digests" DEPLOY_HEALTHCHECK_ATTEMPTS=2 \
     bash "$root/scripts/$script" >"$root/out.txt" 2>&1
@@ -616,8 +650,94 @@ set -e
 [[ "$code" == "1" ]] || fail "stub deadline: exit $code, expected 1"
 [[ -f "$root/block/done" ]] || fail "stub deadline: done marker not written"
 
+# 17. The project network does not match the Compose files (F5: the IPv4-only
+# network of an earlier release, the files now dual-stack). Compose cannot
+# change a network in place, so `up` would fail mid-deploy and trigger an
+# automatic rollback that fails the same way. Both scripts refuse with exit 1
+# before pulling or starting anything, and print the one-time procedure.
+# 17a. deploy.sh
+root="$(setup_root network-mismatch-deploy)"
+code="$(NETWORK=ipv4 run "$root" ok deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
+[[ "$code" == "1" ]] || fail "network mismatch, deploy: exit $code, expected 1"
+grep -q "does not match the Compose configuration" "$root/out.txt" ||
+  fail "network mismatch, deploy: no clear message"
+grep -q "existing: *IPv6 off" "$root/out.txt" || fail "network mismatch, deploy: existing network not shown"
+grep -q "configured: *IPv6 on" "$root/out.txt" || fail "network mismatch, deploy: configured network not shown"
+grep -qF "scripts/prod-compose.sh down" "$root/out.txt" ||
+  fail "network mismatch, deploy: the down step is not printed"
+grep -qF -- "never -v" "$root/out.txt" || fail "network mismatch, deploy: no warning against -v"
+grep -qF "IMAGE_TAG=v2.0.0 RELEASE_DIGESTS=$root/release-v2.0.0.digests scripts/deploy.sh" "$root/out.txt" ||
+  fail "network mismatch, deploy: the exact re-run command is not printed"
+if grep -qE " (pull|up|run|down) " "$root/docker.log"; then
+  fail "network mismatch, deploy: pulled, started or stopped something"
+fi
+if grep -q "rolling back" "$root/out.txt"; then
+  fail "network mismatch, deploy: an automatic rollback was started"
+fi
+[[ "$(<"$root/.release/last-successful-image-tag")" == "v1.0.0" ]] ||
+  fail "network mismatch, deploy: release state changed"
+lock_released "$root" "network mismatch, deploy"
+
+# 17b. rollback.sh
+root="$(setup_root network-mismatch-rollback)"
+code="$(NETWORK=ipv4 run "$root" ok rollback.sh v1.0.0)"
+[[ "$code" == "1" ]] || fail "network mismatch, rollback: exit $code, expected 1"
+grep -q "does not match the Compose configuration" "$root/out.txt" ||
+  fail "network mismatch, rollback: no clear message"
+grep -qF "scripts/prod-compose.sh down" "$root/out.txt" ||
+  fail "network mismatch, rollback: the down step is not printed"
+grep -qF "IMAGE_TAG=v1.0.0 scripts/rollback.sh" "$root/out.txt" ||
+  fail "network mismatch, rollback: the exact re-run command is not printed"
+if grep -qE " (pull|up|down) " "$root/docker.log"; then
+  fail "network mismatch, rollback: pulled, started or stopped something"
+fi
+lock_released "$root" "network mismatch, rollback"
+
+# 17c. first deploy on an empty server: no network yet, so nothing to compare
+# and no refusal; the deploy goes ahead and Compose creates the network.
+root="$(setup_root network-absent)"
+rm "$root/.release/last-successful-image-tag" "$root/.release/v1.0.0.digests"
+code="$(NETWORK=absent run "$root" ok deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
+[[ "$code" == "0" ]] || fail "network absent: exit $code, expected 0"
+grep -q " network ls " "$root/docker.log" || fail "network absent: the network was not looked up"
+if grep -q " network inspect " "$root/docker.log"; then
+  fail "network absent: inspected a network that does not exist"
+fi
+
+# 17d. the network matches: deploy and rollback run as before.
+root="$(setup_root network-match)"
+code="$(NETWORK=match run "$root" ok deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
+[[ "$code" == "0" ]] || fail "network match, deploy: exit $code, expected 0"
+grep -q " network inspect betpulse_default" "$root/docker.log" ||
+  fail "network match, deploy: the existing network was not checked"
+code="$(NETWORK=match run "$root" ok rollback.sh v1.0.0)"
+[[ "$code" == "0" ]] || fail "network match, rollback: exit $code, expected 0"
+
+# 17e. the check runs before the pull (nothing is touched before it).
+check_line="$(grep -n " network inspect " "$root/docker.log" | head -1 | cut -d: -f1)"
+pull_line="$(grep -n " pull " "$root/docker.log" | head -1 | cut -d: -f1)"
+[[ -n "$check_line" && -n "$pull_line" && "$check_line" -lt "$pull_line" ]] ||
+  fail "network match, rollback: the network was not checked before the pull"
+
+# 17f. Docker cannot be reached: refused, exit 1, never a rollback.
+root="$(setup_root network-docker-down)"
+code="$(NETWORK=down run "$root" ok deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
+[[ "$code" == "1" ]] || fail "docker down: exit $code, expected 1"
+grep -q "Cannot list Docker networks" "$root/out.txt" || fail "docker down: no clear message"
+if grep -q " pull " "$root/docker.log"; then
+  fail "docker down: pulled images"
+fi
+
+# 17g. no usable python3 for the check: refused with a clear message, exit 1,
+# before any docker call.
+root="$(setup_root network-no-python)"
+code="$(PYTHON=/nonexistent/python3 run "$root" ok deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
+[[ "$code" == "1" ]] || fail "no python: exit $code, expected 1"
+grep -q "The network check needs python3" "$root/out.txt" || fail "no python: no clear message"
+[[ ! -s "$root/docker.log" ]] || fail "no python: docker was called"
+
 if ((failures > 0)); then
   echo "$failures deploy-script test(s) failed." >&2
   exit 1
 fi
-echo "OK: deploy, rollback, prod-compose and release-version checks behave as expected (36 scenarios)."
+echo "OK: deploy, rollback, prod-compose and release-version checks behave as expected (43 scenarios)."
