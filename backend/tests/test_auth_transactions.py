@@ -73,11 +73,16 @@ async def _bare_client(cookies: dict[str, str]) -> AsyncIterator[AsyncClient]:
         yield c
 
 
-async def _refresh_with(refresh_token: str, csrf: str) -> Response:
+async def _refresh_with(
+    refresh_token: str, csrf: str, *, user_agent: str | None = None
+) -> Response:
     settings = get_settings()
     cookies = {settings.refresh_cookie_name: refresh_token, settings.csrf_cookie_name: csrf}
+    headers = {settings.csrf_header_name: csrf}
+    if user_agent is not None:
+        headers["User-Agent"] = user_agent
     async with _bare_client(cookies) as c:
-        return await c.post(settings.refresh_cookie_path, headers={settings.csrf_header_name: csrf})
+        return await c.post(settings.refresh_cookie_path, headers=headers)
 
 
 def _session_cookies(client: AsyncClient) -> tuple[str, str]:
@@ -264,11 +269,16 @@ async def test_parallel_refresh_with_same_token_has_single_winner(client: AsyncC
     responses = await asyncio.gather(*(_refresh_with(t1, csrf) for _ in range(6)))
     statuses = sorted(r.status_code for r in responses)
 
-    # Exactly one winner; every loser is a benign duplicate (409), not theft.
-    assert statuses == [200, 409, 409, 409, 409, 409], statuses
+    # Exactly one rotation. The same browser's duplicates get the winner's
+    # token back (F13 B, at most REFRESH_REPLAY_MAX_USES = 3 of them); the rest
+    # are benign duplicates (409). None of it is theft.
+    assert statuses == [200, 200, 200, 200, 409, 409], statuses
+    issued = {r.cookies[get_settings().refresh_cookie_name] for r in responses if r.is_success}
+    assert len(issued) == 1
     assert await _live_tokens(user.id) == 1
     assert await _audit_count(AuditAction.TOKEN_REFRESH, user.id) == 1
-    assert await _audit_count(AuditAction.TOKEN_REFRESH_CONFLICT, user.id) == 5
+    assert await _audit_count(AuditAction.TOKEN_REFRESH_REPLAYED, user.id) == 3
+    assert await _audit_count(AuditAction.TOKEN_REFRESH_CONFLICT, user.id) == 2
     assert await _audit_count(AuditAction.TOKEN_REUSE_DETECTED, user.id) == 0
 
 
@@ -281,7 +291,12 @@ async def test_benign_duplicate_refresh_keeps_session_alive(client: AsyncClient)
     user = await _user(email)
     t1, csrf = _session_cookies(client)
 
-    first, second = await asyncio.gather(_refresh_with(t1, csrf), _refresh_with(t1, csrf))
+    # Two user-agents, so the loser cannot be served the winner's token (F13 B)
+    # and takes the benign-duplicate path.
+    first, second = await asyncio.gather(
+        _refresh_with(t1, csrf, user_agent="browser-a"),
+        _refresh_with(t1, csrf, user_agent="browser-b"),
+    )
     winner, loser = (first, second) if first.status_code == 200 else (second, first)
     assert (winner.status_code, loser.status_code) == (200, 409)
     assert loser.headers["Retry-After"] == "1"
@@ -439,7 +454,8 @@ async def test_concurrent_refreshes_and_failed_logins_share_tiny_pools(
     responses = await asyncio.gather(*refreshes, *logins)
     elapsed = time.monotonic() - started
 
-    assert sorted(r.status_code for r in responses[:6]) == [200, 409, 409, 409, 409, 409]
+    # One rotation, three replays of it (F13 B), two benign duplicates.
+    assert sorted(r.status_code for r in responses[:6]) == [200, 200, 200, 200, 409, 409]
     assert [r.status_code for r in responses[6:]] == [401] * 4
     assert elapsed < tiny_pools
     assert (await _user(victim)).failed_login_count == 4

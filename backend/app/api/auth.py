@@ -246,6 +246,7 @@ async def refresh(
     request: Request,
     response: Response,
     settings: Annotated[Settings, Depends(get_settings)],
+    redis: Annotated[Redis, Depends(get_redis_dep)],
     user_agent: Annotated[str | None, Header()] = None,
 ) -> AccessTokenResponse | JSONResponse:
     refresh_token = request.cookies.get(settings.refresh_cookie_name)
@@ -258,6 +259,7 @@ async def refresh(
             refresh_token=refresh_token,
             ip=get_client_ip(request),
             user_agent=user_agent,
+            redis=redis,
         )
     except auth_service.RefreshConflict as exc:
         # A concurrent request just rotated this token. Leave the cookies alone:

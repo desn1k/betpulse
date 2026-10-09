@@ -215,6 +215,12 @@ class Settings(BaseSettings):
     # A refresh token presented again within this many seconds of its rotation
     # (double-click, two tabs) gets 409 instead of tripping family revocation.
     refresh_reuse_grace_seconds: int = 10
+    # F13 B: a rotated token presented again within this many seconds, from the
+    # rotating request's user-agent and subnet while its successor is unused,
+    # gets that same successor back (at most REFRESH_REPLAY_MAX_USES times).
+    # 0 turns it off; otherwise between the grace window above and 300.
+    refresh_replay_window_seconds: int = 60
+    refresh_replay_max_uses: int = 3
 
     # --- Rate limiting / lockout -------------------------------------------
     rate_limit_login_per_minute: int = 5  # per client IP
@@ -224,6 +230,9 @@ class Settings(BaseSettings):
     rate_limit_promo_per_hour: int = 10
     rate_limit_llm_analysis_per_minute: int = 20
     rate_limit_admin_mutation_per_minute: int = 60
+    # Successful refresh-token replays (F13 B) per client IP (IPv6 per /64); over
+    # it a replay falls through to the ordinary rotation rules, never a 429.
+    rate_limit_refresh_replay_per_minute: int = 10
     # GET /matches/{id}, per caller (user id, or guest IP / IPv6 /64), checked
     # before the fixture lookup. A match page refetches once a minute per tab,
     # and guests behind one NAT share a bucket, hence the headroom.
@@ -395,6 +404,14 @@ class Settings(BaseSettings):
     def _validate_security_settings(self) -> Settings:
         """Fail fast when production security settings are unsafe."""
         networks = self.trusted_proxy_networks  # raises on malformed CIDRs
+        window = self.refresh_replay_window_seconds
+        if window != 0 and not self.refresh_reuse_grace_seconds <= window <= 300:
+            raise ValueError(
+                "REFRESH_REPLAY_WINDOW_SECONDS must be 0 (off) or between "
+                "REFRESH_REUSE_GRACE_SECONDS and 300"
+            )
+        if self.refresh_replay_max_uses < 1:
+            raise ValueError("REFRESH_REPLAY_MAX_USES must be at least 1")
         if self.is_production:
             if self.trusted_proxy_cidrs is None:
                 raise ValueError("TRUSTED_PROXY_CIDRS must be set explicitly in production")
