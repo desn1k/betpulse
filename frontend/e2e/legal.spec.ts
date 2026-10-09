@@ -65,6 +65,7 @@ test("the age gate still blocks non-legal pages and links to the documents", asy
   await page.goto("/", { waitUntil: "domcontentloaded" });
   const gate = page.getByRole("dialog");
   await expect(gate).toBeVisible();
+  await page.locator("html[data-hydrated]").waitFor({ state: "attached" });
 
   await gate.getByRole("link").first().click();
   await expect(page).toHaveURL(/\/legal\/terms$/);

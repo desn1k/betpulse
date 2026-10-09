@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+import { FAKE_BACKEND_URL } from "./e2e/support/fakeBackend";
+
 const port = 3100;
 const externalBaseUrl = process.env.PLAYWRIGHT_BASE_URL;
 const baseURL = externalBaseUrl ?? `http://127.0.0.1:${port}`;
@@ -25,6 +27,10 @@ export default defineConfig({
         url: `${baseURL}/api/health`,
         reuseExistingServer: !process.env.CI,
         timeout: 180_000,
+        // The BFF talks to the test-only fake backend (e2e/support/fakeBackend.ts),
+        // which only e2e/refresh-reload.spec.ts starts; every other spec answers
+        // the BFF routes in the browser with page.route and never reaches it.
+        env: { API_BASE_URL: FAKE_BACKEND_URL },
       },
   projects: [
     {

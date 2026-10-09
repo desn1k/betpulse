@@ -7,6 +7,33 @@ constraints" section whenever they change.
 
 ---
 
+## 0. Current state
+
+_Rewritten in every PR. Read this first; read other sections only when the task needs them._
+
+- **main:** `7ff1487` (#122, ER2-01). **This PR:** #123, F13 part A (refresh as keepalive,
+  never aborted) and the flaky age-gate e2e fix.
+- **Last release:** `v0.0.1-rc6` (pre-release, main `17d508a`, 2026-10-08). The local
+  rehearsal stack runs rc6 with a seeded database; nothing was released since (F10–F14,
+  ER2-01 and F13 A go into rc7).
+- **Next three (owner, 2026-10-09: pre-launch fixes first, then one rc7 rehearsal):**
+  1. F13 part B — server-side replay of the same T2 within 60 s (§9m, F13).
+  2. F5 — IPv6 / userland-proxy identity collapse (§9m, "Found later").
+  3. F7 — rate limit on `/matches`, limits before tier resolution (§9m, "Found later").
+- **Launch blockers still open (§9i):** F5, F7, ER2-05 (API statement/lock timeouts),
+  Redis `requirepass`, Redis persistence and memory policy, `docs/DEPLOY_VPS.md` (with the
+  "Lost authenticator" section); F13 part B is in the same pre-launch group.
+- **After those:** v0.0.1-rc7 rehearsal (§9i, "v0.0.1-rc7 (planned)"), then the cleanup PR
+  (ER2-09, ER2-13, F15, F16), O2 (with F17, F18), live on Sportmonks (§9m queue).
+- **Read for the current work:**
+  - F13 B: §6 "Refresh rotation is atomic" and "Access tokens die when the credentials
+    change", §9b frontend auth notes, §9m F13.
+  - F5 / F7 / ER2-05: §9m "Found later" and "External review 2", §6 client IP and pools.
+  - Releases and rehearsals: §9i "Release images and digests", "rc6 rehearsal", "v0.0.1-rc7".
+  - Any PR: §2 (rules), §5 (CI, e2e conventions, package-lock rule), §7 (environment).
+
+---
+
 ## 1. What this is
 
 **BetPulse** — a production-grade football analytics & ML prediction platform. Statistical and
@@ -124,6 +151,20 @@ fixture pipeline test covers the full path instead — see the comment in `ci.ym
 production frontend and verifies strict CSP nonces, response headers, a violation-free browser boot,
 and locale persistence. Failure artifacts are uploaded for debugging. Component behavior remains
 covered by Vitest + React Testing Library.
+
+**e2e conventions (2026-10-09).**
+- Most specs answer the BFF routes in the browser with `page.route` and need no backend.
+  `e2e/refresh-reload.spec.ts` (F13) needs the real BFF: it starts the **test-only** fake
+  backend `e2e/support/fakeBackend.ts` on `127.0.0.1:47613` (fails fast with a clear message
+  if the port is taken), and `playwright.config.ts` points the e2e web server's
+  `API_BASE_URL` there. `lib/testOnlyImports.test.ts` fails if anything outside `e2e/` and the
+  Playwright config imports from `e2e/`. The fake has one port, so that spec cannot run in
+  parallel with itself (exclude it from `--repeat-each` stress runs with
+  `--grep-invert "reload storm"`).
+- `<html data-hydrated>` is set by `Providers` after mount (never in the server HTML, no inline
+  script). Wait for it before clicking server-rendered markup: a click before React attached its
+  handlers is lost (the age-gate spec failed about 1 in 200 runs on 6 workers that way; after
+  the fix 200/200 for the gate specs and 240/240 for the whole suite ×20 on 6 workers).
 
 ## 6. Conventions that bite if ignored
 
@@ -2102,9 +2143,21 @@ the failing test named here.
   (rc5, 2026-10-08 16:20 UTC: one `auth.token.reuse_detected`, no `refresh_conflict`, last
   rotation 10 minutes earlier). Medium: no security loss, random logouts.
   **Decision (owner, 2026-10-08): option C, two PRs, A first; pre-launch group, not now.**
-  - **A (client):** `keepalive: true` on the refresh request; at the 10 s timeout stop waiting
-    but do not abort the request, so its `Set-Cookie` still lands. Covers reloads, navigation
-    and the client timeout; not a network drop after the server committed.
+  - **A (client) — done 2026-10-09.** The refresh is sent with `keepalive: true` and no abort
+    signal (`lib/auth/store.ts`); at the 10 s timeout the waiters give up (same UI and retries
+    as before) but the request runs on, and a late 200 is applied unless the session ended or
+    another answer was applied since (`applyLate`). A reload during a refresh still in flight on
+    the server meets the existing 409 path (the new page presents T1 while T2 is fresh) and
+    renews with T2 once the keepalive answer has landed. Tests: Vitest (keepalive, no signal,
+    late success applied / dropped after logout) and `e2e/refresh-reload.spec.ts`, which drives
+    a reload storm through the real BFF against the test-only fake backend: red on the previous
+    `store.ts` with the stand's sequence (rotated, 409, 409, reuse), green after, and the
+    cookie jar ends on the family's live token, never T1. **Verified in Chromium only; Firefox
+    (keepalive since 133) and Safari behave so by specification, not by a test.**
+  - **Left for B:** a network or response drop after the server committed (mobile networks,
+    proxies); the whole browser closed or crashing, or a mobile OS unloading the tab; an answer
+    slower than the 10 s reuse window, with a retry on the old cookie after the window;
+    browsers without keepalive (Firefox before 133).
   - **B (server), after A:** at rotation T1 → T2 the server keeps T2 Fernet-encrypted in Redis
     for **60 s**, keyed by T1's hash. A re-presentation of T1 inside the window, while T2 is
     unused (not revoked, not rotated) **and** the user-agent hash and the client subnet (IPv4
@@ -2191,7 +2244,7 @@ main `314029b`**; line numbers will drift. Labels `ER2-` keep them apart from th
 
 1. **F8**, **F9**, **v0.0.1-rc6**, **F12**, **F10 + F11 + F14**, **ER2-01** — done.
 2. **v0.0.1-rc7** — the owner, by hand; checklist by the agent (§9i, "v0.0.1-rc7 (planned)").
-3. **F13** — option C, A first then B (§9m); pre-launch group.
+3. **F13** — part A done (2026-10-09); part B next in the pre-launch group (§9m).
 4. **Launch blockers:** F5, F7, ER2-05, Redis `requirepass` and memory policy, `docs/DEPLOY_VPS.md`.
 5. **Cleanup PR:** ER2-09 (`BATCH_MAX` 10 000), ER2-13 (dead settings), F15 (stale-note time in
    the viewer's time zone), F16 (no follow toggle on finished matches).
