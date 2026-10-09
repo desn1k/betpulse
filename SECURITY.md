@@ -62,10 +62,13 @@ caching for strict CSP.
 
 ## Sensitive rate limits
 
-Every request limit is a Redis fixed window (`app/services/rate_limit.py`,
-`app/services/limits.py`); every attempt counts, refused ones included, and an
-excess answers 429 with `Retry-After`. Thresholds come from `RATE_LIMIT_*`
-settings (`.env.example`).
+Two rows below are not request windows: the per-account login lockout lives on
+the user row in the database, and the refresh-token replay limit counts only
+*successful* replays (a refused one gives its unit back). Every other limit is a
+Redis fixed window (`app/services/rate_limit.py`, `app/services/limits.py`) in
+which every attempt counts, refused ones included, and an excess answers 429
+with `Retry-After`. Thresholds come from `RATE_LIMIT_*` settings
+(`.env.example`).
 
 | Surface | Identity | Threshold (default) | Position | Redis unavailable |
 |---|---|---|---|---|
