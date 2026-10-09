@@ -69,6 +69,15 @@ services:
 YAML
 expect_rejected web-outside-subnet "web: IPv6 address fd00:1::10 is outside"
 
+cat >"$work/caddy-malformed-ipv6.yml" <<'YAML'
+services:
+  caddy:
+    networks:
+      default:
+        ipv6_address: not-an-address
+YAML
+expect_rejected caddy-malformed-ipv6 "caddy: invalid IPv6 address 'not-an-address'"
+
 cat >"$work/api-trusts-ipv4-only.yml" <<'YAML'
 services:
   api:

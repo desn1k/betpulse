@@ -2118,7 +2118,7 @@ F10–F18 were found in the rc6 rehearsal and after it (below); F10, F11, F12 an
     - **Checks:** `scripts/check-compose-ports.sh` fails unless the network is dual-stack with one
       subnet per family, web and caddy are pinned in both inside them, and the api and every
       worker trust exactly those addresses and name exactly those subnets
-      (`scripts/tests/check-compose-ports-test.sh`, five broken variants). The connection-budget
+      (`scripts/tests/check-compose-ports-test.sh`, six broken variants). The connection-budget
       test needed no change (it reads only environment, command and replicas).
     - **CI probe** `scripts/edge-identity-smoke.sh` (job "Release tooling"): the prod config with a
       stub `web` that echoes `X-Forwarded-For`; a client in its own network namespace (veth to

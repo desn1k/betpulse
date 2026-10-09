@@ -134,7 +134,14 @@ for name in ("web", "caddy"):
         if not value:
             problems.append(f"{name}: no pinned IPv{version} address on the default network")
             continue
-        address = ipaddress.ip_address(value)
+        try:
+            address = ipaddress.ip_address(value)
+        except ValueError:
+            problems.append(f"{name}: invalid IPv{version} address {value!r}")
+            continue
+        if address.version != version:
+            problems.append(f"{name}: {key} {value} is not an IPv{version} address")
+            continue
         if version in subnets and address not in subnets[version]:
             problems.append(f"{name}: IPv{version} address {value} is outside {subnets[version]}")
         pinned.append(ipaddress.ip_network(f"{value}/{address.max_prefixlen}"))
