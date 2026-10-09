@@ -8,7 +8,9 @@ the admin system health page shows it to every API process's admin.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 
 import pytest
 from app.core.config import get_settings
@@ -85,6 +87,27 @@ async def test_a_redis_failure_never_breaks_the_request(caplog: pytest.LogCaptur
     with caplog.at_level(logging.WARNING, logger="app.services.client_identity"):
         await watch.observe(BrokenRedis(), "172.29.89.1", "/a", now=1000.0)  # type: ignore[arg-type]
     assert any("172.29.89.1" in r.getMessage() for r in caplog.records)
+
+
+async def test_a_stalled_redis_delays_the_request_at_most_briefly() -> None:
+    class StalledPipeline:
+        def __getattr__(self, name: str) -> object:
+            return lambda *args, **kwargs: None
+
+        async def execute(self) -> None:
+            await asyncio.sleep(30)
+
+    class StalledRedis:
+        def pipeline(self, transaction: bool = True) -> StalledPipeline:
+            return StalledPipeline()
+
+    watch = CollapseWatch()
+    started = time.monotonic()
+    await watch.observe(StalledRedis(), "172.29.89.1", "/a", now=1000.0)  # type: ignore[arg-type]
+    assert time.monotonic() - started < 2 * client_identity.FLUSH_TIMEOUT_SECONDS
+    # The sighting is kept for the next flush.
+    await watch.observe(get_redis(), "172.29.89.1", "/b", now=1000.0 + 60)
+    assert (await read_record(get_redis()))["count"] == "2"
 
 
 async def test_health_is_ok_without_sightings(monkeypatch: MonkeyPatch) -> None:

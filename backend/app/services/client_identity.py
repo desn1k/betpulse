@@ -12,11 +12,13 @@ binding, so the API must never let it pass silently:
   path; kept 24 h after the last one), written at most once a minute per
   process, so every API process's admin sees them on the system health page.
 
-Nothing here may break a request: a Redis failure is logged and dropped.
+Nothing here may break a request: a Redis failure, or a write that takes longer
+than 0.5 s, is logged and the sightings stay pending for the next flush.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import Awaitable
@@ -33,6 +35,9 @@ logger = logging.getLogger(__name__)
 COLLAPSE_KEY = "ops:client_identity:internal"
 RECORD_TTL_SECONDS = 24 * 3600
 FLUSH_INTERVAL_SECONDS = 60.0
+# The write happens inside a request: a stalled Redis may delay it this long
+# at most; the sightings stay pending for the next flush.
+FLUSH_TIMEOUT_SECONDS = 0.5
 
 
 class CollapseWatch:
@@ -86,7 +91,7 @@ class CollapseWatch:
             )
             pipe.hincrby(COLLAPSE_KEY, "count", pending)
             pipe.expire(COLLAPSE_KEY, RECORD_TTL_SECONDS)
-            await pipe.execute()
+            await asyncio.wait_for(pipe.execute(), timeout=FLUSH_TIMEOUT_SECONDS)
         except Exception as exc:  # noqa: BLE001 - never break a request over this
             self._pending += pending
             logger.debug("could not record an internal client identity: %s", exc)
