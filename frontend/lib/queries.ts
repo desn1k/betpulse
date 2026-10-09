@@ -16,7 +16,7 @@ export function useMatches(params: MatchListParams): UseQueryResult<MatchList> {
     queryKey: matchKeys.list(params),
     queryFn: () => fetchMatches(params),
     // Live scores move; keep the list reasonably fresh without hammering.
-    refetchInterval: 60_000,
+    refetchInterval: (query) => listRefetchInterval(query.state.error),
   });
 }
 
@@ -31,6 +31,7 @@ const MIDNIGHT_JITTER_MS = 60_000;
  * - 403: the daily view quota is spent; the next day's quota starts at UTC
  *   midnight, so try then, spread over a minute (``errorUpdatedAt`` gives each
  *   tab a stable offset) instead of every 60 s.
+ * - 429: the request limit (F7); wait Retry-After, never less than 60 s.
  * - Anything else, or no error: the usual 60 s.
  */
 export function matchRefetchInterval(
@@ -42,6 +43,19 @@ export function matchRefetchInterval(
   if (error instanceof ApiError && error.status === 403) {
     const untilMidnight = DAY_MS - (now % DAY_MS);
     return untilMidnight + (errorUpdatedAt % MIDNIGHT_JITTER_MS);
+  }
+  return afterRateLimit(error);
+}
+
+/** The list polls every 60 s; after a 429 (F7) it waits Retry-After, never
+ * less than 60 s. */
+export function listRefetchInterval(error: unknown): number {
+  return afterRateLimit(error);
+}
+
+function afterRateLimit(error: unknown): number {
+  if (error instanceof ApiError && error.status === 429 && error.retryAfter !== null) {
+    return Math.max(MATCH_REFETCH_MS, error.retryAfter * 1000);
   }
   return MATCH_REFETCH_MS;
 }

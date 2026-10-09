@@ -1,5 +1,9 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, render, screen } from "@testing-library/react";
+import { NextIntlClientProvider } from "next-intl";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import en from "@/messages/en.json";
 import { renderWithProviders } from "@/test/test-utils";
 import type { AnalysisResult } from "@/types/llm";
 
@@ -87,5 +91,51 @@ describe("AnalysisBlock", () => {
     renderWithProviders(<AnalysisBlock id="abc" />, { locale: "ru" });
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(String(fetchMock.mock.calls[0][0])).toContain("language=ru");
+  });
+});
+
+describe("AnalysisBlock: a failed refetch keeps the analysis (F8 rules, F7)", () => {
+  // The analysis refetches when the cache is invalidated (a renewed session, a
+  // promo code, an account change); a failure then must not hide the text.
+  async function loadThenFail(failure: Response): Promise<QueryClient> {
+    const responses = [Response.json(okResult), failure];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => responses.shift() ?? Response.json(okResult)),
+    );
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+    });
+    render(
+      <NextIntlClientProvider locale="en" messages={en} timeZone="UTC">
+        <QueryClientProvider client={client}>
+          <AnalysisBlock id="abc" />
+        </QueryClientProvider>
+      </NextIntlClientProvider>,
+    );
+    expect(await screen.findByText(/cluster above the market/)).toBeInTheDocument();
+    await act(async () => {
+      await client.invalidateQueries();
+    });
+    return client;
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each([
+    ["429", () => Response.json({ detail: "Too many LLM analysis requests" }, { status: 429 })],
+    ["500", () => Response.json({ detail: "boom" }, { status: 500 })],
+  ])("%s: the text stays and the stale note is announced", async (_label, failure) => {
+    await loadThenFail(failure());
+    expect(screen.getByText(/cluster above the market/)).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent(/Couldn't refresh — showing data as of/);
+  });
+
+  it("a 403 on refetch (tier lowered) shows the lock above the last text", async () => {
+    await loadThenFail(
+      Response.json({ detail: { error: "llm_requires_upgrade", tier_required: "pro" } }, { status: 403 }),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent(/Available on the pro tier/);
+    expect(screen.getByText(/cluster above the market/)).toBeInTheDocument();
   });
 });

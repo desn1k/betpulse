@@ -222,3 +222,37 @@ describe("MatchDetailView: polling after a failure", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });
+
+describe("MatchDetailView: polling after a 429 (F7)", () => {
+  it("waits Retry-After when it is longer than the 60 s poll", async () => {
+    const answers = [
+      () => Response.json(match),
+      () =>
+        Response.json(
+          { detail: "Too many match requests" },
+          { status: 429, headers: { "retry-after": "180" } },
+        ),
+      () => Response.json(match),
+    ];
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (!String(input).endsWith(`/api/matches/${ID}`)) {
+          return Response.json({ status: "disabled", not_a_probability_source: true });
+        }
+        const answer = answers[Math.min(calls, answers.length - 1)];
+        calls += 1;
+        return answer();
+      }),
+    );
+    renderView();
+    await tick(1);
+    await tick(60_000); // the 429
+    expect(calls).toBe(2);
+    await tick(170_000);
+    expect(calls).toBe(2);
+    await tick(10_000);
+    expect(calls).toBe(3);
+  });
+});

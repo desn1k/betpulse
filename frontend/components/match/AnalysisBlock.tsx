@@ -7,6 +7,8 @@ import { Card } from "@/components/ui/Card";
 import { ApiError } from "@/lib/api";
 import { useAnalysis } from "@/lib/queries";
 
+import { StaleNote } from "./StaleNote";
+
 // Pull ``detail.tier_required`` off a 403 so the lock names the tier to upgrade to.
 function lockedTier(error: unknown): string | null {
   if (error instanceof ApiError && error.status === 403) {
@@ -49,9 +51,10 @@ export function AnalysisBlock({ id }: { id: string }) {
     );
   }
 
-  if (query.isError) {
+  if (query.data === undefined) {
+    // First load failed. Only the tier lock is worth surfacing; any other
+    // error hides the block.
     const tier = lockedTier(query.error);
-    // Only the tier lock is worth surfacing; any other error hides the block.
     if (!tier) return null;
     return (
       <Card className="flex flex-col items-center gap-2 p-6 text-center">
@@ -65,6 +68,19 @@ export function AnalysisBlock({ id }: { id: string }) {
   }
 
   const result = query.data;
+  // A refetch failed (the cache was invalidated: a renewed session, a promo
+  // code, an account change): keep the text the user is reading, F8's rules
+  // (F7). A 403 means the tier no longer unlocks it; anything else may be
+  // transient, so the text is only marked as possibly stale.
+  const refetchError = query.isError ? query.error : null;
+  const lostTier = lockedTier(refetchError);
+  const refetchNote = lostTier ? (
+    <p className="text-sm text-muted-strong" role="status">
+      {t("analysis.locked", { tier: lostTier })}
+    </p>
+  ) : refetchError ? (
+    <StaleNote updatedAt={query.dataUpdatedAt} />
+  ) : null;
 
   // The feature is off, or there is nothing to explain for this match yet.
   if (result.status === "disabled" || result.status === "no_data") return null;
@@ -73,6 +89,7 @@ export function AnalysisBlock({ id }: { id: string }) {
     return (
       <Card className="flex flex-col gap-2 p-6">
         <h3 className="text-sm font-semibold text-muted-strong">{t("analysis.title")}</h3>
+        {refetchNote}
         <p className="text-sm text-foreground" role="status">
           {t("analysis.budgetExhausted", {
             time: formatResetTime(result.resets_at, locale),
@@ -89,6 +106,7 @@ export function AnalysisBlock({ id }: { id: string }) {
         <h3 className="text-sm font-semibold text-muted-strong">{t("analysis.title")}</h3>
         {result.is_match_of_the_day && <Badge variant="brand">{t("analysis.matchOfTheDay")}</Badge>}
       </div>
+      {refetchNote}
       <p className="whitespace-pre-line text-sm leading-relaxed text-foreground">
         {result.content}
       </p>

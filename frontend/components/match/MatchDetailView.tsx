@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useFormatter, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
@@ -16,6 +16,7 @@ import { ConsensusBar } from "./ConsensusBar";
 import { MatchStatus } from "./MatchStatus";
 import { MethodBars } from "./MethodBars";
 import { MatchDetailSkeleton } from "./MatchDetailSkeleton";
+import { StaleNote } from "./StaleNote";
 
 function limitTierRequired(error: unknown): string | null {
   if (error instanceof ApiError && error.status === 403) {
@@ -27,7 +28,6 @@ function limitTierRequired(error: unknown): string | null {
 
 export function MatchDetailView({ id }: { id: string }) {
   const t = useTranslations();
-  const format = useFormatter();
   const query = useMatch(id);
 
   if (query.isPending) return <MatchDetailSkeleton />;
@@ -61,18 +61,6 @@ export function MatchDetailView({ id }: { id: string }) {
   // be transient, so the data is only marked as possibly stale.
   const refetchError = query.isError ? query.error : null;
   const limitTier = limitTierRequired(refetchError);
-  // The time alone, or with the date once the data is from an earlier day
-  // (a refetch failing past midnight would otherwise look current).
-  const lastUpdate = new Date(query.dataUpdatedAt);
-  const sameDay =
-    format.dateTime(lastUpdate, { dateStyle: "short" }) ===
-    format.dateTime(new Date(), { dateStyle: "short" });
-  const updatedAt = format.dateTime(lastUpdate, {
-    ...(sameDay ? {} : { month: "short", day: "numeric" }),
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  });
   const methodsUnlocked =
     match.flags.methods === "all" || match.flags.methods === "all_weights";
 
@@ -94,9 +82,7 @@ export function MatchDetailView({ id }: { id: string }) {
           <p className="text-sm text-muted-strong">{t("detail.lastDataBelow")}</p>
         </Card>
       ) : refetchError ? (
-        <p className="rounded-card bg-surface-muted px-4 py-2 text-sm text-muted-strong" role="status">
-          {t("detail.staleNote", { time: updatedAt })}
-        </p>
+        <StaleNote updatedAt={query.dataUpdatedAt} />
       ) : null}
 
       <Card className="flex flex-col gap-6 p-6">
