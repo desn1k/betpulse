@@ -32,9 +32,10 @@ _MIN_PRODUCTION_PREFIX = {4: 16, 6: 48}
 _IPV6_BUCKET_PREFIX = 64
 
 
-@lru_cache(maxsize=16)
-def parse_trusted_proxies(raw: str) -> tuple[IPNetwork, ...]:
-    """Parse a comma-separated CIDR list. Raises ``ValueError`` on bad input."""
+@lru_cache(maxsize=32)
+def parse_networks(raw: str, setting: str) -> tuple[IPNetwork, ...]:
+    """Parse a comma-separated CIDR list for ``setting``. Raises ``ValueError``
+    on bad input, and on a /0, which would cover every address."""
     networks: list[IPNetwork] = []
     for item in raw.split(","):
         value = item.strip()
@@ -43,11 +44,16 @@ def parse_trusted_proxies(raw: str) -> tuple[IPNetwork, ...]:
         try:
             network = ipaddress.ip_network(value, strict=True)
         except ValueError as exc:
-            raise ValueError(f"TRUSTED_PROXY_CIDRS: invalid network {value!r}") from exc
+            raise ValueError(f"{setting}: invalid network {value!r}") from exc
         if network.prefixlen == 0:
-            raise ValueError(f"TRUSTED_PROXY_CIDRS: {value} would trust every address")
+            raise ValueError(f"{setting}: {value} would trust every address")
         networks.append(network)
     return tuple(networks)
+
+
+def parse_trusted_proxies(raw: str) -> tuple[IPNetwork, ...]:
+    """Parse ``TRUSTED_PROXY_CIDRS``. Raises ``ValueError`` on bad input."""
+    return parse_networks(raw, "TRUSTED_PROXY_CIDRS")
 
 
 def validate_production_proxies(networks: Iterable[IPNetwork]) -> None:
@@ -101,6 +107,33 @@ def resolve_client_ip(
         if not _is_trusted(hop_ip, trusted):
             break
     return client.compressed
+
+
+def internal_client(
+    peer: str | None,
+    forwarded_for: str | None,
+    trusted: tuple[IPNetwork, ...],
+    internal: tuple[IPNetwork, ...],
+) -> str | None:
+    """The client a trusted proxy vouched for, when it is one of our own
+    addresses (``INTERNAL_NETWORK_CIDRS``); otherwise ``None``.
+
+    Such an identity is never a real client: it is the Docker bridge gateway
+    (connections Docker's userland proxy relayed, F5) or an internal hop the API
+    does not trust, and every client arriving that way shares it. Requests
+    without ``X-Forwarded-For`` are the proxy's own (deploy.sh's ``/api/ready``
+    probe from inside web) and are not counted.
+    """
+    if not internal or not forwarded_for or not peer:
+        return None
+    peer_ip = _parse_ip(peer)
+    if peer_ip is None or not _is_trusted(peer_ip, trusted):
+        return None
+    client = resolve_client_ip(peer, forwarded_for, trusted)
+    client_ip = _parse_ip(client)
+    if client_ip is None or not any(client_ip in network for network in internal):
+        return None
+    return client
 
 
 def replay_subnet(client_ip: str) -> str | None:

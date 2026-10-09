@@ -41,6 +41,7 @@ def _prod(**overrides: str) -> Settings:
         "secret_key": GOOD_SECRET,
         "data_encryption_key": GOOD_KEY,
         "trusted_proxy_cidrs": "172.29.89.10/32",
+        "internal_network_cidrs": "172.29.89.0/24",
         "cors_allowed_origins": "https://app.example.test",
     }
     values.update(overrides)
@@ -198,6 +199,7 @@ def test_create_admin_cli_exits_2_and_prints_no_secret_for_a_placeholder() -> No
         "SECRET_KEY": secret,
         "DATA_ENCRYPTION_KEY": secrets.token_hex(32),
         "TRUSTED_PROXY_CIDRS": "172.29.89.10/32",
+        "INTERNAL_NETWORK_CIDRS": "172.29.89.0/24",
         "CORS_ALLOWED_ORIGINS": "https://app.example.test",
         "ADMIN_PASSWORD": "# leave empty to auto-generate a one-time password",
     }
