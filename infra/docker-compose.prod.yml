@@ -19,16 +19,21 @@
 # scripts/check-compose-ports.sh (CI, and on the server) fails on anything else.
 
 # Caddy (Telegram webhook) and the Next.js BFF are the only hops whose
-# X-Forwarded-For the API honours; their addresses are pinned below and in
-# docker-compose.yml.
-x-trusted-proxy-cidrs: &trusted-proxy-cidrs "${BETPULSE_WEB_IP:-172.29.89.10}/32,${BETPULSE_CADDY_IP:-172.29.89.11}/32"
+# X-Forwarded-For the API honours; their addresses, IPv4 and IPv6 (the
+# network is dual-stack, F5), are pinned below and in docker-compose.yml.
+# scripts/check-compose-ports.sh checks that both lists match the network.
+x-trusted-proxy-cidrs: &trusted-proxy-cidrs "${BETPULSE_WEB_IP:-172.29.89.10}/32,${BETPULSE_CADDY_IP:-172.29.89.11}/32,${BETPULSE_WEB_IP6:-fd42:b7e1:5a29:89::10}/128,${BETPULSE_CADDY_IP6:-fd42:b7e1:5a29:89::11}/128"
+# The network's subnets: a client identity inside them is the bridge gateway
+# or an untrusted internal hop, never a client (the API's F5 guard).
+x-internal-network-cidrs: &internal-network-cidrs "${BETPULSE_NETWORK_SUBNET:-172.29.89.0/24},${BETPULSE_NETWORK_SUBNET6:-fd42:b7e1:5a29:89::/64}"
 
 # Shared by the three ARQ worker services (realtime, batch, ml).
 x-worker-prod: &worker-prod
   image: ghcr.io/${GHCR_OWNER:-desn1k}/betpulse-api:${IMAGE_TAG:?IMAGE_TAG is required (a release tag, never latest)}@${API_IMAGE_DIGEST:?API_IMAGE_DIGEST is required (release-<tag>.digests)}
   environment:
-    # Production settings validation requires it in every backend process.
+    # Production settings validation requires both in every backend process.
     TRUSTED_PROXY_CIDRS: *trusted-proxy-cidrs
+    INTERNAL_NETWORK_CIDRS: *internal-network-cidrs
   restart: always
 
 services:
@@ -54,6 +59,7 @@ services:
     ports: !reset []
     environment:
       TRUSTED_PROXY_CIDRS: *trusted-proxy-cidrs
+      INTERNAL_NETWORK_CIDRS: *internal-network-cidrs
     restart: always
     deploy:
       resources:
@@ -130,6 +136,7 @@ services:
     networks:
       default:
         ipv4_address: ${BETPULSE_CADDY_IP:-172.29.89.11}
+        ipv6_address: "${BETPULSE_CADDY_IP6:-fd42:b7e1:5a29:89::11}"
     ports:
       - "80:80"
       - "443:443"

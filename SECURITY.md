@@ -100,10 +100,20 @@ Next.js BFF, so the TCP peer is one of our containers. `get_client_ip`
   `frontend/lib/server/backendProxy.ts`; `routeHandlers.test.ts` fails the
   build otherwise. The `web` container must only be reachable through Caddy
   (production Compose publishes no `web` port).
-- Docker Compose pins the network (`BETPULSE_NETWORK_SUBNET`) and the `web`
-  and `caddy` addresses (`BETPULSE_WEB_IP`, `BETPULSE_CADDY_IP`) and trusts
-  exactly those /32s. The Docker gateway and every other container are
-  untrusted.
+- Docker Compose pins a dual-stack network (`BETPULSE_NETWORK_SUBNET`,
+  `BETPULSE_NETWORK_SUBNET6`) and the `web` and `caddy` addresses in both
+  families (`BETPULSE_WEB_IP(6)`, `BETPULSE_CADDY_IP(6)`) and trusts exactly
+  those /32s and /128s. The Docker gateway and every other container are
+  untrusted. The network must have IPv6: on an IPv4-only network Docker's
+  userland proxy relays IPv6 connections to Caddy, which then sees every IPv6
+  client as the gateway (F5). `scripts/check-compose-ports.sh` checks the
+  network and the addresses; `scripts/edge-identity-smoke.sh` (CI) checks that
+  IPv4 and IPv6 clients reach the upstream as themselves.
+- `INTERNAL_NETWORK_CIDRS` names the network's subnets. A client identity inside
+  them (the gateway, or an internal hop the API does not trust) is never a real
+  client: each API process logs a warning on the first one, and the admin
+  system health page shows them (`client_ip`, degraded for 24 h after the last
+  one). Required in production; every trusted proxy must lie inside it.
 - In production `TRUSTED_PROXY_CIDRS` must be set explicitly. Startup fails
   when it is missing, malformed, contains `0.0.0.0/0`/`::/0`, a public range, or
   a prefix broader than /16 (IPv6: /48). Outside production it defaults to
