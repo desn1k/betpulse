@@ -93,6 +93,9 @@ let inFlight: Promise<void> | null = null;
 // Bumped whenever the session ends here; a refresh started under an older
 // epoch must not bring the session back (a logout racing a renewal).
 let sessionEpoch = 0;
+// Bumped by every applied session; a late refresh answer is applied only if no
+// other one was applied after its attempt started.
+let appliedSessions = 0;
 
 function clearTimers(): void {
   if (refreshTimer !== null) clearTimeout(refreshTimer);
@@ -105,25 +108,33 @@ function channel(): BroadcastChannel | null {
   return typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel(AUTH_CHANNEL);
 }
 
-function requestRefresh(signal: AbortSignal): Promise<Response> {
+/**
+ * The refresh request. Sent as keepalive and never aborted (F13 part A): the
+ * server rotates the refresh token the moment the request arrives, so cancelling
+ * it — a reload, a navigation, our own timeout — could lose the only answer that
+ * carries the new token in Set-Cookie, and the old one, presented later, revokes
+ * the whole family as reuse. A keepalive request outlives the page that sent it;
+ * its Set-Cookie is stored by the browser's network stack even when no page is
+ * left to read the body (verified in Chromium by e2e/refresh-reload.spec.ts;
+ * Firefox ≥ 133 and Safari by specification only).
+ */
+function requestRefresh(): Promise<Response> {
   // The CSRF cookie is re-read on every call: a winning refresh rotates it.
   return fetch("/api/auth/refresh", {
     method: "POST",
     headers: { "x-csrf-token": readCookie(CSRF_COOKIE) ?? "" },
-    signal,
+    keepalive: true,
   });
 }
 
-/** Resolve with ``promise`` or reject with SessionRefreshError after ``ms``,
- * aborting the request. */
-function withTimeout<T>(promise: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
-  const controller = new AbortController();
+/** Resolve with ``promise`` or reject with SessionRefreshError after ``ms``.
+ * The request itself is left running: only the waiting stops. */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
-      controller.abort();
       reject(new SessionRefreshError("session refresh timed out"));
     }, ms);
-    promise(controller.signal).then(
+    promise.then(
       (value) => {
         clearTimeout(timer);
         resolve(value);
@@ -149,6 +160,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
   /** Take a token response: store it, schedule the next renewal, and tell the
    * cache when the account behind the shared refresh cookie changed. */
   function applySession(data: AccessTokenResponse, { recovered }: { recovered: boolean }): void {
+    appliedSessions += 1;
     const previous = get().user;
     set({
       accessToken: data.access_token,
@@ -195,21 +207,43 @@ export const useAuthStore = create<AuthState>((set, get) => {
     }, delay);
   }
 
+  /** A refresh that answered only after its waiters gave up (F13 part A): its
+   * Set-Cookie is already in the jar, and this is the access token that goes
+   * with it. Applied unless the session ended or another answer was applied
+   * since the attempt started. */
+  async function applyLate(pending: Promise<Response>, epoch: number, applied: number): Promise<void> {
+    let res: Response;
+    try {
+      res = await pending;
+    } catch {
+      return;
+    }
+    if (!res.ok || epoch !== sessionEpoch || applied !== appliedSessions) return;
+    const data = (await res.json()) as AccessTokenResponse;
+    if (epoch !== sessionEpoch || applied !== appliedSessions) return;
+    applySession(data, { recovered: true });
+  }
+
   async function runRefresh(): Promise<void> {
     const epoch = sessionEpoch;
+    const applied = appliedSessions;
     const { expiresAt } = get();
     const recovered = expiresAt === null || Date.now() >= expiresAt;
     let res: Response;
+    let pending: Promise<Response> | null = null;
     try {
-      res = await withTimeout(requestRefresh, REFRESH_TIMEOUT_MS);
+      pending = requestRefresh();
+      res = await withTimeout(pending, REFRESH_TIMEOUT_MS);
       if (res.status === 409) {
         // Another tab rotated the refresh token at the same moment. The
         // session is intact: once the browser has applied the winner's
         // Set-Cookie, retry once with the new refresh + CSRF cookies.
         await sleep(REFRESH_CONFLICT_RETRY_MS);
-        res = await withTimeout(requestRefresh, REFRESH_TIMEOUT_MS);
+        pending = requestRefresh();
+        res = await withTimeout(pending, REFRESH_TIMEOUT_MS);
       }
     } catch (error) {
+      if (pending !== null) void applyLate(pending, epoch, applied);
       if (epoch !== sessionEpoch) throw new SessionRefreshError("signed out");
       set({ refreshFailing: get().accessToken !== null });
       scheduleRetry();
