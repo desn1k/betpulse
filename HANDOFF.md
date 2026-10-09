@@ -11,7 +11,7 @@ constraints" section whenever they change.
 
 _Rewritten in every PR. Read this first; read other sections only when the task needs them._
 
-- **main:** `b3a0929` (#123, F13 part A). **This PR** (`fix/f13b-refresh-replay`): F13 part
+- **main:** `b3a0929` (#123, F13 part A). **This PR:** #124 (`fix/f13b-refresh-replay`), F13 part
   B, the server-side replay of the same T2 (§6 "Refresh replay"), and the session rules moved
   into `AGENTS.md` (the agent's per-session rules; this file stays the project context).
 - **Last release:** `v0.0.1-rc6` (pre-release, main `17d508a`, 2026-10-08). The local
@@ -1478,6 +1478,12 @@ rc6 items that still apply (deploy over data, migration log, drills), it must ch
 ### Launch blockers before the first VPS run
 
 None of these is done; the site is not opened before all are.
+
+**Closed trial run before F5 (owner, 2026-10-09).** A trial run on a VPS before F5 is fixed is
+acceptable **only with ports 80/443 restricted to the owner's own address in the provider
+firewall** (ufw does not filter Docker-published ports). Until F5, every IPv6 client reaches the
+API as the bridge gateway, so per-IP limits, guest quotas and the refresh replay's subnet binding
+(§6 "Refresh replay") do not tell clients apart; nobody else may reach the site in that state.
 - **F5** — IPv6 / userland-proxy identity collapse (§9m).
 - **F7** — rate limits on `/matches` and `/auth/refresh`, and limits enforced before tier
   resolution (§9m).
@@ -1529,6 +1535,13 @@ a launch blocker above):
   `172.29.89.1` (the Caddyfile has no access log today: add a `log` directive for the check, or
   rely on the next point), and Redis must hold a quota entry under each real address (IPv6 as
   its /64; `redis-cli --scan --pattern 'limits:*'`). Do not open the site until both pass.
+- [ ] **Refresh replay subnet binding (F13 B), after the point above passes.** Sign in from a
+  client in one subnet, make it lose a rotation answer (e.g. copy the refresh cookie before a
+  page load, then present the old cookie again within 60 s with the same user-agent), and check
+  that the same client is served the replay (`auth.token.refresh_replayed`). Then present the
+  same old cookie from a second client in **another** subnet (other IPv4 /24, other IPv6 /64)
+  with the same user-agent: it must be refused (`meta.replay = "subnet_mismatch"` on the
+  `auth.token.refresh_conflict` or `auth.token.reuse_detected` row). Do it for IPv4 and IPv6.
 - [ ] **Rollback to a previous release by digest.** As soon as a second release with a digests
   file exists (rc5 or v0.0.1 after rc4), deploy it, then `IMAGE_TAG=<previous> scripts/rollback.sh`
   and check every app container runs the previous release's digests. Done locally in the rc5
@@ -1962,7 +1975,7 @@ ignored. Line numbers are as of `5eedb0b` and will drift.
 | ER-H-08 | Confirmed (policy) | Rollback restores images, not schema (`scripts/deploy.sh:123-131,141`); `scripts/rollback.sh:97` does so on purpose | Medium–High at the first upgrade with migrations | Expand/contract migration policy + PR checklist | CI job: release N−1's tests against head schema (design separately) | Before the first public release. **First real case: `0018`** — a pre-0018 image fails LLM generation on its schema; disable LLM or downgrade first (§9i) |
 | ER-H-09 | Confirmed, plus fallback | Tags are not pinned to digests (`.github/workflows/release.yml:74-76,89-91`); `${IMAGE_TAG:-latest}` in prod compose (see note) | Medium | With F2: record digests in the release, deploy by digest, `${IMAGE_TAG:?}` | Release-tooling test: `compose config` without `IMAGE_TAG` fails | With F2 |
 | ER-H-10 | Partly true | Order is `(kickoff_at, id)` only (`ml/chronology.py:30-38`); date-only fixtures sit at 12:00 UTC. Production never uses football-data, and Sportmonks has kickoff times, so this hits dev data and old CSV seasons | Low for production; Medium for dev-metric honesty | Conservative chronology: a league-day with any unknown-time fixture is one batch | An unknown-time match's result never changes a same-day known-time match's prediction | Later |
-| ER-M-01 | Confirmed | `/health/ready` returns `ready` unconditionally (`api/health.py:42-49`); also §9g 12d item 1 | Medium | `SELECT 1` + Redis `PING` with timeouts, 503 on failure | Redis ping fails → 503 | Before the first public release. Prior work: PR #26 (`codex-wybhg7`, closed unmerged, last commit 2026-07-19: extended system health and readiness, 24 files, out of date; reference only) |
+| ER-M-01 | Confirmed | `/health/ready` returns `ready` unconditionally (`api/health.py:42-49`); also §9g 12d item 1 | Medium | `SELECT 1` + Redis `PING` with timeouts, 503 on failure | Redis ping fails → 503 | Before the first public release. Prior work: PR #26 (closed unmerged, last commit 2026-07-19: extended system health and readiness, 24 files, out of date; reference only; its branch `codex-wybhg7` was deleted 2026-10-09, the PR keeps the commits) |
 | ER-M-02 | Confirmed | If the enqueue in `finally` fails (`workers/tasks.py:120-127`), the self-rescheduling chain ends until a worker restart (seeded only at start-up, `workers/arq_app.py:80-84`) | Medium | A cron re-seeds the poll with a fixed `_job_id` | Enqueue in `finally` raises → the cron restores the chain | With ER-H-01 |
 | ER-M-03 | Confirmed | `BatchCreate.size` has no upper bound (`schemas/promo.py`), loop in `services/promo.py:144`; admin + TOTP only | Low | `le=100_000` | `size=100_500` → 422 | **Fixed 2026-10-06** (schema `le=100_000` + `BATCH_MAX` in the service) |
 | ER-M-04 | Confirmed | `/auth/register` has no rate limit and answers 409 for a known address; not routed today (the BFF has only login/logout/me/refresh) | Medium before sign-up opens | §11 O2; the limit runs **before `hash_password`** (ER2-04) | §11 O2 | O2 |
@@ -2206,7 +2219,13 @@ the failing test named here.
     and on Docker Desktop every client does, so all of them share one "subnet" and the binding
     reduces to the user-agent match — which a thief holding T1 can copy. In that state a T1
     stolen and presented within 60 s while T2 is unused gets T2 instead of revoking the family.
-    The exposure is narrow (60 s, 3 uses, T2 still unused) but real.
+    The exposure is narrow (60 s, 3 uses, T2 still unused) but real. **Owner decision
+    (2026-10-09): the replay stays on by default.** F5 is a launch blocker, so no public
+    deployment runs before it (a closed trial run only behind the provider firewall, §9i
+    launch blockers), and rc7 must exercise the enabled path. Detection is delayed, not lost:
+    once either party rotates T2, the other's next presentation of a rotated token revokes the
+    family, unless it again qualifies for a replay (same fingerprint, inside 60 s, under the
+    cap). Verify the binding on the first VPS (§9i, first-VPS checklist).
 - **F14 — the header flashed "Sign in" before the session was restored. Fixed 2026-10-08.**
   `AuthMenu` rendered the signed-out state whenever `user` was null, including while `hydrated`
   was false and in the server HTML. It now renders a neutral placeholder of the same size until
