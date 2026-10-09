@@ -8,10 +8,19 @@ an account on repeated wrong passwords would let anyone lock out any user.
 
 from __future__ import annotations
 
+import asyncio
+import logging
+
 from redis.asyncio import Redis
+from redis.exceptions import RedisError
 
 from app.core.client_ip import rate_limit_bucket
 from app.services.counters import incr_with_ttl
+
+logger = logging.getLogger(__name__)
+
+# The refresh limit's Redis call may delay a refresh this long at most (F7).
+REFRESH_LIMIT_TIMEOUT_SECONDS = 0.5
 
 
 class RateLimitExceeded(Exception):
@@ -54,6 +63,40 @@ async def enforce_match_detail_limit(
     await enforce_fixed_window(
         redis, key=f"rl:match_detail:{identity}", limit=limit, window_seconds=window_seconds
     )
+
+
+async def enforce_match_list_limit(
+    redis: Redis, *, identity: str, limit: int, window_seconds: int
+) -> None:
+    """Per-caller limit on the public match list (F7)."""
+    await enforce_fixed_window(
+        redis, key=f"rl:match_list:{identity}", limit=limit, window_seconds=window_seconds
+    )
+
+
+async def enforce_refresh_ip_limit(redis: Redis, *, ip: str, limit: int) -> None:
+    """Per-IP limit on POST /auth/refresh (per minute; IPv6 per /64), before the
+    rotation (F7).
+
+    **Fails open**, unlike the other limits: when Redis cannot be reached (or
+    takes longer than ``REFRESH_LIMIT_TIMEOUT_SECONDS``) the refresh goes ahead
+    unlimited and a warning is logged. The rotation itself needs only the
+    database (the F13 replay is fail-open too), so failing closed would stop
+    every signed-in user from renewing a session during a Redis outage for the
+    sake of a limit; the routes that fail closed need Redis for their own work
+    anyway (quotas). Raises ``RateLimitExceeded`` only for a real excess."""
+    try:
+        await asyncio.wait_for(
+            enforce_fixed_window(
+                redis,
+                key=f"rl:refresh:ip:{rate_limit_bucket(ip)}",
+                limit=limit,
+                window_seconds=60,
+            ),
+            timeout=REFRESH_LIMIT_TIMEOUT_SECONDS,
+        )
+    except (RedisError, OSError, TimeoutError) as exc:
+        logger.warning("refresh rate limit not applied (fail-open): %s", type(exc).__name__)
 
 
 async def enforce_user_limit(

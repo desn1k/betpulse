@@ -21,6 +21,7 @@ from app.core.deps import (
     get_client_ip,
     get_db,
     get_redis_dep,
+    get_settings_dep,
     verify_csrf,
 )
 from app.schemas.auth import (
@@ -40,6 +41,7 @@ from app.services.auth import IssuedTokens
 from app.services.rate_limit import (
     RateLimitExceeded,
     enforce_login_ip_limit,
+    enforce_refresh_ip_limit,
     enforce_user_limit,
 )
 
@@ -246,9 +248,23 @@ async def refresh(
     request: Request,
     response: Response,
     settings: Annotated[Settings, Depends(get_settings)],
+    limits: Annotated[Settings, Depends(get_settings_dep)],
     redis: Annotated[Redis, Depends(get_redis_dep)],
     user_agent: Annotated[str | None, Header()] = None,
 ) -> AccessTokenResponse | JSONResponse:
+    ip = get_client_ip(request)
+    # Per-IP limit before anything else, every attempt counted (F7). It fails
+    # open when Redis is unavailable (see enforce_refresh_ip_limit). A 429
+    # rotates nothing and leaves the cookies alone: the presented token stays
+    # the live one, so retrying after Retry-After is safe.
+    try:
+        await enforce_refresh_ip_limit(redis, ip=ip, limit=limits.rate_limit_refresh_per_minute)
+    except RateLimitExceeded as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many refresh requests",
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from exc
     refresh_token = request.cookies.get(settings.refresh_cookie_name)
     if not refresh_token:
         return _refresh_rejected("Missing refresh token", settings)
@@ -257,7 +273,7 @@ async def refresh(
     try:
         tokens = await auth_service.rotate_refresh_token(
             refresh_token=refresh_token,
-            ip=get_client_ip(request),
+            ip=ip,
             user_agent=user_agent,
             redis=redis,
         )
