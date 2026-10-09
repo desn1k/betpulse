@@ -7,6 +7,33 @@ constraints" section whenever they change.
 
 ---
 
+## 0. Current state
+
+_Rewritten in every PR. Read this first; read other sections only when the task needs them._
+
+- **main:** `7ff1487` (#122, ER2-01). **This PR:** #123, F13 part A (refresh as keepalive,
+  never aborted) and the flaky age-gate e2e fix.
+- **Last release:** `v0.0.1-rc6` (pre-release, main `17d508a`, 2026-10-08). The local
+  rehearsal stack runs rc6 with a seeded database; nothing was released since (F10–F14,
+  ER2-01 and F13 A go into rc7).
+- **Next three (owner, 2026-10-09: pre-launch fixes first, then one rc7 rehearsal):**
+  1. F13 part B — server-side replay of the same T2 within 60 s (§9m, F13).
+  2. F5 — IPv6 / userland-proxy identity collapse (§9m, "Found later").
+  3. F7 — rate limit on `/matches`, limits before tier resolution (§9m, "Found later").
+- **Launch blockers still open (§9i):** F5, F7, ER2-05 (API statement/lock timeouts),
+  Redis `requirepass`, Redis persistence and memory policy, `docs/DEPLOY_VPS.md` (with the
+  "Lost authenticator" section); F13 part B is in the same pre-launch group.
+- **After those:** v0.0.1-rc7 rehearsal (§9i, "v0.0.1-rc7 (planned)"), then the cleanup PR
+  (ER2-09, ER2-13, F15, F16), O2 (with F17, F18), live on Sportmonks (§9m queue).
+- **Read for the current work:**
+  - F13 B: §6 "Refresh rotation is atomic" and "Access tokens die when the credentials
+    change", §9b frontend auth notes, §9m F13.
+  - F5 / F7 / ER2-05: §9m "Found later" and "External review 2", §6 client IP and pools.
+  - Releases and rehearsals: §9i "Release images and digests", "rc6 rehearsal", "v0.0.1-rc7".
+  - Any PR: §2 (rules), §5 (CI, e2e conventions, package-lock rule), §7 (environment).
+
+---
+
 ## 1. What this is
 
 **BetPulse** — a production-grade football analytics & ML prediction platform. Statistical and
