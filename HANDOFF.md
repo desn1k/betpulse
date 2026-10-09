@@ -11,24 +11,30 @@ constraints" section whenever they change.
 
 _Rewritten in every PR. Read this first; read other sections only when the task needs them._
 
-- **main:** `b3a0929` (#123, F13 part A). **This PR:** #124 (`fix/f13b-refresh-replay`), F13 part
-  B, the server-side replay of the same T2 (§6 "Refresh replay"), and the session rules moved
-  into `AGENTS.md` (the agent's per-session rules; this file stays the project context).
-- **Last release:** `v0.0.1-rc6` (pre-release, main `17d508a`, 2026-10-08). The local
-  rehearsal stack runs rc6 with a seeded database; nothing was released since (F10–F14,
-  ER2-01 and F13 A and B go into rc7).
+- **main:** `9c27465` (#124, F13 part B and `AGENTS.md`). **This PR:**
+  `fix/f5-ipv6-client-identity`, F5: a dual-stack Compose network so IPv6 clients keep their
+  address, the guard that reports client identities inside our own network (log once, admin
+  health `client_ip`), deploy.sh/rollback.sh refusing a changed network with the one-time
+  `down` procedure, the CI edge probe and `scripts/diagnose-client-ip.sh` (§9m F5).
+- **F5: fixed in code; verified on a server: NOT YET.** The first-VPS checklist item (§9i) with
+  `scripts/diagnose-client-ip.sh` decides it; until then the closed-trial rule holds (80/443 open
+  to the owner's addresses only). **Every existing stack needs one `scripts/prod-compose.sh
+  down` (never `-v`) before its first deploy with this PR** — deploy.sh refuses and prints it.
+  The local rehearsal stack has had it (rc6 on the dual-stack network; its clone holds the F5
+  files uncommitted, §9m F5).
+- **Last release:** `v0.0.1-rc6` (pre-release, main `17d508a`, 2026-10-08). Nothing was
+  released since (F10–F14, ER2-01, F13 A and B and F5 go into rc7).
 - **Next (owner, 2026-10-09: pre-launch fixes first, then one rc7 rehearsal):**
-  1. F5 — IPv6 / userland-proxy identity collapse (§9m, "Found later"). **F13 B's subnet
-     binding is only as good as F5** (§9m, F13).
-  2. F7 — rate limits on `/matches` and `/auth/refresh`, limits before tier resolution
-     (§9m, "Found later").
-- **Launch blockers still open (§9i):** F5, F7, ER2-05 (API statement/lock timeouts),
-  Redis `requirepass`, Redis persistence and memory policy, `docs/DEPLOY_VPS.md` (with the
-  "Lost authenticator" section).
+  1. F7 — rate limits on `/matches` and `/auth/refresh`, limits before tier resolution
+     (§9m, "Found later"); possible now that F5 is in code.
+- **Launch blockers still open (§9i):** F5 server verification, F7, ER2-05 (API
+  statement/lock timeouts), Redis `requirepass`, Redis persistence and memory policy,
+  `docs/DEPLOY_VPS.md` (outline agreed, §9i; with "Lost authenticator" and the trial
+  certificate).
 - **After those:** v0.0.1-rc7 rehearsal (§9i, "v0.0.1-rc7 (planned)"), then the cleanup PR
   (ER2-09, ER2-13, F15, F16), O2 (with F17, F18), live on Sportmonks (§9m queue).
 - **Read for the current work:**
-  - F5 / F7 / ER2-05: §9m "Found later" and "External review 2", §6 client IP and pools,
+  - F7 / ER2-05: §9m "Found later" and "External review 2", §6 client IP and pools,
     §6 "Refresh replay" (what F5 changes for it).
   - Releases and rehearsals: §9i "Release images and digests", "rc6 rehearsal", "v0.0.1-rc7".
   - Any PR: §2 (rules), §5 (CI, e2e conventions, package-lock rule), §7 (environment).
@@ -931,9 +937,12 @@ large diff, and do not proceed while any required security/CI job is red.
 - **Client IP:** `app.core.deps.get_client_ip` is the only
   client-IP source (login/admin limits, promo, audit, guest identity). It honours
   `X-Forwarded-For` only from `TRUSTED_PROXY_CIDRS` (right-most untrusted hop, IP-validated) and
-  uvicorn runs with `--no-proxy-headers`. Compose pins `web`/`caddy` addresses
-  (`BETPULSE_NETWORK_SUBNET`, `BETPULSE_WEB_IP`, `BETPULSE_CADDY_IP`) and trusts exactly those /32s;
-  production refuses to start without an explicit, private, narrow list. Rate-limit and guest-quota
+  uvicorn runs with `--no-proxy-headers`. Compose pins a dual-stack network and the `web`/`caddy`
+  addresses in both families (`BETPULSE_NETWORK_SUBNET(6)`, `BETPULSE_WEB_IP(6)`,
+  `BETPULSE_CADDY_IP(6)`) and trusts exactly those /32s and /128s; production refuses to start
+  without an explicit, private, narrow list, and without `INTERNAL_NETWORK_CIDRS` (the network's
+  subnets, holding every trusted proxy). A client identity inside them is logged once per process
+  and shown on the admin health page (`client_ip`), F5 (§9m). Rate-limit and guest-quota
   keys bucket IPv6 by /64; audit keeps the full address. On the frontend every `app/api` route
   handler reaches FastAPI only through `lib/server/backendProxy.ts` (directly or via `authProxy`),
   which forwards the bearer token and the right-most valid `X-Forwarded-For` hop (the Caddy-set
@@ -1474,17 +1483,24 @@ rc6 items that still apply (deploy over data, migration log, drills), it must ch
 - **Admin disable/enable:** disable a signed-in test user, enable them again: their open tab is
   signed out and does not come back to life.
 - No "Sign in" flash on fast reloads (F14); a regular user can turn TOTP on and off with a code.
+- **F5 on Docker Desktop:** the admin system health page shows `client_ip` **degraded** (every
+  request from the host arrives as the gateway there; expected, the server check decides F5),
+  and the api log has one "inside our own Docker network" warning per process. The stack is
+  already on the dual-stack network (§9m F5), so deploy.sh does not refuse.
 
 ### Launch blockers before the first VPS run
 
-None of these is done; the site is not opened before all are.
+The site is not opened before all are done (F5: done in code, not yet verified on a server).
 
-**Closed trial run before F5 (owner, 2026-10-09).** A trial run on a VPS before F5 is fixed is
-acceptable **only with ports 80/443 restricted to the owner's own address in the provider
-firewall** (ufw does not filter Docker-published ports). Until F5, every IPv6 client reaches the
-API as the bridge gateway, so per-IP limits, guest quotas and the refresh replay's subnet binding
-(§6 "Refresh replay") do not tell clients apart; nobody else may reach the site in that state.
-- **F5** — IPv6 / userland-proxy identity collapse (§9m).
+**Closed trial run before F5 is verified (owner, 2026-10-09).** A trial run on a VPS is
+acceptable **only with ports 80/443 restricted to the owner's own addresses (IPv4 and IPv6) in
+the provider firewall** (ufw does not filter Docker-published ports) until
+`scripts/diagnose-client-ip.sh` shows real IPv4 and IPv6 client addresses there. Before that,
+every IPv6 client may reach the API as the bridge gateway, so per-IP limits, guest quotas and
+the refresh replay's subnet binding (§6 "Refresh replay") would not tell clients apart; nobody
+else may reach the site in that state.
+- **F5** — IPv6 / userland-proxy identity collapse (§9m). **Fixed in code 2026-10-09; verified
+  on a server: not yet** (first-VPS checklist below).
 - **F7** — rate limits on `/matches` and `/auth/refresh`, and limits enforced before tier
   resolution (§9m).
 - **ER2-05** — API-only `statement_timeout` 15 s and `lock_timeout` 5 s (§9m, external review 2).
@@ -1504,6 +1520,61 @@ API as the bridge gateway, so per-IP limits, guest quotas and the refresh replay
   `auth.2fa.reset_by_operator`), then the admin signs in with the password alone and is led to
   set up TOTP again in the UI. Use `--require-password-change` when the device may have been
   stolen together with the password.
+
+**`docs/DEPLOY_VPS.md` outline (agreed with the owner 2026-10-09; the file is written in its own
+PR):**
+1. **Server.** Ubuntu LTS; Docker Engine ≥ 27 with the compose plugin (ip6tables is on by
+   default). `/etc/docker/daemon.json`: `{"userland-proxy": false}` **recommended, not
+   required** — nothing in the repository needs the proxy:
+   - unaffected (inside containers, no published port): every healthcheck (api, mlflow,
+     web, caddy `:8081`), deploy.sh/rollback.sh's `/api/ready` (`exec web wget 127.0.0.1`),
+     `caddy-smoke.sh` (`exec wget` in caddy), `diagnose-client-ip.sh` (`exec netstat`,
+     `exec redis-cli`);
+   - IPv4 loopback to a published port still works through NAT (Docker sets
+     `route_localnet`): the MLflow socat forwarder published on `127.0.0.1:5001` with
+     `ssh -L 5001:127.0.0.1:5001`, and `curl --resolve <domain>:443:127.0.0.1` on the host
+     (`caddy-domain-smoke.sh` does that in CI, where the proxy is on);
+   - **IPv6 loopback (`::1`) to a published port stops working** — use `127.0.0.1`
+     (`curl -4`), never `localhost` where it resolves to `::1` first;
+   - gain: if the network ever loses IPv6 again, IPv6 clients get "connection refused"
+     instead of silently sharing the gateway's identity. Verify the setting with the
+     diagnosis (no `docker-proxy` for 80/443).
+   With forwarding on, `accept_ra=2` on the uplink if its IPv6 route comes from router
+   advertisements. The deploy user, SSH keys, unattended upgrades.
+2. **Provider firewall.** 22 from the owner's addresses only. **Closed trial: 80/443 from the
+   owner's IPv4 and IPv6 addresses only.** ufw does not filter Docker-published ports.
+3. **DNS.** A and AAAA (only A under the IPv4-only stopgap, §9m F5 option 3).
+4. **Certificates during the closed trial.** With 80/443 closed to everyone else, ACME HTTP-01
+   and TLS-ALPN-01 both fail (Let's Encrypt must reach the server). **Chosen: Caddy's internal
+   CA for the trial.** `PUBLIC_DOMAIN` stays the real domain, so the certificate names the real
+   host; a trial switch (designed and tested in the DEPLOY_VPS PR; e.g. the global option
+   `local_certs` set through an environment placeholder in the Caddyfile, off by default and
+   reported by `check-compose-ports.sh`) makes Caddy issue it from its own CA. The browser warning
+   is expected; the owner may import Caddy's root (`/data/caddy/pki/authorities/local/root.crt`
+   in the caddy volume, as `caddy-root.crt` in the rehearsals) to silence it. HSTS
+   (`max-age=31536000; includeSubDomains; preload`) is sent: harmless over the trial (a browser
+   ignores HSTS on a connection with a certificate error, and a trusted local root is a valid
+   connection), but never submit the domain to the preload list during it. **Opening the site:**
+   turn the switch off, open 80/443 to everyone, restart caddy; it obtains the public
+   certificate on the first request and the checklist's ACME item is checked then.
+   Alternatives: **DNS-01** — a public certificate while closed, but needs a Caddy build with the
+   DNS provider's module and an API token on the server; **open 80 for issuance only** — a public
+   certificate, but the site is briefly reachable by everyone; **a self-signed certificate** —
+   like the internal CA with more manual steps.
+5. **Install.** Clone, `.env` (`chmod 600`, owner the deploy user), `docker login ghcr.io` with a
+   read-only token, `scripts/check-compose-ports.sh`.
+6. **Deploy.** `IMAGE_TAG=<tag> RELEASE_DIGESTS=release-<tag>.digests scripts/deploy.sh`
+   (explicit tag). First deploy on an empty server: the network is created, no `down` needed.
+   **Network changes later (like F5):** deploy.sh/rollback.sh refuse with the one-time
+   procedure — `scripts/prod-compose.sh down` (never `-v`), then the same command again.
+7. **F5 check:** `scripts/diagnose-client-ip.sh`, what each line should say, and what to do on
+   "OUR NETWORK" or "IPv6 real client seen: NO" (the IPv4-only stopgap, §9m F5).
+8. **F13 B check** (first-VPS checklist below), after 7 passes.
+9. The rest of the first-VPS checklist below (sockets, MLflow tunnel, Web Push, rollbacks).
+10. **Lost authenticator** (above).
+11. **Rollback**, including a rollback across a network change.
+12. **Opening the site:** only when every launch blocker above is done and 7 and 8 passed;
+    switch to the public certificate (4).
 
 ### First VPS launch: items no rehearsal could verify
 
@@ -1529,12 +1600,14 @@ a launch blocker above):
   fail its checks (or make `/api/ready` fail on purpose) and confirm `deploy.sh` restores the
   previous release by its stored digests, then that the site and `/api/ready` are back. Drilled
   on the local stack in the rc5 rehearsal (exit 2 and exit 3); not yet on a server.
-- [ ] **Real client addresses for IPv4 and IPv6 (F5, launch blocker).** From an IPv4 and from an
-  IPv6 client, **signed out** (a guest: a signed-in caller is counted by user id, not address),
-  open a match page; Caddy's logs must show each client's real `remote_ip`, never
-  `172.29.89.1` (the Caddyfile has no access log today: add a `log` directive for the check, or
-  rely on the next point), and Redis must hold a quota entry under each real address (IPv6 as
-  its /64; `redis-cli --scan --pattern 'limits:*'`). Do not open the site until both pass.
+- [ ] **Real client addresses for IPv4 and IPv6 (F5, launch blocker).** Run
+  `scripts/diagnose-client-ip.sh` on the server and, while it watches, open a match page from an
+  IPv4 and from an IPv6 client, **signed out** (a guest: a signed-in caller is counted by user id,
+  not address). It must print "IPv4 real client seen: yes", "IPv6 real client seen: yes" and
+  "Gateway / internal address seen: no", and list a new guest quota key under each real address
+  (IPv6 as its /64). The admin system health page must show `client_ip` ok. Do not open the site
+  until all pass; on a failure, read part 1 of its output (IPv6 on the network, NAT rules,
+  docker-proxy) and see §9m F5.
 - [ ] **Refresh replay subnet binding (F13 B), after the point above passes.** Sign in from a
   client in one subnet, make it lose a rotation answer (e.g. copy the refresh cookie before a
   page load, then present the old cookie again within 60 s with the same user-agent), and check
@@ -1994,7 +2067,8 @@ fails the request (fail-closed), as on `/analysis`.
 ### Found later (2026-10-06/07): F5–F9
 
 Found while checking the ER-M-05 follow-up; the F-series continues the rehearsal findings (F1–F4,
-§9i). F6, F8 (2026-10-07) and F9 (2026-10-08, found while planning F8) are fixed; F5 and F7 are open.
+§9i). F6, F8 (2026-10-07) and F9 (2026-10-08, found while planning F8) are fixed; F5 is fixed in code (2026-10-09, server
+verification pending) and F7 is open.
 F10–F18 were found in the rc6 rehearsal and after it (below); F10, F11, F12 and F14 are fixed.
 
 - **F5 — all IPv6 guests may share one identity. LAUNCH BLOCKER for the first VPS run.** Caddy
@@ -2020,7 +2094,90 @@ F10–F18 were found in the rc6 rehearsal and after it (below); F10, F11, F12 an
        clients cannot reach the site.
   - **Recommendation:** 1; if it cannot be finished before launch, 3 as a stopgap (never launch
     with the collapse in place).
-  - First-VPS checklist item (below).
+  - **Fixed in code 2026-10-09 with option 1 (PR `fix/f5-ipv6-client-identity`). Verified on a
+    server: NOT YET** — the first-VPS checklist item (§9i) with `scripts/diagnose-client-ip.sh`
+    decides it; until it passes, the closed-trial rule (§9i) stays.
+    - **Network** (`infra/docker-compose.yml`, base file, so dev, CI and prod match):
+      `enable_ipv6: true`, subnets `172.29.89.0/24` and the ULA `fd42:b7e1:5a29:89::/64`, gateways
+      pinned (`.1`, `::1`). `web` and `caddy` pinned in both families (`::10`, `::11`); variables
+      `BETPULSE_NETWORK_SUBNET(6)`, `BETPULSE_NETWORK_GATEWAY(6)`, `BETPULSE_WEB_IP(6)`,
+      `BETPULSE_CADDY_IP(6)` (`.env.example`). `TRUSTED_PROXY_CIDRS` = the four /32 and /128
+      addresses; `INTERNAL_NETWORK_CIDRS` = the two subnets (api and every worker). Internal hops
+      stay on IPv4 in practice (RFC 6724 ranks IPv4 above ULA), but an IPv6 hop is trusted too.
+      Caddy: comment only (no `trusted_proxies`).
+    - **Guard** (`app/services/client_identity.py`, middleware in `main.py`): a client identity a
+      trusted proxy vouched for that lies inside `INTERNAL_NETWORK_CIDRS` (the gateway, or an
+      internal hop the API does not trust) → one warning per API process, a Redis record
+      (`ops:client_identity:internal`: count, first/last time, last address and path; flushed at
+      most once a minute per process; 24 h TTL), and the admin system health component
+      `client_ip` = degraded while it exists. Requests without `X-Forwarded-For` (deploy.sh's
+      `/api/ready` from inside web) are not counted. **Known false positive:** a request the
+      server sends to itself through Caddy (`curl https://localhost` on the host) also arrives as
+      the gateway; the warning and the health detail say so. Production requires
+      `INTERNAL_NETWORK_CIDRS` (private, holding every trusted proxy).
+    - **Checks:** `scripts/check-compose-ports.sh` fails unless the network is dual-stack with one
+      subnet per family, web and caddy are pinned in both inside them, and the api and every
+      worker trust exactly those addresses and name exactly those subnets
+      (`scripts/tests/check-compose-ports-test.sh`, five broken variants). The connection-budget
+      test needed no change (it reads only environment, command and replicas).
+    - **CI probe** `scripts/edge-identity-smoke.sh` (job "Release tooling"): the prod config with a
+      stub `web` that echoes `X-Forwarded-For`; a client in its own network namespace (veth to
+      the host, so its packets enter like an outside client's) calls the published port 80 over
+      IPv4 and IPv6. **Red on main** (runner Docker 28.0.4, Ubuntu 24.04): IPv4
+      `xff=10.253.53.10` (its own), IPv6 `xff=172.29.89.1` (the gateway). A first version with a
+      client *container* on another bridge was red for IPv4 too — Docker relays container-to-host
+      connections through docker-proxy — so it was no model of an outside client. **Docker
+      Desktop cannot run it:** there even IPv4 arrives as the gateway (checked, 29.8.1).
+    - **Changing the network on an existing stack: one-time `down`.** Compose cannot change a
+      network in place. `deploy.sh` and `rollback.sh` (`scripts/compose-network.sh`) compare the
+      existing project network with the rendered config (IPv6, subnets, gateways) **before
+      pulling or starting anything** and, on a mismatch, refuse with exit 1 (never a failed `up`
+      and an automatic rollback) and print the procedure: `scripts/prod-compose.sh down`
+      (**never `-v`**), then the same deploy/rollback command again. The site is down between
+      the two. **First deploy on an empty server:** no network yet → no refusal; Compose creates
+      it. Scenario tests 17a–17f in `deploy-scripts-test.sh`.
+    - **Rollback compatibility:** rollback.sh uses the checkout's compose files, so after the
+      one-time `down` a rollback to a release before F5 (rc6) runs on the dual-stack network;
+      those images ignore `INTERNAL_NETWORK_CIDRS` (`extra="ignore"`) and accept the IPv6
+      `/128`s in `TRUSTED_PROXY_CIDRS`. Reverting the F5 commit itself needs the one-time `down`
+      again (the guard prints it).
+    - **Diagnosis on the server:** `scripts/diagnose-client-ip.sh [seconds]` (read-only): Docker
+      version and `daemon.json`, the network (IPv6, subnets, proxy addresses), who listens on
+      80/443 (docker-proxy or not), the NAT rules for 80/443 (sudo), host IPv6 (addresses,
+      default route, `forwarding`, `accept_ra` of the uplink), A/AAAA of `PUBLIC_DOMAIN`; then it
+      watches while the owner opens the site from an IPv4 and an IPv6 client, signed out, and
+      prints every address Caddy saw (`netstat` in caddy) and every new guest quota key in Redis,
+      each marked "real client" or "OUR NETWORK (collapse)". Tried read-only on the rehearsal
+      stack: it reported the collapse (`::ffff:172.29.89.1`), as expected on Docker Desktop.
+    - **Verified locally (2026-10-09, Docker Desktop 29.8.1):** the dev stack (base file, project
+      `f5dev`, subnets `.91`) came up with `enable_ipv6`, every service healthy with an IPv6
+      address, web and its BFF reaching the API (`/api/ready` 200 once `API_BASE_URL` is
+      `http://api:8000`; the `.env.example` value `http://localhost:8000` is for running outside
+      Docker), real IPv4/IPv6 client headers answered normally, and the guard fired once on a
+      gateway identity. In dev it fires on any direct hit of web's published port from the host
+      (Next.js sets `X-Forwarded-For` from the socket, which is the gateway there): expected, dev
+      only. The `bp-test` containers and the Linux pytest runner are on their own network and
+      were unaffected (full suite green). **Rehearsal stack:** with the F5 files copied into its
+      clone, `deploy.sh` and `rollback.sh` both refused (exit 1, procedure printed, containers
+      untouched); `prod-compose.sh down`, then the same `deploy.sh` of rc6: exit 0, 9/9 healthy,
+      the network dual-stack with web/caddy on `::10`/`::11`, the database summary identical to
+      before, the site, `/api/ready` and a match page 200 through Caddy, `check-compose-ports.sh`
+      OK. **The rehearsal clone now holds the F5 versions of `infra/` and `scripts/` as
+      uncommitted changes**; after this PR merges, `git checkout -- infra scripts && git pull`
+      there (the files will then match).
+    - **Server requirements:** Docker Engine ≥ 27 (ip6tables on by default; nothing to set).
+      Recommended, not required: `"userland-proxy": false` in `/etc/docker/daemon.json` — with it
+      an IPv6 client of an IPv4-only network is refused instead of collapsing (loud, not silent),
+      and Docker publishes through NAT only. Consequences and what still works: §9i
+      "`docs/DEPLOY_VPS.md` outline". With forwarding on (Docker turns it on for IPv6), a host
+      that takes its IPv6 route from router advertisements needs `accept_ra=2` on the uplink, or
+      the route lapses; the diagnosis prints both.
+    - **Backlog (not done here):** the guard catches only identities inside our own network. A
+      heuristic for a collapse it cannot see — many distinct sessions or user agents behind one
+      client address in a short time (a CDN in front, a carrier-grade NAT, a misrouted proxy) —
+      could flag an address for review on the health page. Needs thresholds that do not flag
+      ordinary carrier NAT; slot: with O2 or after launch.
+  - First-VPS checklist item (§9i).
 - **F6 — the daily view quota is spent by the page's own refetch. Fixed 2026-10-07 with option
   (a): the quota counts distinct `(identity, fixture)` per UTC day, for every tier (§9b).** Before:
   `useMatch` refetches `GET /matches/{id}` every 60 s (`frontend/lib/queries.ts`, plus
@@ -2214,7 +2371,9 @@ the failing test named here.
     family revocation after). Details, refusal reasons and settings: §6 "Refresh replay". This
     covers every case "left for B" above that reaches the server again within 60 s from the
     same browser and network.
-  - **B depends on F5. Do not rely on it as a theft control before F5 lands; F5 is next.**
+  - **B depends on F5. Do not rely on it as a theft control before F5 is verified on the server**
+    (F5 is fixed in code since 2026-10-09: with the dual-stack network the binding sees real /24s
+    and /64s; on Docker Desktop every client is still the gateway).
     Until F5 is fixed, every IPv6 client on a VPS reaches the API as the Docker bridge gateway,
     and on Docker Desktop every client does, so all of them share one "subnet" and the binding
     reduces to the user-agent match — which a thief holding T1 can copy. In that state a T1
@@ -2306,8 +2465,10 @@ main `314029b`**; line numbers will drift. Labels `ER2-` keep them apart from th
 
 1. **F8**, **F9**, **v0.0.1-rc6**, **F12**, **F10 + F11 + F14**, **ER2-01** — done.
 2. **v0.0.1-rc7** — the owner, by hand; checklist by the agent (§9i, "v0.0.1-rc7 (planned)").
-3. **F13** — parts A and B done (2026-10-09; §9m). B relies on F5 for its subnet binding.
-4. **Launch blockers:** F5, F7, ER2-05, Redis `requirepass` and memory policy, `docs/DEPLOY_VPS.md`.
+3. **F13** — parts A and B done (2026-10-09; §9m). B relies on F5 for its subnet binding (F5 in code
+   2026-10-09; server verification pending).
+4. **Launch blockers:** F5 (in code; verify on the server), F7, ER2-05, Redis `requirepass` and
+   memory policy, `docs/DEPLOY_VPS.md` (outline in §9i).
 5. **Cleanup PR:** ER2-09 (`BATCH_MAX` 10 000), ER2-13 (dead settings), F15 (stale-note time in
    the viewer's time zone), F16 (no follow toggle on finished matches).
 6. **O2** (registration) with ER2-03, ER2-04, ER-M-04, F17 and F18.
