@@ -74,6 +74,52 @@ describe("refresh request (F13 A)", () => {
     expect(useAuthStore.getState().refreshFailing).toBe(false);
   });
 
+  it("ignores a late 200 whose body is not JSON, without an unhandled rejection", async () => {
+    const late = deferred<Response>();
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(() => late.promise));
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const waiting = refreshSession().catch((e: Error) => e);
+      await vi.advanceTimersByTimeAsync(REFRESH_TIMEOUT_MS);
+      await waiting;
+
+      late.resolve(new Response("<html>proxy error</html>", { status: 200 }));
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(unhandled).toEqual([]);
+      expect(useAuthStore.getState().accessToken).toBe("old");
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  it("drops a late success once the user was reloaded (newer account data)", async () => {
+    const late = deferred<Response>();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>((input) =>
+        String(input) === "/api/auth/me"
+          ? Promise.resolve(Response.json({ ...USER, totp_enabled: true }))
+          : late.promise,
+      ),
+    );
+
+    const waiting = refreshSession().catch((e: Error) => e);
+    await vi.advanceTimersByTimeAsync(REFRESH_TIMEOUT_MS);
+    await waiting;
+    // Still valid for a while, so taking the bearer for /api/auth/me renews nothing.
+    useAuthStore.setState({ expiresAt: Date.now() + 600_000 });
+    await useAuthStore.getState().reloadUser();
+
+    late.resolve(session("late"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(useAuthStore.getState().user?.totp_enabled).toBe(true);
+    expect(useAuthStore.getState().accessToken).toBe("old");
+  });
+
   it("drops a late success when the session ended meanwhile", async () => {
     const late = deferred<Response>();
     vi.stubGlobal(

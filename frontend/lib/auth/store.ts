@@ -219,7 +219,12 @@ export const useAuthStore = create<AuthState>((set, get) => {
       return;
     }
     if (!res.ok || epoch !== sessionEpoch || applied !== appliedSessions) return;
-    const data = (await res.json()) as AccessTokenResponse;
+    let data: AccessTokenResponse;
+    try {
+      data = (await res.json()) as AccessTokenResponse;
+    } catch {
+      return; // a truncated or non-JSON body (a proxy page): nothing to apply
+    }
     if (epoch !== sessionEpoch || applied !== appliedSessions) return;
     applySession(data, { recovered: true });
   }
@@ -337,7 +342,11 @@ export const useAuthStore = create<AuthState>((set, get) => {
     reloadUser: async () => {
       const res = await authFetch("/api/auth/me", { headers: { accept: "application/json" } });
       if (!res.ok) throw new Error(`reload user failed: ${res.status}`);
-      set({ user: (await res.json()) as AuthUser });
+      const user = (await res.json()) as AuthUser;
+      // Newer account data than any refresh answer still in flight: a late one
+      // must not write its older user over it.
+      appliedSessions += 1;
+      set({ user });
     },
 
     // Silent refresh on app mount: if a refresh session exists (CSRF cookie
