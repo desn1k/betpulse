@@ -22,6 +22,8 @@ if [[ "$args" == *" exec -T postgres pg_dump "* ]]; then
   db="${*: -1}"
   [[ "${STUB_FAIL:-}" == "pg_dump:$db" ]] && { echo "pg_dump: error: connection failed" >&2; exit 1; }
   [[ "${STUB_FAIL:-}" == "empty:$db" ]] && exit 0
+  # The role must arrive as Compose reads it from .env: no surrounding quotes.
+  [[ "$args" == *" -U football "* ]] || { echo "pg_dump: error: role does not exist ($args)" >&2; exit 1; }
   printf 'PGDMP-%s' "$db"
   exit 0
 fi
@@ -117,6 +119,15 @@ root="$(setup_root tar)"
 STUB_FAIL=tar run "$root"
 [[ "$code" == "1" ]] || fail "tar fails: exit $code, expected 1"
 grep -q "mlflow-artifacts.tgz: failed" <<<"$out" || fail "tar fails: not named: $out"
+
+# 5. Quoted .env values (POSTGRES_USER="football") are read as Compose reads them.
+root="$(setup_root quoted)"
+cat >"$root/.env" <<'ENV'
+POSTGRES_USER="football"
+POSTGRES_DB='football'
+ENV
+run "$root"
+[[ "$code" == "0" ]] || fail "quoted .env values: exit $code: $out"
 
 if ((failures > 0)); then
   echo "$failures backup-now test(s) failed." >&2

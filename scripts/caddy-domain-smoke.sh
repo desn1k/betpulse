@@ -95,10 +95,12 @@ redirect="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' \
 [[ "$redirect" == "308 https://example.test/healthz" ]] || fail "http://example.test answered '$redirect'"
 echo "ok: http://example.test redirects to https://example.test"
 
-# issuer_of NAME: the issuer of the certificate Caddy presents for NAME.
+# issuer_of NAME: the issuer of the certificate Caddy presents for NAME, or
+# nothing. Never fails: under pipefail a handshake that is not ready yet would
+# otherwise end the script before the retry loop's next attempt.
 issuer_of() {
-  echo | openssl s_client -connect 127.0.0.1:443 -servername "$1" 2>/dev/null |
-    sed -n 's/^ *i://p' | head -n 1
+  { echo | openssl s_client -connect 127.0.0.1:443 -servername "$1" 2>/dev/null |
+    sed -n 's/^ *i://p' | head -n 1; } || true
 }
 if [[ "$(issuer_of example.test)" == *"Caddy Local Authority"* ]]; then
   fail "example.test got a certificate from Caddy's own CA without CADDY_TRIAL_TLS"

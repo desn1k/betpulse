@@ -24,10 +24,14 @@ out="${BACKUP_DIR:-$root_dir/.release/backups}/$stamp"
 
 compose() { "$root_dir/scripts/prod-compose.sh" "$@"; }
 
-# env_value KEY DEFAULT: KEY from .env (the last assignment), or DEFAULT.
+# env_value KEY DEFAULT: KEY from .env (the last assignment) as Compose reads
+# it (one pair of surrounding quotes removed), or DEFAULT.
 env_value() {
   local value
   value="$(sed -n "s/^$1=//p" "$root_dir/.env" | tail -n 1 | tr -d '\r')"
+  if [[ "$value" =~ ^\"(.*)\"$ || "$value" =~ ^\'(.*)\'$ ]]; then
+    value="${BASH_REMATCH[1]}"
+  fi
   echo "${value:-$2}"
 }
 pg_user="$(env_value POSTGRES_USER football)"
