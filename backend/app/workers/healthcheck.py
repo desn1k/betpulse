@@ -31,7 +31,7 @@ def main(argv: list[str]) -> int:
             file=sys.stderr,
         )
         return 2
-    with Redis.from_url(get_settings().redis_url) as redis:
+    with Redis.from_url(get_settings().redis_dsn) as redis:
         return 0 if is_healthy(QUEUES_BY_NAME[argv[0]], redis) else 1
 
 

@@ -39,7 +39,7 @@ from app.workers.tasks import (
 # Heartbeat refresh; `python -m app.workers.healthcheck <queue>` (the Compose
 # healthcheck) fails once ARQ lets the key expire shortly after this.
 HEALTH_CHECK_INTERVAL_SECONDS = 30
-REDIS_SETTINGS = RedisSettings.from_dsn(get_settings().redis_url)
+REDIS_SETTINGS = RedisSettings.from_dsn(get_settings().redis_dsn)
 
 # Every worker process imports this module: scrub its logs (ARQ logs a failed
 # job's exception text and traceback, which may carry a provider URL).

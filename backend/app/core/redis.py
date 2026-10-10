@@ -18,8 +18,7 @@ from app.core.config import get_settings
 def get_redis() -> Redis:
     settings = get_settings()
     client: Redis = Redis.from_url(
-        settings.redis_url,
-        password=settings.redis_password or None,
+        settings.redis_dsn,
         encoding="utf-8",
         decode_responses=True,
     )

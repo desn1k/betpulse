@@ -12,6 +12,7 @@ import math
 from datetime import date
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 from pydantic import BaseModel, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -131,6 +132,20 @@ def encryption_key_problem(value: str) -> str | None:
         return "must decode to 32 bytes (64 hex characters)"
     if entropy_bits(value) < SECRET_MIN_BITS:
         return f"has too little entropy (< {SECRET_MIN_BITS} bits)"
+    return None
+
+
+def redis_password_problem(value: str) -> str | None:
+    """Why ``value`` cannot be the production Redis ``requirepass``, or None.
+    Compose renders it into ``REDIS_URL``, so it must need no URL encoding."""
+    problem = secret_problem(value)
+    if problem:
+        return problem
+    if not value.isascii() or not value.isalnum():
+        return (
+            "must be letters and digits only (Compose puts it into REDIS_URL); "
+            "generate it with `openssl rand -hex 32`"
+        )
     return None
 
 
@@ -413,6 +428,19 @@ class Settings(BaseSettings):
         return self.environment == "production"
 
     @property
+    def redis_dsn(self) -> str:
+        """``REDIS_URL`` with ``REDIS_PASSWORD`` in it when the URL carries none:
+        the one value every Redis client (the API's client and ARQ pool, the
+        workers, the worker healthcheck) connects with."""
+        parts = urlsplit(self.redis_url)
+        if parts.password or not self.redis_password:
+            return self.redis_url
+        user = quote(parts.username or "", safe="")
+        host = parts.netloc.rpartition("@")[2]
+        netloc = f"{user}:{quote(self.redis_password, safe='')}@{host}"
+        return urlunsplit(parts._replace(netloc=netloc))
+
+    @property
     def trusted_proxy_networks(self) -> tuple[IPNetwork, ...]:
         if self.trusted_proxy_cidrs is None:
             return () if self.is_production else parse_trusted_proxies(_DEV_TRUSTED_PROXIES)
@@ -476,6 +504,9 @@ class Settings(BaseSettings):
             )
         if self.refresh_replay_max_uses < 1:
             raise ValueError("REFRESH_REPLAY_MAX_USES must be at least 1")
+        url_password = unquote(urlsplit(self.redis_url).password or "")
+        if url_password and self.redis_password and url_password != self.redis_password:
+            raise ValueError("REDIS_URL and REDIS_PASSWORD carry different passwords")
         if self.is_production:
             if self.trusted_proxy_cidrs is None:
                 raise ValueError("TRUSTED_PROXY_CIDRS must be set explicitly in production")
@@ -496,6 +527,9 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "CORS_ALLOWED_ORIGINS must list explicit origins when credentials are enabled"
                 )
+            problem = redis_password_problem(url_password or self.redis_password)
+            if problem:
+                raise ValueError(f"REDIS_PASSWORD {problem}")
         return self
 
 

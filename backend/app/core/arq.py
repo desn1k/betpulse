@@ -17,7 +17,7 @@ from app.core.config import get_settings
 
 async def get_arq_pool() -> AsyncIterator[ArqRedis]:
     """FastAPI dependency yielding an ARQ pool, closed after the request."""
-    pool = await create_pool(RedisSettings.from_dsn(get_settings().redis_url))
+    pool = await create_pool(RedisSettings.from_dsn(get_settings().redis_dsn))
     try:
         yield pool
     finally:
