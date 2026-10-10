@@ -371,6 +371,7 @@ jobs:
           API_IMAGE_DIGEST: sha256:1111111111111111111111111111111111111111111111111111111111111111
           WEB_IMAGE_DIGEST: sha256:2222222222222222222222222222222222222222222222222222222222222222
           MLFLOW_IMAGE_DIGEST: sha256:3333333333333333333333333333333333333333333333333333333333333333
+          REDIS_PASSWORD: ci0redis0password0a1b2c3d4e5f6a7b8c9d0e1f2
         run: bash scripts/caddy-domain-smoke.sh .env
 
       # F5: an IPv4 and an IPv6 client reach the upstream behind Caddy as
@@ -379,4 +380,6 @@ jobs:
         timeout-minutes: 5
         env:
           POSTGRES_PASSWORD: ci-postgres-password
+          # Required by the prod overlay (it renders it into REDIS_URL); redis is not started.
+          REDIS_PASSWORD: ci0redis0password0a1b2c3d4e5f6a7b8c9d0e1f2
         run: bash scripts/edge-identity-smoke.sh .env
