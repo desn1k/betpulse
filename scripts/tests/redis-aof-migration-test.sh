@@ -11,6 +11,9 @@
 #      Redis on the volume, converts it and stops it; the new config starts
 #      with every key.
 #   C. control: without the script the new config starts empty.
+#   D. backup and restore: scripts/redis-backup.sh copies the dump out;
+#      scripts/redis-restore.sh puts exactly that copy back (checksum checked,
+#      explicit --replace-current-data), with AOF on and the password required.
 # Each scenario is its own Compose project on its own subnets, never the
 # stack's, and is removed afterwards. Needs Docker Compose and REDIS_PASSWORD.
 set -Eeuo pipefail
@@ -216,8 +219,62 @@ else
 fi
 end_scenario
 
+# --- D. backup and restore on this release's Redis -----------------------------
+# redis-backup.sh takes a copy; later writes and a lost key; redis-restore.sh
+# brings back exactly the copy, with AOF on and the password required.
+start_scenario restore
+start_old_redis
+bash "$root/scripts/redis-enable-aof.sh" >/dev/null 2>&1 || fail "restore: setup conversion failed"
+keys="$(new_redis_keys)"
+[[ "$keys" == "5" ]] || fail "restore: setup has $keys keys, expected 5"
+if out="$(bash "$root/scripts/redis-backup.sh" 2>&1)"; then
+  ok "restore: redis-backup.sh succeeded"
+else
+  fail "restore: redis-backup.sh failed: $out"
+fi
+copy="$(sed -n 's/^Copied the dump to \(.*\.rdb\) (.*/\1/p' <<<"$out" | tail -n 1)"
+if [[ -s "$copy" && -f "$copy.sha256" ]]; then ok "restore: the copy and its checksum exist"; else fail "restore: no copy reported: $out"; fi
+container="$("$root/scripts/prod-compose.sh" ps -q redis)"
+docker exec -e REDISCLI_AUTH="$REDIS_PASSWORD" "$container" sh -c \
+  'redis-cli --no-auth-warning set after:backup x >/dev/null && redis-cli --no-auth-warning del limits:seen:u1 >/dev/null'
+if out="$(bash "$root/scripts/redis-restore.sh" "$copy" 2>&1)"; then
+  fail "restore: ran without --replace-current-data"
+elif [[ "$out" != *"--replace-current-data"* ]]; then
+  fail "restore: the refusal does not name --replace-current-data: $out"
+else
+  ok "restore: refuses without --replace-current-data"
+fi
+if [[ -s "$copy" ]]; then
+  cp "$copy" "$work/tampered.rdb"
+  printf 'x' >>"$work/tampered.rdb"
+  sed "s#$(basename "$copy")#tampered.rdb#" "$copy.sha256" >"$work/tampered.rdb.sha256"
+fi
+if out="$(bash "$root/scripts/redis-restore.sh" "$work/tampered.rdb" --replace-current-data 2>&1)"; then
+  fail "restore: accepted a copy whose checksum does not match"
+else
+  ok "restore: refuses a copy whose checksum does not match"
+fi
+if out="$(bash "$root/scripts/redis-restore.sh" "$copy" --replace-current-data 2>&1)"; then
+  ok "restore: redis-restore.sh succeeded"
+else
+  fail "restore: redis-restore.sh failed: $out"
+fi
+container="$("$root/scripts/prod-compose.sh" ps -q redis)"
+if wait_for_ping "$container" "$REDIS_PASSWORD"; then
+  rcli() { docker exec -e REDISCLI_AUTH="$REDIS_PASSWORD" "$container" redis-cli --no-auth-warning "$@"; }
+  if [[ "$(rcli dbsize)" == "5" ]]; then ok "restore: 5 keys, as in the copy"; else fail "restore: $(rcli dbsize) keys, expected 5"; fi
+  if [[ "$(rcli exists limits:seen:u1)" == "1" ]]; then ok "restore: the lost key is back"; else fail "restore: limits:seen:u1 missing"; fi
+  if [[ "$(rcli exists after:backup)" == "0" ]]; then ok "restore: a write after the copy is gone"; else fail "restore: after:backup still there"; fi
+  if (($(rcli pttl arq:job:job1) > 86000000)); then ok "restore: TTLs are kept"; else fail "restore: arq:job:job1 lost its TTL"; fi
+  if [[ "$(rcli config get appendonly | tail -n 1)" == "yes" ]]; then ok "restore: AOF is on"; else fail "restore: AOF is off"; fi
+  if [[ "$(docker exec "$container" redis-cli ping 2>&1)" == *NOAUTH* ]]; then ok "restore: the password is required"; else fail "restore: anonymous ping answered"; fi
+else
+  fail "restore: Redis did not come back"
+fi
+end_scenario
+
 if ((failures > 0)); then
   echo "$failures Redis AOF migration check(s) failed." >&2
   exit 1
 fi
-echo "OK: an RDB-only Redis is refused by the guard and moved to AOF with every key kept, running or stopped."
+echo "OK: an RDB-only Redis is refused by the guard and moved to AOF with every key kept, running or stopped; a copy restores exactly."
