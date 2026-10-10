@@ -21,6 +21,12 @@ _Rewritten in every PR. Read this first; read other sections only when the task 
   `scripts/redis-restore.sh`, `scripts/backup-now.sh`, `python -m app.cli vapid-keys`, and
   `backend/tests/test_deploy_doc.py` (the runbook names only scripts, `.env` keys, CLI commands
   and sections that exist, and covers every "First VPS launch" item below).
+- **Fixed here, from #127 (owner's choice: in this PR):** a restarted Redis container (docker
+  restart, a host reboot) crash-looped on Ubuntu: its start script rewrote `/tmp/redis-auth.conf`
+  in place, and `fs.protected_regular` refuses even root an `O_CREAT` open of another user's
+  file in sticky `/tmp`. Docker Desktop has it off (0), so every local run passed; CI (Ubuntu)
+  caught it through this PR's restore test. The script now removes the file first, and
+  `redis-config-smoke.sh` restarts the container (red in CI before the fix).
 - **Rehearsal stack (2026-10-10):** Redis backup → damage → `redis-restore.sh` and
   `backup-now.sh` ran there (log `rehearsal-logs/redis-restore-20261010T075949Z.log` in the
   clone, Postgres dumps taken first); 9/9 healthy after. The clone is on the PR branch.
@@ -372,7 +378,9 @@ covered by Vitest + React Testing Library.
   - **`requirepass`** from `REDIS_PASSWORD`, required in production (settings refuse an empty,
     placeholder, short or non-alphanumeric one; generate with `openssl rand -hex 32`). The
     container writes it to `/tmp/redis-auth.conf` at start, so it is not in the process
-    arguments. Clients: the prod overlay renders `REDIS_URL=redis://:<password>@redis:6379/0`
+    arguments. It **removes** that file first, never rewrites it: on a restart the file belongs
+    to the redis user, and Ubuntu's `fs.protected_regular` makes an in-place rewrite fail even
+    for root (fixed 2026-10-10; Docker Desktop does not show it). Clients: the prod overlay renders `REDIS_URL=redis://:<password>@redis:6379/0`
     for the API and every worker — **every image reads that URL**, so a rollback to an image
     from before this change still connects (rc6 images verified on the rehearsal stack). In code
     every client (API client and ARQ pool, worker settings, worker healthcheck) uses
