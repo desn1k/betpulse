@@ -348,12 +348,11 @@ jobs:
       - name: Validate Caddy configuration
         env:
           PUBLIC_DOMAIN: betpulse.example.test
-        run: >-
-          docker run --rm
-          -v "$PWD/infra/Caddyfile:/etc/caddy/Caddyfile:ro"
-          -e PUBLIC_DOMAIN
-          caddy:2.10-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
-          caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+        # Both certificate modes: public ACME (CADDY_TRIAL_TLS empty) and the closed trial.
+        run: |
+          for trial in "" local_certs; do
+            docker run --rm               -v "$PWD/infra/Caddyfile:/etc/caddy/Caddyfile:ro"               -e PUBLIC_DOMAIN -e CADDY_TRIAL_TLS="$trial"               caddy:2.10-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d               caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          done
 
       - name: Caddy routing smoke test
         timeout-minutes: 5

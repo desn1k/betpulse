@@ -16,6 +16,15 @@
 # Routing and the X-Forwarded-For replacement are covered by
 # scripts/caddy-smoke.sh (run in CI).
 
+# Closed-trial certificates (docs/DEPLOY_VPS.md, path A): with 80/443 open only
+# to the operator, ACME cannot reach the server. CADDY_TRIAL_TLS=local_certs
+# makes Caddy issue the certificate for PUBLIC_DOMAIN from its own CA instead;
+# empty (the default) keeps public ACME certificates. check-compose-ports.sh
+# accepts only those two values and reports which one is in effect.
+{
+	{$CADDY_TRIAL_TLS}
+}
+
 {$PUBLIC_DOMAIN:localhost} {
 	encode zstd gzip
 

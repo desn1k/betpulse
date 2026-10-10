@@ -87,6 +87,12 @@ if not (caddy_env.get("PUBLIC_DOMAIN") or "").strip():
     # Without it the Caddyfile falls back to `localhost`: no certificate for the
     # real domain.
     problems.append("caddy: PUBLIC_DOMAIN is not passed to the container")
+# The closed-trial certificate switch (infra/Caddyfile): empty = public ACME
+# certificates; local_certs = Caddy's own CA. Anything else is a typo that the
+# Caddyfile would paste into its global options.
+trial_tls = (caddy_env.get("CADDY_TRIAL_TLS") or "").strip()
+if trial_tls not in ("", "local_certs"):
+    problems.append("caddy: CADDY_TRIAL_TLS must be empty or local_certs")
 
 for name, service in sorted(config.get("services", {}).items()):
     env = service.get("environment") or {}
@@ -233,6 +239,13 @@ if problems:
     for line in problems:
         print(f"  {line}", file=sys.stderr)
     sys.exit(1)
+if trial_tls:
+    print(
+        "caddy: CLOSED TRIAL - certificates from Caddy's own CA (CADDY_TRIAL_TLS=local_certs); "
+        "unset it, open 80/443 and restart caddy to open the site (docs/DEPLOY_VPS.md)."
+    )
+else:
+    print("caddy: public certificates (ACME).")
 print(
     "OK: only caddy 80/tcp and 443/tcp are published; web reaches the API at "
     "http://api:8000; caddy gets PUBLIC_DOMAIN; no environment value is a comment; "
