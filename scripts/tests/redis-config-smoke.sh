@@ -4,7 +4,8 @@
 # can only read from the config: the healthcheck passes with the password, an
 # anonymous client is refused, maxmemory / noeviction / AOF are in effect, the
 # password is not in the process arguments, Redis runs as the redis user, and a
-# full Redis refuses writes instead of evicting. Removes its project and volume.
+# full Redis refuses writes instead of evicting, and the same container comes
+# back after a restart. Removes its project and volume.
 #
 # Usage: scripts/tests/redis-config-smoke.sh [ENV_FILE]   (default: ./.env)
 # Needs Docker Compose, the variables the prod overlay requires (CI sets them)
@@ -85,6 +86,24 @@ refused="$(authed "set smoke:new value" 2>&1 || true)"
 authed "config set maxmemory 256mb" >/dev/null
 if [[ "$refused" == *OOM* ]]; then ok "a full Redis refuses writes"; else fail "a write over maxmemory answered: $refused"; fi
 if [[ "$(authed "get smoke:ttl")" == "kept" ]]; then ok "no key with a TTL was evicted"; else fail "smoke:ttl was evicted"; fi
+
+# The same container started again (docker restart, a host reboot): the start
+# script must rewrite its config file. Ubuntu's fs.protected_regular refuses
+# even root an O_CREAT open of another user's file in sticky /tmp, so a
+# rewrite in place crash-looped Redis there (Docker Desktop has it off).
+docker restart "$container" >/dev/null
+health=""
+for _ in $(seq 1 30); do
+  health="$(docker inspect -f '{{.State.Health.Status}}' "$container")"
+  [[ "$health" == "healthy" ]] && break
+  sleep 2
+done
+if [[ "$health" == "healthy" && "$(authed ping)" == "PONG" && "$(authed "get smoke:ttl")" == "kept" ]]; then
+  ok "a restarted container comes back healthy, with the password and its data"
+else
+  fail "after docker restart redis is '$health'; its log:"
+  docker logs --tail 20 "$container" >&2 || true
+fi
 
 if ((failures > 0)); then
   echo "$failures Redis smoke check(s) failed." >&2
