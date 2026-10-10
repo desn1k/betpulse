@@ -22,6 +22,7 @@ llm_host="${LLM_HOST:-api.openai.com}"
 targets=(
   "ghcr.io|release images (api, web, mlflow)"
   "pkg-containers.githubusercontent.com|GHCR image layers"
+  "download.docker.com|Docker Engine packages (installation)"
   "registry-1.docker.io|Docker Hub images (postgres, redis, caddy)"
   "github.com|clone, release digests files"
   "api.sportmonks.com|Sportmonks (fixtures, results, live)"
