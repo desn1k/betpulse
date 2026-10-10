@@ -11,31 +11,28 @@ constraints" section whenever they change.
 
 _Rewritten in every PR. Read this first; read other sections only when the task needs them._
 
-- **main:** `9c27465` (#124, F13 part B and `AGENTS.md`). **This PR:**
-  `fix/f5-ipv6-client-identity`, F5: a dual-stack Compose network so IPv6 clients keep their
-  address, the guard that reports client identities inside our own network (log once, admin
-  health `client_ip`), deploy.sh/rollback.sh refusing a changed network with the one-time
-  `down` procedure, the CI edge probe and `scripts/diagnose-client-ip.sh` (§9m F5).
+- **main:** `d8b41cb` (#125, F5 in code). **This PR:** `fix/f7-public-rate-limits`, F7: limits
+  on the match list and on `/auth/refresh`, the public match limits moved before tier resolution,
+  429 handling in the client refresh path, and F8's "keep the data on a failed refetch" applied
+  to the list and the analysis (§9m F7, §6 "Public request limits").
 - **F5: fixed in code; verified on a server: NOT YET.** The first-VPS checklist item (§9i) with
   `scripts/diagnose-client-ip.sh` decides it; until then the closed-trial rule holds (80/443 open
   to the owner's addresses only). **Every existing stack needs one `scripts/prod-compose.sh
-  down` (never `-v`) before its first deploy with this PR** — deploy.sh refuses and prints it.
-  The local rehearsal stack has had it (rc6 on the dual-stack network; its clone holds the F5
-  files uncommitted, §9m F5).
+  down` (never `-v`) before its first deploy with F5** — deploy.sh refuses and prints it. The
+  local rehearsal stack has had it (rc6 on the dual-stack network, clone on main `d8b41cb`).
 - **Last release:** `v0.0.1-rc6` (pre-release, main `17d508a`, 2026-10-08). Nothing was
-  released since (F10–F14, ER2-01, F13 A and B and F5 go into rc7).
-- **Next (owner, 2026-10-09: pre-launch fixes first, then one rc7 rehearsal):**
-  1. F7 — rate limits on `/matches` and `/auth/refresh`, limits before tier resolution
-     (§9m, "Found later"); possible now that F5 is in code.
-- **Launch blockers still open (§9i):** F5 server verification, F7, ER2-05 (API
+  released since (F10–F14, ER2-01, F13 A and B, F5 and F7 go into rc7).
+- **Next (owner, 2026-10-09: pre-launch fixes first, then one rc7 rehearsal):** the remaining
+  launch blockers below, in the owner's order.
+- **Launch blockers still open (§9i):** F5 server verification, ER2-05 (API
   statement/lock timeouts), Redis `requirepass`, Redis persistence and memory policy,
   `docs/DEPLOY_VPS.md` (outline agreed, §9i; with "Lost authenticator" and the trial
   certificate).
 - **After those:** v0.0.1-rc7 rehearsal (§9i, "v0.0.1-rc7 (planned)"), then the cleanup PR
   (ER2-09, ER2-13, F15, F16), O2 (with F17, F18), live on Sportmonks (§9m queue).
 - **Read for the current work:**
-  - F7 / ER2-05: §9m "Found later" and "External review 2", §6 client IP and pools,
-    §6 "Refresh replay" (what F5 changes for it).
+  - ER2-05: §9m "External review 2", §6 pools. Request limits: §6 "Public request limits",
+    `SECURITY.md` (the table of every limit).
   - Releases and rehearsals: §9i "Release images and digests", "rc6 rehearsal", "v0.0.1-rc7".
   - Any PR: §2 (rules), §5 (CI, e2e conventions, package-lock rule), §7 (environment).
 
@@ -269,6 +266,39 @@ covered by Vitest + React Testing Library.
   **Not a theft control until F5 lands** (§9m, F13). No migration; rolling the image back
   leaves only entries that expire within 60 s. Tests: `tests/test_refresh_replay.py`, every
   window boundary on both sides by moving `created_at` on the DB clock (no sleeps).
+- **Public request limits (F7, 2026-10-09).** `SECURITY.md` has the table of every limit
+  (identity, threshold, position, behaviour without Redis). `GET /matches` (120 / 60 s,
+  `RATE_LIMIT_MATCH_LIST_*`), `/matches/{id}` (120 / 60 s) and `/analysis` (20 / min) enforce
+  their limit in **one route dependency**, `deps.public_rate_limit(scope)`, in the decorator's
+  `dependencies` so FastAPI runs it **before `get_tier_context`**: over the limit neither the user
+  nor the tier is loaded (a test forbids both). The identity, `deps.rate_limit_identity`, is the
+  `sub` of an access token with a valid signature, type and expiry, as a canonical UUID, read
+  **without a database query**; a token that fails verification or has no UUID subject is a guest
+  (IP bucket, IPv6 /64). The key holds only that UUID or the bucket, never token material. These
+  three fail closed on a Redis error, like before. `POST /auth/refresh`: per client IP, 120 / min
+  (`RATE_LIMIT_REFRESH_PER_MINUTE`), every attempt counted, **before the rotation** (a 429 rotates
+  nothing and sets no cookie); **fails open** (no limit, a warning, the call bounded to 0.5 s)
+  because the rotation needs only the database and failing closed would stop every session
+  renewal during a Redis outage. A request with a replay spends one unit of this limit, and a
+  successful replay also one of its own 10 / min.
+  - **Client** (`lib/auth/store.ts`): a refresh answered 429 keeps the session (no sign-out; the
+    "retrying" notice), waits `Retry-After` clamped to 1–300 s (60 s when missing) plus 0–5 s of
+    jitter, and sends no refresh before then from any trigger (timer, focus, online, visibility,
+    an API call: it uses the still-valid token or fails without sending, F9). Data views follow
+    F8's rules everywhere: an error replaces content only on a first load; a failed refetch keeps
+    it with the stale note (`components/match/StaleNote.tsx`); after a 429 the list and the match
+    card poll after max(60 s, `Retry-After`).
+  - **Known risk, accepted (owner, 2026-10-09; no code):** a lost rotation answer followed by a
+    429. All of these must hold: (1) T1 → T2 was rotated and the answer never reached the browser
+    (F13 B's case); (2) the next refresh with T1 from that client meets the per-IP limit — its
+    address has made more than 120 refreshes that minute, i.e. many users behind one NAT or an
+    abusive neighbour; (3) the 429's wait (`Retry-After` ≤ 60 s from the fixed window, plus up to
+    5 s of jitter) ends after T2's 60 s replay window, measured from the rotation, has passed;
+    (4) T2 is still unused (no other tab of the browser renewed with it). Then T1 comes back more
+    than 10 s after the rotation, outside the replay window: reuse, the family is revoked and the
+    user is signed out ("session expired"). With 120 / min per address an ordinary user does not
+    reach (2). If it shows in practice: answer a 429 only after the replay check (a T1 whose entry
+    qualifies is served), or cap the client's wait at the remaining replay window.
 - **Redis counters are atomic Lua scripts** (`app/services/counters.py`); never write
   `INCR` + `EXPIRE` (or `INCR` … `DECR`) as separate commands again. `incr_with_ttl` (fixed-window
   rate limits: login/LLM/admin per IP, promo per user; push counting) increments and sets the TTL in
@@ -1487,6 +1517,11 @@ rc6 items that still apply (deploy over data, migration log, drills), it must ch
   request from the host arrives as the gateway there; expected, the server check decides F5),
   and the api log has one "inside our own Docker network" warning per process. The stack is
   already on the dual-stack network (§9m F5), so deploy.sh does not refuse.
+- **F7:** a match page and the list keep working through normal use (no 429 from clicking
+  filters or leaving tabs open); with `RATE_LIMIT_MATCH_LIST_PER_WINDOW=3` set for a moment
+  (restart api), the list shows "Too many requests…" on a first load and keeps the cards with the
+  stale note on a refetch; with `RATE_LIMIT_REFRESH_PER_MINUTE=1`, a reload or two keeps you
+  signed in ("Can't renew your session — retrying…") and renews after the minute. Put both back.
 
 ### Launch blockers before the first VPS run
 
@@ -1501,8 +1536,7 @@ the refresh replay's subnet binding (§6 "Refresh replay") would not tell client
 else may reach the site in that state.
 - **F5** — IPv6 / userland-proxy identity collapse (§9m). **Fixed in code 2026-10-09; verified
   on a server: not yet** (first-VPS checklist below).
-- **F7** — rate limits on `/matches` and `/auth/refresh`, and limits enforced before tier
-  resolution (§9m).
+- ~~**F7**~~ — done 2026-10-09 (§9m).
 - **ER2-05** — API-only `statement_timeout` 15 s and `lock_timeout` 5 s (§9m, external review 2).
 - **Redis `requirepass`** (§9i, "Published ports").
 - **Redis persistence and memory policy.** Decide and document both in `infra/` and the runbook:
@@ -2068,7 +2102,7 @@ fails the request (fail-closed), as on `/analysis`.
 
 Found while checking the ER-M-05 follow-up; the F-series continues the rehearsal findings (F1–F4,
 §9i). F6, F8 (2026-10-07) and F9 (2026-10-08, found while planning F8) are fixed; F5 is fixed in code (2026-10-09, server
-verification pending) and F7 is open.
+verification pending) and F7 is fixed (2026-10-09).
 F10–F18 were found in the rc6 rehearsal and after it (below); F10, F11, F12 and F14 are fixed.
 
 - **F5 — all IPv6 guests may share one identity. LAUNCH BLOCKER for the first VPS run.** Caddy
@@ -2258,26 +2292,33 @@ F10–F18 were found in the rc6 rehearsal and after it (below); F10, F11, F12 an
     it sees it.
   - **Tests:** Vitest (fake timers) for every path above, and `e2e/session-refresh.spec.ts`
     (Playwright, no backend: `page.route` + `page.clock`) for a real-browser renewal.
-- **F7 — the public `/matches` list has no rate limit.** It runs the heaviest public query
-  (list, filters, consensus) and only `/matches/{id}` and `/analysis` are limited. Slot:
-  **pre-launch protection group** (before the first public release, with ER-M-04 / §11 O2 and
-  F5). Fix: the same per-caller fixed window, from settings.
-  - **Same group: `/auth/refresh` has no per-IP rate limit at all** (found 2026-10-09 while
-    doing F13 B; only successful replays are limited, §6 "Refresh replay"). Add one together
-    with the `/matches` limit, **after F5** (before it, every IPv6 client on a VPS would share
-    one bucket), with a generous threshold (every page load refreshes; users behind one NAT or
-    carrier-grade NAT share an address) and **429 handling in the client refresh path**
-    (`lib/auth/store.ts` today keeps the session on a 429 like on a 5xx and retries on its own
-    schedule, ignoring `Retry-After`; it must honour `Retry-After`, never sign out, and have a
-    test for it).
-  - **Same group: rate limit before tier resolution** (CodeRabbit on the ER-M-05 follow-up).
-    `/matches/{id}`, `/analysis` and (once limited) `/matches` check their limit inside the
-    handler, after `get_tier_context` has run. For a guest that is no database work (no token →
-    `get_optional_user` returns `None`; the guest tier is a constant plus a Redis-cached config);
-    for a signed-in caller with a valid signed token it is two indexed queries (the user, the
-    best active subscription) before the limit. Fix for all three together: a dependency that
-    derives the limit identity (verified token subject, or the guest IP bucket) and enforces the
-    limit before tier resolution, so `/analysis` and `/matches/{id}` stay alike.
+- **F7 — public request limits. Fixed 2026-10-09** (§6 "Public request limits",
+  `SECURITY.md`). Before: the list had no limit, `/matches/{id}` and `/analysis` checked theirs
+  after `get_tier_context` (two queries for a signed-in caller), `/auth/refresh` had no per-IP
+  limit, and the client treated a refresh 429 like a 5xx (its own 5/15/30/60 s schedule, focus
+  and visibility renewing regardless).
+  - **Now:** list 120 / 60 s per caller; the three public match limits run in one dependency
+    before tier resolution, identity from the verified token subject without a database read;
+    refresh 120 / min per IP before the rotation, fail-open without Redis; the client keeps the
+    session on a refresh 429 and waits `Retry-After` (clamped, with jitter), sending nothing
+    before; the list and the analysis keep their data on a failed refetch (F8's rules), and the
+    polls wait `Retry-After` after a 429.
+  - **Checked for F8's rules:** `MatchList` and `AnalysisBlock` changed; `MatchDetailView` (F8)
+    gained the `Retry-After` wait; `NotifyToggle`, `NotificationsSettings` and the admin views read
+    `data` first, so a failed refetch already kept their data (the admin `IngestionView` shows its
+    empty state, not an error, on a failed first load: cosmetic, left).
+  - **Thresholds and shared addresses:** one page view is 1 list request, each new filter 1, the
+    poll 1 a minute per tab, no focus refetch; a session costs a few refreshes a minute. 120 per
+    address leaves room for an office NAT; a large carrier NAT with more than ~120 open guest tabs
+    on one IPv4 address would see the list's 429 (the cards stay, the note says so); IPv6
+    subscribers have their own /64 since F5. Both thresholds are settings.
+  - **Tests:** `tests/api/test_public_rate_limits.py` (red before: the 121st list request 200,
+    the 121st refresh 401, the detail limit after tier resolution); Vitest
+    `lib/auth/refreshRateLimit.test.ts`, `lib/polling.test.ts`, `MatchList.test.tsx`, analysis and
+    detail cases; `e2e/refresh-rate-limit.spec.ts` (red on the previous `store.ts`: a refresh
+    went out inside the window).
+  - Found while doing it: a signed token with a non-string `sub` was already a guest (PyJWT
+    rejects it as `InvalidSubjectError`); the tests keep that.
 
 ### Found in the rc6 rehearsal (2026-10-08): F10–F17
 
@@ -2467,7 +2508,7 @@ main `314029b`**; line numbers will drift. Labels `ER2-` keep them apart from th
 2. **v0.0.1-rc7** — the owner, by hand; checklist by the agent (§9i, "v0.0.1-rc7 (planned)").
 3. **F13** — parts A and B done (2026-10-09; §9m). B relies on F5 for its subnet binding (F5 in code
    2026-10-09; server verification pending).
-4. **Launch blockers:** F5 (in code; verify on the server), F7, ER2-05, Redis `requirepass` and
+4. **Launch blockers:** F5 (in code; verify on the server), ER2-05, Redis `requirepass` and
    memory policy, `docs/DEPLOY_VPS.md` (outline in §9i).
 5. **Cleanup PR:** ER2-09 (`BATCH_MAX` 10 000), ER2-13 (dead settings), F15 (stale-note time in
    the viewer's time zone), F16 (no follow toggle on finished matches).

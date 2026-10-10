@@ -13,7 +13,7 @@ from datetime import date
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.client_ip import (
@@ -269,6 +269,15 @@ class Settings(BaseSettings):
     # and guests behind one NAT share a bucket, hence the headroom.
     rate_limit_match_detail_per_window: int = 120
     rate_limit_match_detail_window_seconds: int = 60
+    # GET /matches (the list), per caller like the detail limit (F7). One page
+    # view is 1 request, each new filter 1, the poll 1 a minute per tab; the
+    # headroom is for guests sharing an address (office NAT, carrier NAT).
+    rate_limit_match_list_per_window: int = 120
+    rate_limit_match_list_window_seconds: int = 60
+    # POST /auth/refresh per client IP (IPv6 per /64), every attempt counted,
+    # before the rotation (F7). A user makes a few a minute (page loads, the
+    # renewal timer, tab focus); the headroom is for users behind one NAT.
+    rate_limit_refresh_per_minute: int = 120
     # Account security, per user, counted before the expensive or guessable
     # check (ER2-02): password change before Argon2, TOTP enable/disable before
     # the 6-digit code (one shared bucket), TOTP setup before a new secret.
@@ -419,6 +428,17 @@ class Settings(BaseSettings):
     def read_database_url(self) -> str:
         """Read-replica URL, falling back to the primary when unset."""
         return self.database_read_url or self.database_url
+
+    @field_validator(
+        "rate_limit_match_list_per_window",
+        "rate_limit_match_list_window_seconds",
+        "rate_limit_refresh_per_minute",
+    )
+    @classmethod
+    def _validate_positive_limit(cls, value: int, info: ValidationInfo) -> int:
+        if value < 1:
+            raise ValueError(f"{(info.field_name or '').upper()} must be at least 1")
+        return value
 
     @field_validator("reference_bookmakers")
     @classmethod

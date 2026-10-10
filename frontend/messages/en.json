@@ -245,6 +245,7 @@
   "list": {
     "empty": "No matches for the selected filters.",
     "error": "Could not load matches. Please try again later.",
+    "rateLimited": "Too many requests right now — the list will reload in a minute.",
     "matchesLeft": "{count} matches left today"
   },
   "detail": {

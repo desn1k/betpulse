@@ -1,7 +1,7 @@
 // Browser-side fetchers for the same-origin match proxy routes. Consumed by the
 // TanStack Query hooks in lib/queries.ts.
 
-import { authFetch } from "@/lib/auth/store";
+import { authFetch, retryAfterSeconds } from "@/lib/auth/store";
 import type { BacktestResult, RunRequest } from "@/types/backtester";
 import type { AnalysisResult } from "@/types/llm";
 import type { MatchDetail, MatchList, MatchListParams } from "@/types/match";
@@ -11,6 +11,8 @@ class ApiError extends Error {
     message: string,
     readonly status: number,
     readonly body: unknown = null,
+    /** Seconds from the response's Retry-After (a 429), if any. */
+    readonly retryAfter: number | null = null,
   ) {
     super(message);
     this.name = "ApiError";
@@ -22,7 +24,7 @@ async function getJson<T>(url: string): Promise<T> {
   const res = await authFetch(url, { headers: { accept: "application/json" } });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new ApiError(`request failed: ${res.status}`, res.status, body);
+    throw new ApiError(`request failed: ${res.status}`, res.status, body, retryAfterSeconds(res));
   }
   return (await res.json()) as T;
 }

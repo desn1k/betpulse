@@ -4,12 +4,18 @@ import { useState } from "react";
 import { useTranslations } from "next-intl";
 
 import { Badge } from "@/components/ui/Badge";
+import { ApiError } from "@/lib/api";
 import { useMatches } from "@/lib/queries";
 import type { FixtureStatus } from "@/types/match";
 
 import { MatchCard } from "./MatchCard";
 import { MatchFilters } from "./MatchFilters";
 import { MatchListSkeleton } from "./MatchCardSkeleton";
+import { StaleNote } from "./StaleNote";
+
+function isRateLimited(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 429;
+}
 
 /** The match feed: filter bar + responsive grid of cards, with loading/empty states. */
 export function MatchList() {
@@ -37,11 +43,17 @@ export function MatchList() {
         )}
       </div>
 
+      {query.data !== undefined && query.isError ? (
+        <StaleNote updatedAt={query.dataUpdatedAt} />
+      ) : null}
+
+      {/* F8's rules (F7): an error replaces the list only on a first load; a
+          failed background refetch keeps the cards with the stale note. */}
       {query.isPending ? (
         <MatchListSkeleton />
-      ) : query.isError ? (
+      ) : query.data === undefined ? (
         <p role="alert" className="rounded-card bg-surface-muted p-6 text-center text-muted-strong">
-          {t("list.error")}
+          {isRateLimited(query.error) ? t("list.rateLimited") : t("list.error")}
         </p>
       ) : query.data.items.length === 0 ? (
         <p className="rounded-card bg-surface-muted p-6 text-center text-muted-strong">

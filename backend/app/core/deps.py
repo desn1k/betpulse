@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import Annotated
+from typing import Annotated, Literal
 
 import jwt
 from fastapi import Depends, Header, HTTPException, Request, status
@@ -23,6 +23,12 @@ from app.core.security import (
     token_state,
 )
 from app.models.user import User, UserRole
+from app.services.rate_limit import (
+    RateLimitExceeded,
+    enforce_llm_analysis_limit,
+    enforce_match_detail_limit,
+    enforce_match_list_limit,
+)
 from app.services.tiers import ResolvedTier, resolve_tier_context
 
 _bearer = HTTPBearer(auto_error=False)
@@ -150,6 +156,82 @@ async def get_optional_user(
 
 
 OptionalUser = Annotated[User | None, Depends(get_optional_user)]
+
+
+def rate_limit_identity(token: str | None, client_ip: str) -> str:
+    """The identity a public route's request limit counts (F7): the subject of an
+    access token with a valid signature, type and expiry, as a canonical UUID —
+    **no database read**, so the limit runs before anything touches the
+    database — or else the guest's IP bucket (IPv6 per /64). A token that fails
+    verification, or whose ``sub`` is missing or not a UUID, is a guest. The
+    result never carries token material: only the parsed UUID or the bucket.
+
+    Same strings as ``TierContext.identity`` (``str(user.id)`` or the bucket),
+    so a signed-in caller's limit keys do not move."""
+    if token:
+        try:
+            claims = decode_access_token(token)
+        except jwt.PyJWTError:
+            claims = None
+        subject = claims.get("sub") if claims is not None else None
+        if isinstance(subject, str):
+            try:
+                return str(uuid.UUID(subject))
+            except ValueError:
+                pass
+    return rate_limit_bucket(client_ip)
+
+
+PublicLimitScope = Literal["match_list", "match_detail", "llm_analysis"]
+
+
+def public_rate_limit(scope: PublicLimitScope) -> Callable[..., Awaitable[None]]:
+    """Dependency: the per-caller request limit of a public match route, enforced
+    **before tier resolution** (F7). Put it in the route decorator's
+    ``dependencies``: FastAPI resolves those before the endpoint's own
+    parameters, so over the limit neither the user nor the tier is loaded. A
+    Redis error propagates (fail closed): these routes need Redis for their
+    quotas anyway."""
+
+    async def enforce(
+        request: Request,
+        credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+        redis: Annotated[Redis, Depends(get_redis_dep)],
+        settings: Annotated[Settings, Depends(get_settings_dep)],
+    ) -> None:
+        identity = rate_limit_identity(
+            credentials.credentials if credentials is not None else None, get_client_ip(request)
+        )
+        try:
+            if scope == "match_list":
+                detail = "Too many match list requests"
+                await enforce_match_list_limit(
+                    redis,
+                    identity=identity,
+                    limit=settings.rate_limit_match_list_per_window,
+                    window_seconds=settings.rate_limit_match_list_window_seconds,
+                )
+            elif scope == "match_detail":
+                detail = "Too many match requests"
+                await enforce_match_detail_limit(
+                    redis,
+                    identity=identity,
+                    limit=settings.rate_limit_match_detail_per_window,
+                    window_seconds=settings.rate_limit_match_detail_window_seconds,
+                )
+            else:
+                detail = "Too many LLM analysis requests"
+                await enforce_llm_analysis_limit(
+                    redis, identity=identity, limit=settings.rate_limit_llm_analysis_per_minute
+                )
+        except RateLimitExceeded as exc:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=detail,
+                headers={"Retry-After": str(exc.retry_after)},
+            ) from exc
+
+    return enforce
 
 
 class TierContext:
