@@ -254,7 +254,7 @@ if out="$(bash "$root/scripts/redis-restore.sh" "$work/tampered.rdb" --replace-c
 else
   ok "restore: refuses a copy whose checksum does not match"
 fi
-if out="$(bash "$root/scripts/redis-restore.sh" "$copy" --replace-current-data 2>&1)"; then
+if out="$(timeout 300 bash -x "$root/scripts/redis-restore.sh" "$copy" --replace-current-data 2>&1)"; then
   ok "restore: redis-restore.sh succeeded"
 else
   fail "restore: redis-restore.sh failed: $out"
