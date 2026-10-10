@@ -70,5 +70,9 @@ bash "$root_dir/scripts/redis-enable-aof.sh"
 compose up -d --no-deps redis >/dev/null
 container="$(compose ps -q redis)"
 answers_ping() { [[ "$(redis_cli "$container" ping 2>/dev/null)" == "PONG" ]]; }
-redis_wait_until 120 "redis to answer" answers_ping
+if ! redis_wait_until 120 "redis to answer" answers_ping; then
+  echo "Redis did not come back; its last log lines:" >&2
+  compose logs --tail=40 redis >&2 || true
+  exit 1
+fi
 echo "Restored: Redis holds $(redis_cli "$container" dbsize) keys, AOF $(redis_cli "$container" config get appendonly | tail -n 1)."
