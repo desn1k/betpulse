@@ -160,6 +160,28 @@ services:
 YAML
 expect_rejected worker-redis-elsewhere "worker-batch: REDIS_URL points at cache.example:6379"
 
+# The closed-trial certificate switch (CADDY_TRIAL_TLS): off by default and said
+# so; local_certs (Caddy's internal CA) is reported; any other value is refused.
+if out="$(bash "$root_dir/scripts/check-compose-ports.sh" "$env_file" 2>&1)" &&
+  [[ "$out" == *"caddy: public certificates (ACME)"* ]]; then
+  echo "ok   the default is public certificates, and the check says so"
+else
+  fail "default certificate mode not reported as ACME: $out"
+fi
+if out="$(CADDY_TRIAL_TLS=local_certs bash "$root_dir/scripts/check-compose-ports.sh" "$env_file" 2>&1)" &&
+  [[ "$out" == *"caddy: CLOSED TRIAL"* ]]; then
+  echo "ok   CADDY_TRIAL_TLS=local_certs passes and is reported as the closed trial"
+else
+  fail "CADDY_TRIAL_TLS=local_certs not reported: $out"
+fi
+if out="$(CADDY_TRIAL_TLS=internal bash "$root_dir/scripts/check-compose-ports.sh" "$env_file" 2>&1)"; then
+  fail "CADDY_TRIAL_TLS=internal accepted"
+elif [[ "$out" != *"caddy: CADDY_TRIAL_TLS must be empty or local_certs"* ]]; then
+  fail "CADDY_TRIAL_TLS=internal rejected without the message: $out"
+else
+  echo "ok   CADDY_TRIAL_TLS=internal rejected"
+fi
+
 if ((failures > 0)); then
   echo "$failures check-compose-ports test(s) failed." >&2
   exit 1

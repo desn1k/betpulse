@@ -10,6 +10,9 @@ needs them. This file holds only what must hold in every session; everything els
   are in Russian: plain, concise, tables where useful, no jargon.
 - Code, comments, commit messages, PR texts, docs, identifiers and implementation prompts
   are in English.
+- **Exception (owner, 2026-10-10):** `docs/DEPLOY_VPS.md`, the operator's runbook, is in
+  Russian. Commands, file contents, identifiers and quoted program output in it stay as they
+  are.
 
 ## Working rules
 

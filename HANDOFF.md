@@ -11,33 +11,43 @@ constraints" section whenever they change.
 
 _Rewritten in every PR. Read this first; read other sections only when the task needs them._
 
-- **main:** `c55ab40` (#126, F7). **This PR:** `fix/launch-blockers-db-redis`: ER2-05 (API-only
-  `statement_timeout` 15 s and `lock_timeout` 5 s), Redis `requirepass` for every client, Redis
-  `maxmemory 256mb` + `noeviction` with the admin health component `redis_memory`, AOF
-  persistence and the guarded one-time move to AOF (`scripts/redis-enable-aof.sh`; deploy.sh
-  refuses until it ran). §6 "Database timeouts" and "Redis: password, memory, persistence".
-- **Every existing stack, before its first deploy with this PR:** `REDIS_PASSWORD` in `.env`
-  (`openssl rand -hex 32`), then `scripts/redis-enable-aof.sh` (BGSAVE and a dump copy first),
-  then the deploy (§9i outline item 6). The local rehearsal stack has had it (2026-10-10, rc6
-  images, clone on the PR branch; §9i "Redis move on the rehearsal stack").
-- **F5: fixed in code; verified on a server: NOT YET.** The first-VPS checklist item (§9i) with
-  `scripts/diagnose-client-ip.sh` decides it; until then the closed-trial rule holds (80/443 open
-  to the owner's addresses only). **Every existing stack needs one `scripts/prod-compose.sh
-  down` (never `-v`) before its first deploy with F5** — deploy.sh refuses and prints it.
+- **main:** `61497fa` (#127, ER2-05 and the Redis launch blockers). **This PR:**
+  `docs/deploy-vps`: `docs/DEPLOY_VPS.md`, the operator's runbook **in Russian** (owner's
+  exception, recorded in `AGENTS.md`): sizing from the stand, provider criteria, server setup,
+  secrets, path A (closed trial, Caddy internal CA) step by step with expected output, the
+  first-VPS checks, operations, path B preconditions (technical and "confirm with a lawyer"
+  legal items), and a one-page day checklist. With it: `CADDY_TRIAL_TLS=local_certs` (the trial
+  certificate switch), `scripts/check-egress.sh`, `scripts/redis-backup.sh`,
+  `scripts/redis-restore.sh`, `scripts/backup-now.sh`, `python -m app.cli vapid-keys`, and
+  `backend/tests/test_deploy_doc.py` (the runbook names only scripts, `.env` keys, CLI commands
+  and sections that exist, and covers every "First VPS launch" item below).
+- **Fixed here, from #127 (owner's choice: in this PR):** a restarted Redis container (docker
+  restart, a host reboot) crash-looped on Ubuntu: its start script rewrote `/tmp/redis-auth.conf`
+  in place, and `fs.protected_regular` refuses even root an `O_CREAT` open of another user's
+  file in sticky `/tmp`. Docker Desktop has it off (0), so every local run passed; CI (Ubuntu)
+  caught it through this PR's restore test. The script now removes the file first, and
+  `redis-config-smoke.sh` restarts the container (red in CI before the fix).
+- **Rehearsal stack (2026-10-10):** Redis backup → damage → `redis-restore.sh` and
+  `backup-now.sh` ran there (log `rehearsal-logs/redis-restore-20261010T075949Z.log` in the
+  clone, Postgres dumps taken first); 9/9 healthy after. The clone is on the PR branch.
+- **Open, waiting for the owner (found 2026-10-10, not fixed):** the BFF does not forward the
+  browser's `User-Agent` to the API (`frontend/lib/server/backendProxy.ts` relays only
+  authorization, content-type, cookie and x-csrf-token), so every browser reaches `/auth/refresh`
+  as `user-agent: node`. The F13 B replay's user-agent binding (§6 "Refresh replay") therefore
+  always matches; the subnet binding still works. Options in the PR report.
+- **F5: fixed in code; verified on a server: NOT YET** — `docs/DEPLOY_VPS.md` §7.3 decides it;
+  until then the closed-trial rule holds (80/443 open to the owner's addresses only).
 - **Last release:** `v0.0.1-rc6` (pre-release, main `17d508a`, 2026-10-08). Nothing was
-  released since (F10–F14, ER2-01, F13 A and B, F5, F7, ER2-05 and the Redis changes go into
-  rc7).
-- **Next (owner, 2026-10-09: pre-launch fixes first, then one rc7 rehearsal):**
-  `docs/DEPLOY_VPS.md` (outline agreed, §9i; with "Lost authenticator", the trial certificate,
-  the Redis move and the untested dump restore), then the v0.0.1-rc7 rehearsal (§9i,
-  "v0.0.1-rc7 (planned)"), then the cleanup PR (ER2-09, ER2-13, F15, F16), O2 (with F17, F18),
-  live on Sportmonks (§9m queue).
-- **Launch blockers still open (§9i):** F5 server verification, `docs/DEPLOY_VPS.md`.
-- **Sportmonks trial** (ends ≈ 2026-10-17): the live-format capture (`/livescores`,
-  `/livescores/inplay`) is retried on 2026-10-10 when the owner says a match is live; fixtures stay
-  uncommitted while a PR is open (§9l).
+  released since; rc7 carries everything since rc6 including this PR (path A needs ≥ rc7).
+- **Next:** the v0.0.1-rc7 rehearsal (§9i, "v0.0.1-rc7 (planned)"), then the first VPS by
+  `docs/DEPLOY_VPS.md` path A, then the cleanup PR (ER2-09, ER2-13, F15, F16), O2 (with F17,
+  F18), live on Sportmonks (§9m queue).
+- **Launch blockers still open (§9i):** F5 server verification (runbook §7.3); for path B also
+  the runbook's section 9 (legal, off-server backups, registration, real data).
+- **Sportmonks trial** (ends ≈ 2026-10-17): the live-format capture is retried when the owner
+  says a match is live; fixtures stay uncommitted while a PR is open (§9l).
 - **Read for the current work:**
-  - DEPLOY_VPS: §9i (outline, first-VPS checklist), §6 Redis and F5 notes.
+  - Deploying: `docs/DEPLOY_VPS.md`; background §9i (outline, first-VPS checklist), §6.
   - Releases and rehearsals: §9i "Release images and digests", "rc6 rehearsal", "v0.0.1-rc7".
   - Any PR: §2 (rules), §5 (CI, e2e conventions, package-lock rule), §7 (environment).
 
@@ -368,7 +378,9 @@ covered by Vitest + React Testing Library.
   - **`requirepass`** from `REDIS_PASSWORD`, required in production (settings refuse an empty,
     placeholder, short or non-alphanumeric one; generate with `openssl rand -hex 32`). The
     container writes it to `/tmp/redis-auth.conf` at start, so it is not in the process
-    arguments. Clients: the prod overlay renders `REDIS_URL=redis://:<password>@redis:6379/0`
+    arguments. It **removes** that file first, never rewrites it: on a restart the file belongs
+    to the redis user, and Ubuntu's `fs.protected_regular` makes an in-place rewrite fail even
+    for root (fixed 2026-10-10; Docker Desktop does not show it). Clients: the prod overlay renders `REDIS_URL=redis://:<password>@redis:6379/0`
     for the API and every worker — **every image reads that URL**, so a rollback to an image
     from before this change still connects (rc6 images verified on the rehearsal stack). In code
     every client (API client and ARQ pool, worker settings, worker healthcheck) uses
@@ -400,6 +412,24 @@ covered by Vitest + React Testing Library.
     dump copied out of the container into `.release/redis/dump-<UTC>.rdb` with its `.sha256`, then
     AOF on and the rewrite awaited; a stopped Redis is converted in a temporary container), then
     the same deploy command. `rollback.sh` never restarts Redis, so it does not check.
+  - **Backup and restore (2026-10-10).** `scripts/redis-backup.sh` (BGSAVE awaited, the dump
+    copied out with its sha256; the same `redis_dump_copy` as the AOF move) and
+    `scripts/redis-restore.sh COPY --replace-current-data` (sha256 checked, the current data
+    copied first, redis stopped, the copy put into the volume without the AOF, converted by
+    `redis-enable-aof.sh`'s stopped path, redis started). Proven by scenario D of
+    `scripts/tests/redis-aof-migration-test.sh` and on the rehearsal stack.
+- **Manual backups until WAL-G (2026-10-10).** `scripts/backup-now.sh` writes
+  `.release/backups/<UTC>/` (both `pg_dump -Fc`, the MLflow artifact tar from the mlflow
+  container, a Redis copy, `SHA256SUMS`) and checks every part; a failure stops before
+  `SHA256SUMS`. A plain `pg_dump > file` that fails leaves an empty file and exit 0 in a
+  pipeline — that is why the check exists. Postgres restore from these dumps is **not
+  rehearsed** (TimescaleDB needs its pre/post-restore steps); it comes with WAL-G.
+- **Closed-trial certificates (2026-10-10).** `CADDY_TRIAL_TLS=local_certs` (`.env`, passed to
+  caddy by the prod overlay) puts Caddy's `local_certs` global option in `infra/Caddyfile`:
+  the certificate for `PUBLIC_DOMAIN` comes from Caddy's own CA. Empty = public ACME.
+  `check-compose-ports.sh` refuses any other value and prints the mode; CI validates both modes
+  and `caddy-domain-smoke.sh` checks the issuer. Switching it off stops serving the local
+  certificate (checked in a container; storage is per issuer).
 - **Database connection budget (two pools per API process).** A failed login holds its request
   connection while it opens the security transaction, so `independent_transaction()` draws from a
   **separate** pool (`DB_SECURITY_POOL_SIZE`=2 + `DB_SECURITY_MAX_OVERFLOW`=3); the request pool is
@@ -1627,17 +1657,16 @@ else may reach the site in that state.
   `maxmemory 256mb` with `noeviction` (every quota, rate-limit and ARQ key has a TTL, so no
   eviction policy could spare them), the admin health component `redis_memory` (degraded above
   80 %), and the guarded one-time move to AOF (§6; procedure in the outline below, item 6).
-- **`docs/DEPLOY_VPS.md`** — the VPS runbook and first-VPS checklist. **It does not exist yet**;
-  writing it is a launch deliverable. It absorbs the list below, and must have a section
-  **"Lost authenticator"**: `scripts/prod-compose.sh run --rm api python -m app.cli reset-2fa
+- ~~**`docs/DEPLOY_VPS.md`**~~ — written 2026-10-10 (in Russian; the owner's runbook). It
+  absorbs the list below, and has the section **"Lost authenticator"** (§6.3 there): `scripts/prod-compose.sh run --rm api python -m app.cli reset-2fa
   --email <address> [--require-password-change]` (needs shell access to the server; prints one
   line, never the secret; turns TOTP off, ends every session, audits
   `auth.2fa.reset_by_operator`), then the admin signs in with the password alone and is led to
   set up TOTP again in the UI. Use `--require-password-change` when the device may have been
   stolen together with the password.
 
-**`docs/DEPLOY_VPS.md` outline (agreed with the owner 2026-10-09; the file is written in its own
-PR):**
+**`docs/DEPLOY_VPS.md` outline (agreed with the owner 2026-10-09; written 2026-10-10 — the file
+is now the source; this outline is kept as background):**
 1. **Server.** Ubuntu LTS; Docker Engine ≥ 27 with the compose plugin (ip6tables is on by
    default). `/etc/docker/daemon.json`: `{"userland-proxy": false}` **recommended, not
    required** — nothing in the repository needs the proxy:
@@ -1707,8 +1736,9 @@ PR):**
 
 ### First VPS launch: items no rehearsal could verify
 
-Check these on the server during the first launch (runbook: `docs/DEPLOY_VPS.md`, not written yet;
-a launch blocker above):
+Check these on the server during the first launch (runbook: `docs/DEPLOY_VPS.md` section 7,
+which `backend/tests/test_deploy_doc.py` keeps in step with this list — rename an item here and
+the test fails until the runbook follows):
 
 - [ ] **ACME on the real domain.** The DNS A/AAAA records point at the server, and Caddy obtains
   the certificate: check the caddy logs and `curl -I https://<domain>/healthz`.

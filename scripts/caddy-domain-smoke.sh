@@ -15,7 +15,9 @@
 #   3. PUBLIC_DOMAIN=betpulse.localhost: `curl --resolve` over HTTPS answers
 #      /healthz. Caddy issues *.localhost certificates from its internal CA, so
 #      this proves TLS is served for the configured name; with the variable
-#      missing the handshake fails (the site would be `localhost`).
+#      missing the handshake fails (the site would be `localhost`);
+#   4. CADDY_TRIAL_TLS=local_certs (the closed trial): example.test is served
+#      with a certificate from Caddy's own CA; without it, it is not.
 #
 # Publishes host ports 80/443 like production, so nothing else may hold them.
 # Needs a repo-root .env (copied from .env.example in CI) and POSTGRES_PASSWORD
@@ -30,9 +32,11 @@ ready_attempts="${CADDY_DOMAIN_SMOKE_ATTEMPTS:-30}"
 # Every compose call interpolates the overlay's required ${PUBLIC_DOMAIN:?},
 # even exec/logs/down, so they all get the domain under test.
 domain="example.test"
+# The closed-trial certificate switch (infra/Caddyfile); empty by default.
+trial_tls=""
 
 compose() {
-  PUBLIC_DOMAIN="$domain" docker compose -p "$project" --env-file "$env_file" \
+  PUBLIC_DOMAIN="$domain" CADDY_TRIAL_TLS="$trial_tls" docker compose -p "$project" --env-file "$env_file" \
     -f "$root_dir/infra/docker-compose.yml" \
     -f "$root_dir/infra/docker-compose.prod.yml" "$@"
 }
@@ -91,6 +95,18 @@ redirect="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' \
 [[ "$redirect" == "308 https://example.test/healthz" ]] || fail "http://example.test answered '$redirect'"
 echo "ok: http://example.test redirects to https://example.test"
 
+# issuer_of NAME: the issuer of the certificate Caddy presents for NAME, or
+# nothing. Never fails: under pipefail a handshake that is not ready yet would
+# otherwise end the script before the retry loop's next attempt.
+issuer_of() {
+  { echo | openssl s_client -connect 127.0.0.1:443 -servername "$1" 2>/dev/null |
+    sed -n 's/^ *i://p' | head -n 1; } || true
+}
+if [[ "$(issuer_of example.test)" == *"Caddy Local Authority"* ]]; then
+  fail "example.test got a certificate from Caddy's own CA without CADDY_TRIAL_TLS"
+fi
+echo "ok: without CADDY_TRIAL_TLS, example.test gets no internal-CA certificate (ACME)"
+
 start_caddy betpulse.localhost
 body=""
 for ((attempt = 1; attempt <= ready_attempts; attempt++)); do
@@ -104,4 +120,17 @@ done
 [[ "$body" == "ok" ]] || fail "https://betpulse.localhost/healthz answered '$body'"
 echo "ok: https://betpulse.localhost serves /healthz with a certificate for that name"
 
+# 4. The closed trial: CADDY_TRIAL_TLS=local_certs, the real domain's
+#    certificate from Caddy's own CA (ACME cannot reach a closed server).
+trial_tls="local_certs"
+start_caddy example.test
+issuer=""
+for ((attempt = 1; attempt <= ready_attempts; attempt++)); do
+  issuer="$(issuer_of example.test)"
+  [[ "$issuer" == *"Caddy Local Authority"* ]] && break
+  sleep 1
+done
+[[ "$issuer" == *"Caddy Local Authority"* ]] ||
+  fail "with CADDY_TRIAL_TLS=local_certs the certificate issuer is '$issuer'"
+echo "ok: CADDY_TRIAL_TLS=local_certs serves example.test with a certificate from Caddy's own CA"
 echo "OK: PUBLIC_DOMAIN reaches Caddy through the production Compose config."

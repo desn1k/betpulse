@@ -142,6 +142,9 @@ services:
       # line Caddy serves only `localhost` and never requests a certificate for
       # the real domain. Required, so a missing value fails `compose config`.
       PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?PUBLIC_DOMAIN is required (the DNS name Caddy serves)}
+      # Closed trial only: `local_certs` = certificates from Caddy's own CA
+      # (infra/Caddyfile). Empty = public ACME certificates (the default).
+      CADDY_TRIAL_TLS: ${CADDY_TRIAL_TLS:-}
     networks:
       default:
         ipv4_address: ${BETPULSE_CADDY_IP:-172.29.89.11}

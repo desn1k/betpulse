@@ -10,6 +10,7 @@ Usage:
                                        (--team-id UUID | --team NAME [--country C])
                                        [--external-id ID]
     python -m app.cli reset-2fa        --email ADDRESS [--require-password-change]
+    python -m app.cli vapid-keys
 
 ``--offline-dir`` reads committed CSV fixtures instead of downloading — used by
 CI. Without it, CSVs are fetched from football-data.co.uk (local dev / VPS).
@@ -251,6 +252,28 @@ async def _reset_2fa(email: str, *, require_password_change: bool) -> int:
     return 0
 
 
+def _vapid_keys() -> int:
+    """A new Web Push (VAPID) key pair as the two .env lines: the private key is
+    the base64url P-256 scalar build_vapid_jwt signs with, the public key the
+    uncompressed point the browser subscribes with. Printed, never stored."""
+    import base64
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    def b64url(raw: bytes) -> str:
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    scalar = key.private_numbers().private_value.to_bytes(32, "big")
+    point = key.public_key().public_bytes(
+        serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint
+    )
+    print(f"WEBPUSH_VAPID_PRIVATE_KEY={b64url(scalar)}")
+    print(f"WEBPUSH_VAPID_PUBLIC_KEY={b64url(point)}")
+    return 0
+
+
 def _provider_record(args: argparse.Namespace) -> int:
     from app.providers.recording import ProviderKeys, load_manifest, plan_text, record
 
@@ -312,6 +335,7 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="also force a password change at the next sign-in",
     )
+    sub.add_parser("vapid-keys", help="print a new Web Push (VAPID) key pair as .env lines")
     rec = sub.add_parser("provider-record", help="record real provider responses as fixtures")
     rec.add_argument("--provider", required=True, choices=["sportmonks", "the_odds_api"])
     rec.add_argument("--manifest", required=True, help="JSON list of calls")
@@ -341,6 +365,8 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.command == "train":
         return asyncio.run(_train())
+    if args.command == "vapid-keys":
+        return _vapid_keys()
     if args.command == "provider-record":
         return _provider_record(args)
     parser.error(f"unknown command: {args.command}")

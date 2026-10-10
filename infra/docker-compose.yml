@@ -70,6 +70,10 @@ services:
         set -eu
         conf=/tmp/redis-auth.conf
         umask 077
+        # Remove, never rewrite in place: on a restart the file is the redis
+        # user's, and fs.protected_regular (Ubuntu) refuses even root an
+        # O_CREAT open of another user's file in sticky /tmp.
+        rm -f "$$conf"
         if [ -n "$${REDIS_PASSWORD:-}" ]; then printf 'requirepass %s\n' "$$REDIS_PASSWORD" >"$$conf"; else : >"$$conf"; fi
         chown redis "$$conf"
         exec docker-entrypoint.sh redis-server "$$conf" --save 60 1 --appendonly yes --appendfsync everysec --maxmemory 256mb --maxmemory-policy noeviction --loglevel warning

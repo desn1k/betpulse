@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Sourced by deploy.sh, rollback.sh and redis-enable-aof.sh.
+# Sourced by deploy.sh, redis-enable-aof.sh, redis-backup.sh and redis-restore.sh.
 #
 # Redis runs with AOF (infra/docker-compose.yml). Started with
 # `--appendonly yes` over a volume that holds only an RDB snapshot, Redis 7.4
@@ -66,4 +66,59 @@ Nothing was changed. One-time procedure (the site stays up):
   2. $rerun
 EOF
   return 1
+}
+
+# redis_info_field CONTAINER FIELD: one field of INFO persistence.
+redis_info_field() {
+  redis_cli "$1" info persistence | tr -d '\r' | sed -n "s/^$2://p"
+}
+
+# redis_wait_until SECONDS DESCRIPTION CONDITION...: poll every second.
+redis_wait_until() {
+  local seconds="$1" what="$2" _
+  shift 2
+  for ((_ = 0; _ < seconds; _++)); do
+    "$@" && return 0
+    sleep 1
+  done
+  echo "Timed out after ${seconds}s waiting for $what." >&2
+  return 1
+}
+
+_redis_no_bgsave() { [[ "$(redis_info_field "$1" rdb_bgsave_in_progress)" == "0" ]]; }
+_redis_bgsave_done() {
+  _redis_no_bgsave "$1" && [[ "$(redis_info_field "$1" rdb_saves)" -gt "$2" ]]
+}
+
+# redis_dump_copy CONTAINER BACKUP_DIR [WAIT_SECONDS]: BGSAVE, awaited and
+# checked, then that dump copied out of the container into
+# BACKUP_DIR/dump-<UTC>.rdb with its .sha256 beside it. Prints
+# "Copied the dump to <file> (...)"; returns 1 when any step fails.
+redis_dump_copy() {
+  local container="$1" backup_dir="$2" seconds="${3:-600}" saves reply dir file backup
+  # rdb_saves counts finished snapshots; one more than before means ours is done.
+  saves="$(redis_info_field "$container" rdb_saves)"
+  if ! reply="$(redis_cli "$container" bgsave)" || [[ "$reply" != *"Background saving started"* ]]; then
+    # One already running: let it finish, then take ours.
+    redis_wait_until "$seconds" "the running snapshot" _redis_no_bgsave "$container" || return 1
+    saves="$(redis_info_field "$container" rdb_saves)"
+    redis_cli "$container" bgsave >/dev/null
+  fi
+  redis_wait_until "$seconds" "BGSAVE" _redis_bgsave_done "$container" "$saves" || return 1
+  if [[ "$(redis_info_field "$container" rdb_last_bgsave_status)" != "ok" ]]; then
+    echo "BGSAVE failed (rdb_last_bgsave_status is not ok). See the Redis log." >&2
+    return 1
+  fi
+  dir="$(redis_cli "$container" config get dir | tail -n 1)"
+  file="$(redis_cli "$container" config get dbfilename | tail -n 1)"
+  (umask 077 && mkdir -p "$backup_dir")
+  backup="$backup_dir/dump-$(date -u +%Y%m%dT%H%M%SZ).rdb"
+  docker cp "$container:$dir/$file" "$backup" >/dev/null || return 1
+  chmod 600 "$backup"
+  if [[ ! -s "$backup" ]]; then
+    echo "The dump copy $backup is empty." >&2
+    return 1
+  fi
+  (cd "$backup_dir" && sha256sum "$(basename "$backup")" >"$(basename "$backup").sha256")
+  echo "Copied the dump to $backup ($(wc -c <"$backup") bytes; sha256 in $backup.sha256)."
 }
