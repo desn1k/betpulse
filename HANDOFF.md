@@ -11,28 +11,33 @@ constraints" section whenever they change.
 
 _Rewritten in every PR. Read this first; read other sections only when the task needs them._
 
-- **main:** `d8b41cb` (#125, F5 in code). **This PR:** `fix/f7-public-rate-limits`, F7: limits
-  on the match list and on `/auth/refresh`, the public match limits moved before tier resolution,
-  429 handling in the client refresh path, and F8's "keep the data on a failed refetch" applied
-  to the list and the analysis (§9m F7, §6 "Public request limits").
+- **main:** `c55ab40` (#126, F7). **This PR:** `fix/launch-blockers-db-redis`: ER2-05 (API-only
+  `statement_timeout` 15 s and `lock_timeout` 5 s), Redis `requirepass` for every client, Redis
+  `maxmemory 256mb` + `noeviction` with the admin health component `redis_memory`, AOF
+  persistence and the guarded one-time move to AOF (`scripts/redis-enable-aof.sh`; deploy.sh
+  refuses until it ran). §6 "Database timeouts" and "Redis: password, memory, persistence".
+- **Every existing stack, before its first deploy with this PR:** `REDIS_PASSWORD` in `.env`
+  (`openssl rand -hex 32`), then `scripts/redis-enable-aof.sh` (BGSAVE and a dump copy first),
+  then the deploy (§9i outline item 6). The local rehearsal stack has had it (2026-10-10, rc6
+  images, clone on the PR branch; §9i "Redis move on the rehearsal stack").
 - **F5: fixed in code; verified on a server: NOT YET.** The first-VPS checklist item (§9i) with
   `scripts/diagnose-client-ip.sh` decides it; until then the closed-trial rule holds (80/443 open
   to the owner's addresses only). **Every existing stack needs one `scripts/prod-compose.sh
-  down` (never `-v`) before its first deploy with F5** — deploy.sh refuses and prints it. The
-  local rehearsal stack has had it (rc6 on the dual-stack network, clone on main `d8b41cb`).
+  down` (never `-v`) before its first deploy with F5** — deploy.sh refuses and prints it.
 - **Last release:** `v0.0.1-rc6` (pre-release, main `17d508a`, 2026-10-08). Nothing was
-  released since (F10–F14, ER2-01, F13 A and B, F5 and F7 go into rc7).
-- **Next (owner, 2026-10-09: pre-launch fixes first, then one rc7 rehearsal):** the remaining
-  launch blockers below, in the owner's order.
-- **Launch blockers still open (§9i):** F5 server verification, ER2-05 (API
-  statement/lock timeouts), Redis `requirepass`, Redis persistence and memory policy,
-  `docs/DEPLOY_VPS.md` (outline agreed, §9i; with "Lost authenticator" and the trial
-  certificate).
-- **After those:** v0.0.1-rc7 rehearsal (§9i, "v0.0.1-rc7 (planned)"), then the cleanup PR
-  (ER2-09, ER2-13, F15, F16), O2 (with F17, F18), live on Sportmonks (§9m queue).
+  released since (F10–F14, ER2-01, F13 A and B, F5, F7, ER2-05 and the Redis changes go into
+  rc7).
+- **Next (owner, 2026-10-09: pre-launch fixes first, then one rc7 rehearsal):**
+  `docs/DEPLOY_VPS.md` (outline agreed, §9i; with "Lost authenticator", the trial certificate,
+  the Redis move and the untested dump restore), then the v0.0.1-rc7 rehearsal (§9i,
+  "v0.0.1-rc7 (planned)"), then the cleanup PR (ER2-09, ER2-13, F15, F16), O2 (with F17, F18),
+  live on Sportmonks (§9m queue).
+- **Launch blockers still open (§9i):** F5 server verification, `docs/DEPLOY_VPS.md`.
+- **Sportmonks trial** (ends ≈ 2026-10-17): the live-format capture (`/livescores`,
+  `/livescores/inplay`) is retried on 2026-10-10 when the owner says a match is live; fixtures stay
+  uncommitted while a PR is open (§9l).
 - **Read for the current work:**
-  - ER2-05: §9m "External review 2", §6 pools. Request limits: §6 "Public request limits",
-    `SECURITY.md` (the table of every limit).
+  - DEPLOY_VPS: §9i (outline, first-VPS checklist), §6 Redis and F5 notes.
   - Releases and rehearsals: §9i "Release images and digests", "rc6 rehearsal", "v0.0.1-rc7".
   - Any PR: §2 (rules), §5 (CI, e2e conventions, package-lock rule), §7 (environment).
 
@@ -347,6 +352,54 @@ covered by Vitest + React Testing Library.
     again → signed out; the refresh unreachable → the session stays and the 401 is returned.
     Replaying a mutation is safe because the 401 comes from the auth dependency, before the
     route did any work.
+- **Database timeouts (ER2-05, 2026-10-10).** API connections carry `statement_timeout` 15 s and
+  `lock_timeout` 5 s (`app/core/db.py`, set per connection through asyncpg `server_settings` on
+  the request, read and security engines). `create_app()` calls `enable_api_db_timeouts()` first,
+  which marks the process as an API process and **refuses once an engine exists**; workers, the
+  CLI and Alembic (its own engine in `migrations/env.py`) never import `app.main`, so training,
+  ingestion and backfills run unbounded (`tests/test_db_timeouts.py` pins all of it, including
+  that the worker, CLI and healthcheck modules never import `app.main`). The test session is an
+  API process: `conftest.py` imports `app.main` before any engine. A request query that must run
+  longer uses `SET LOCAL statement_timeout` inside its transaction, never a global exemption.
+  `idle_in_transaction_session_timeout` waits for ER-H-05 (§9m).
+- **Redis: password, memory, persistence (2026-10-10).** One `redis` service (infra compose);
+  `scripts/check-compose-ports.sh` checks every point below on the rendered production config and
+  `scripts/tests/redis-config-smoke.sh` on a running container (CI).
+  - **`requirepass`** from `REDIS_PASSWORD`, required in production (settings refuse an empty,
+    placeholder, short or non-alphanumeric one; generate with `openssl rand -hex 32`). The
+    container writes it to `/tmp/redis-auth.conf` at start, so it is not in the process
+    arguments. Clients: the prod overlay renders `REDIS_URL=redis://:<password>@redis:6379/0`
+    for the API and every worker — **every image reads that URL**, so a rollback to an image
+    from before this change still connects (rc6 images verified on the rehearsal stack). In code
+    every client (API client and ARQ pool, worker settings, worker healthcheck) uses
+    `Settings.redis_dsn`, which puts `REDIS_PASSWORD` into a URL that has none; a URL password
+    that differs from `REDIS_PASSWORD` is refused. Development runs without a password.
+  - **`redis-cli` exits 0 on `NOAUTH`.** The healthcheck greps for `PONG`; every `redis-cli` in
+    `scripts/` and the Compose files sets `REDISCLI_AUTH` from the container's own
+    `REDIS_PASSWORD` (the password never leaves the container) or goes through `redis_cli` in
+    `scripts/redis-persistence.sh`; `tests/test_redis_cli_auth.py` fails on any other.
+  - **`maxmemory 256mb`, `maxmemory-policy noeviction`.** Every quota, rate-limit, seen-set and ARQ
+    key carries a TTL, so any `volatile-*` (and any `allkeys-*`) policy could evict exactly them: a
+    fresh quota, a match charged again, a lost job. A full Redis refuses writes instead (quotas
+    and the other fail-closed limits answer as if Redis were down; the refresh limit fails open,
+    "Public request limits" above). The admin system health component **`redis_memory`** shows
+    used memory against `maxmemory` and turns **degraded above 80 %**, or under any evicting
+    policy; `not_configured` without a `maxmemory` (the test Redis). 256mb leaves the 512M
+    container limit room for the fork of an AOF rewrite or RDB save; resize from `INFO memory` if
+    the component ever warns (the rehearsal stack used ≈ 2 MB).
+  - **Persistence: AOF, `appendfsync everysec`, plus the RDB snapshot (`save 60 1`).** On a crash
+    AOF loses at most ≈ 1 s of writes (a few quota increments: a client gets slightly more; a job
+    enqueued in that second is gone); RDB alone lost up to 60 s (every job enqueued and every
+    counter increment since the last snapshot). Redis loads the AOF; the RDB is a second copy.
+  - **Moving an existing Redis to AOF.** Redis 7.4 started with `--appendonly yes` over an
+    RDB-only volume **starts empty** (it creates a new, empty AOF and ignores `dump.rdb`; checked
+    2026-10-10, and `scripts/tests/redis-aof-migration-test.sh` keeps a control scenario for it).
+    `CONFIG SET appendonly yes` on the running Redis first rewrites the whole dataset into the AOF
+    (keys and TTLs kept). `deploy.sh` refuses (exit 1, nothing changed) while Redis holds an
+    RDB-only dataset and prints the procedure: `scripts/redis-enable-aof.sh` (BGSAVE awaited, the
+    dump copied out of the container into `.release/redis/dump-<UTC>.rdb` with its `.sha256`, then
+    AOF on and the rewrite awaited; a stopped Redis is converted in a temporary container), then
+    the same deploy command. `rollback.sh` never restarts Redis, so it does not check.
 - **Database connection budget (two pools per API process).** A failed login holds its request
   connection while it opens the security transaction, so `independent_transaction()` draws from a
   **separate** pool (`DB_SECURITY_POOL_SIZE`=2 + `DB_SECURITY_MAX_OVERFLOW`=3); the request pool is
@@ -1008,9 +1061,9 @@ implemented.
     2.24.4 only for `!override`, and `!reset` exists in compose-go at least since v1.14 (2023) with
     fixes since. Do not rely on a version number — run the script on the server after installing
     or upgrading Docker.
-  - **Redis `requirepass` — LAUNCH BLOCKER for the first VPS run (separate PR).** Redis holds
-    the pickled ARQ jobs, quotas and rate limits; today only the Compose network keeps anything
-    else from it. See "Launch blockers" below.
+  - **Redis `requirepass` — done 2026-10-10.** Redis holds the pickled ARQ jobs, quotas and
+    rate limits; it now requires `REDIS_PASSWORD`, and the script checks the password on the
+    server and in every client's `REDIS_URL` (§6 "Redis: password, memory, persistence").
 - **web → API wiring (fixed 2026-10-03).** The bug, the fix and the tests:
   - **The bug.** The base compose gave the web container
     `API_BASE_URL: ${API_BASE_URL:-http://api:8000}`, read from `.env`, whose example value is
@@ -1491,6 +1544,27 @@ exception), the owner ran the browser checks.
   day blocks the F6 check; `docker run --env-file` does not expand `${VAR}` inside `.env`
   values (compose does), which broke the first seed attempt.
 
+### Redis move on the rehearsal stack (2026-10-10)
+
+Run by the agent with the owner's permission, from the scratch clone checked out at the PR
+branch, on the running rc6 stack (rc6 images: the code from before this PR, i.e. what a rollback
+runs). Log: `rehearsal-logs/redis-aof-20261010T070048Z.log` in the clone.
+1. Postgres dumps first (`dumps/pre-redis-aof-{football,mlflow}-20261010T070048Z.dump`); Redis
+   before: RDB only, no password, 3 heartbeat keys plus a `tier:guest` cache key; three markers
+   added (no TTL, a 24 h TTL, a 3-item list).
+2. `REDIS_PASSWORD` added to the clone's `.env` (the previous file kept beside it).
+3. `IMAGE_TAG=v0.0.1-rc6 … scripts/deploy.sh` → **exit 1**, "Redis runs without AOF and holds 7
+   keys", the procedure printed, nothing changed.
+4. `scripts/redis-enable-aof.sh` → BGSAVE ok, dump copied to `.release/redis/` (`sha256sum -c`
+   OK), AOF on, rewrite ok.
+5. The same deploy → exit 0. Redis: anonymous `PING` → `NOAUTH`; `appendonly yes`, `maxmemory
+   268435456`, `noeviction`; all three markers back with their TTL (the `tier:guest` cache key
+   had expired, as it does). api and the three workers (rc6 images) healthy with the password in
+   `REDIS_URL`, no authentication error in their logs; `/api/ready` and `/api/matches` 200.
+
+The clone stays on the PR branch with Redis on AOF and a password; the rc7 rehearsal deploys from
+`main` after the merge, and deploy.sh no longer refuses there.
+
 ### v0.0.1-rc7 (planned)
 
 The owner rehearses it on the local stack after ER2-01; checklist by the agent. Besides the
@@ -1522,6 +1596,15 @@ rc6 items that still apply (deploy over data, migration log, drills), it must ch
   (restart api), the list shows "Too many requests…" on a first load and keeps the cards with the
   stale note on a refetch; with `RATE_LIMIT_REFRESH_PER_MINUTE=1`, a reload or two keeps you
   signed in ("Can't renew your session — retrying…") and renews after the minute. Put both back.
+- **Redis (2026-10-10).** The local stack already moved (above). For any stack still on an
+  earlier Redis, before the deploy, in this order: **`BGSAVE` and an off-container copy of the
+  dump** — `scripts/redis-enable-aof.sh` does both first (`.release/redis/dump-<UTC>.rdb` and
+  its `.sha256`), then turns AOF on — after `REDIS_PASSWORD` is in `.env`; then the deploy.
+  After the deploy: anonymous `redis-cli ping` in the redis container answers `NOAUTH`; Admin →
+  System shows **`redis_memory` ok** with the used share of 256 MB; all three workers healthy;
+  `scripts/diagnose-client-ip.sh` still lists guest quota keys (it authenticates now).
+- **ER2-05:** nothing to click; the deploy log shows no `canceling statement due to statement
+  timeout`, and the backtester and an admin model action still finish.
 
 ### Launch blockers before the first VPS run
 
@@ -1537,15 +1620,13 @@ else may reach the site in that state.
 - **F5** — IPv6 / userland-proxy identity collapse (§9m). **Fixed in code 2026-10-09; verified
   on a server: not yet** (first-VPS checklist below).
 - ~~**F7**~~ — done 2026-10-09 (§9m).
-- **ER2-05** — API-only `statement_timeout` 15 s and `lock_timeout` 5 s (§9m, external review 2).
-- **Redis `requirepass`** (§9i, "Published ports").
-- **Redis persistence and memory policy.** Decide and document both in `infra/` and the runbook:
-  persistence (RDB/AOF) for the pickled ARQ jobs, and `maxmemory` with an eviction policy that
-  never evicts the quota and rate-limit keys (`limits:*`, `limits:seen:*`, `rl:*`,
-  `llm:budget:*`): for example `noeviction` (writes fail loudly when full) or a `volatile-*` policy
-  only if nothing that must survive carries a TTL — every quota key does, so `volatile-*` would
-  evict them. An evicted counter hands its caller a fresh quota; an evicted seen set charges a
-  match again (F6). Raised by CodeRabbit on #116.
+- ~~**ER2-05**~~ — done 2026-10-10: API-only `statement_timeout` 15 s and `lock_timeout` 5 s
+  (§6 "Database timeouts").
+- ~~**Redis `requirepass`**~~ — done 2026-10-10 (§6 "Redis: password, memory, persistence").
+- ~~**Redis persistence and memory policy**~~ — done 2026-10-10: AOF (`everysec`) plus RDB,
+  `maxmemory 256mb` with `noeviction` (every quota, rate-limit and ARQ key has a TTL, so no
+  eviction policy could spare them), the admin health component `redis_memory` (degraded above
+  80 %), and the guarded one-time move to AOF (§6; procedure in the outline below, item 6).
 - **`docs/DEPLOY_VPS.md`** — the VPS runbook and first-VPS checklist. **It does not exist yet**;
   writing it is a launch deliverable. It absorbs the list below, and must have a section
   **"Lost authenticator"**: `scripts/prod-compose.sh run --rm api python -m app.cli reset-2fa
@@ -1595,12 +1676,26 @@ PR):**
    DNS provider's module and an API token on the server; **open 80 for issuance only** — a public
    certificate, but the site is briefly reachable by everyone; **a self-signed certificate** —
    like the internal CA with more manual steps.
-5. **Install.** Clone, `.env` (`chmod 600`, owner the deploy user), `docker login ghcr.io` with a
-   read-only token, `scripts/check-compose-ports.sh`.
+5. **Install.** Clone, `.env` (`chmod 600`, owner the deploy user), `REDIS_PASSWORD` from
+   `openssl rand -hex 32` (letters and digits only), `docker login ghcr.io` with a read-only
+   token, `scripts/check-compose-ports.sh`.
 6. **Deploy.** `IMAGE_TAG=<tag> RELEASE_DIGESTS=release-<tag>.digests scripts/deploy.sh`
    (explicit tag). First deploy on an empty server: the network is created, no `down` needed.
    **Network changes later (like F5):** deploy.sh/rollback.sh refuse with the one-time
    procedure — `scripts/prod-compose.sh down` (never `-v`), then the same command again.
+   **Redis without AOF (any stack that ran a release before 2026-10-10):** deploy.sh refuses
+   (exit 1, nothing changed; Redis would start empty). One-time procedure, the site stays up:
+   1. add `REDIS_PASSWORD` to `.env` (above);
+   2. `scripts/redis-enable-aof.sh` — it starts with **BGSAVE** (awaited) and an **off-container
+      copy of the dump** (`.release/redis/dump-<UTC>.rdb` plus `.sha256`; copy it off the server
+      too), then turns AOF on live and waits for the rewrite; a stopped Redis is converted in a
+      temporary container;
+   3. the same deploy command: Redis restarts with the password and AOF and loads every key.
+   Verified on the rehearsal stack 2026-10-10 (rc6 images, 7 keys incl. TTLs kept; §9i "Redis
+   move on the rehearsal stack"). **Restoring that dump** (only if the move went wrong; not
+   rehearsed yet — test it in the DEPLOY_VPS PR): stop redis, put the copy into the volume as
+   `dump.rdb` and remove `appendonlydir`, run `scripts/redis-enable-aof.sh` (the stopped-Redis
+   path), start redis.
 7. **F5 check:** `scripts/diagnose-client-ip.sh`, what each line should say, and what to do on
    "OUR NETWORK" or "IPv6 real client seen: NO" (the IPv4-only stopgap, §9m F5).
 8. **F13 B check** (first-VPS checklist below), after 7 passes.
@@ -2475,7 +2570,7 @@ main `314029b`**; line numbers will drift. Labels `ER2-` keep them apart from th
 | ER2-02 | **Fixed 2026-10-08 (with F10)** | `POST /auth/change-password` had no rate limit or failure counter (`api/auth.py:235-256`); with a stolen access token the current password can be brute-forced, each try an Argon2 hash | Medium | per-user fixed window (`counters.incr_with_ttl`) **before** `verify_password` | 6th wrong try → 429, `verify_password` not called | done: §6, "Account security limits" |
 | ER2-03 | Confirmed | `register_user` checks then inserts (`services/auth.py:142-153`); `users.email` is unique; no `IntegrityError` handler (`main.py:62` registers only the validation handler) → a concurrent duplicate is a 500. Not routed today | Low | catch `IntegrityError` on the flush → `EmailAlreadyRegistered` (after O2: the same answer either way) | two concurrent registrations of one address → no 500 | O2 |
 | ER2-04 | Confirmed (doc gap) | O2 / ER-M-04 did not say where the limit runs; `register_user` hashes at `services/auth.py:148` | Medium (CPU DoS through Argon2) | limit as a dependency before the handler body; recorded in O2 and ER-M-04 | over the limit → 429, `hash_password` not called | O2 |
-| ER2-05 | Confirmed | no `statement_timeout`, `lock_timeout` or `idle_in_transaction_session_timeout` on any engine (`core/db.py:30-79`) | Medium; **launch blocker** | see below | API session: `pg_sleep` past the limit fails; a worker session does not | pre-launch protection group (with F7) |
+| ER2-05 | **Done 2026-10-10** | no `statement_timeout`, `lock_timeout` or `idle_in_transaction_session_timeout` on any engine (`core/db.py:30-79`) | Medium; **launch blocker** | see below | API session: `pg_sleep` past the limit fails; a worker session does not | pre-launch protection group (with F7) |
 | ER2-06 | Confirmed, wider | `push_task` keeps one session for the whole dispatch (`workers/tasks.py:185-191`): the first SELECT opens a transaction that stays idle across each HTTP send (Web Push 10 s, Telegram 15 s) and the 30 s retry sleep (`services/live/push.py:190-224`). `autoflush=False`, so pruned rows are not flushed and no row lock is held — but the connection is. Pool 5+10 vs `max_jobs=20`. **New:** `job_timeout=60` with `push` `max_tries=1` (`workers/arq_app.py:120-129`) — one unreachable subscription costs up to 50 s (Web Push) / 60 s (Telegram), so **two unreachable subscribers kill the whole push job**: the remaining followers get nothing and the prunes are lost (no commit); the budget reservations are released by `finally` | Medium now (live is dev-only); High once live is public | read followers and tiers in a short session and close it; deliver without a session; prune in a short session; retry via a deferred ARQ job instead of `sleep`; bounded concurrency | `checkedout() == 0` during a stubbed send; N unreachable followers finish within the job timeout | live → Sportmonks (with ER-H-01, ER-M-02); related to ER-H-05/ER-H-06 |
 | ER2-07 | Confirmed | worst case per unreachable subscription `2T + 30 s` (T = 10 s Web Push, 15 s Telegram), sequential: ≈ N · k · (2T + 30) for N followers with k subscriptions each; a successful send is ~0.1–0.5 s | as ER2-06 | with ER2-06 | with ER2-06 | with ER2-06 |
 | ER2-08 | **No action** | the `IntegrityError` on the redemption insert (`services/promo.py:235-238`) becomes `AlreadyRedeemed`, the router raises at once (`api/promo.py:174-177`), and no statement runs in that session afterwards; `get_session` rolls back, which also returns the claimed activation — correct | none | — | — | — |
@@ -2489,7 +2584,7 @@ main `314029b`**; line numbers will drift. Labels `ER2-` keep them apart from th
 | ER2-16 | Already tracked | a push reservation is lost on a crash between reserve and release | — | §6 (Redis counters) | — | — |
 | ER2-17 | Confirmed, new | saved strategies have no per-user cap and their list is unpaginated (`api/backtester.py:54-95`, expert only); the admin providers list is unpaginated but tiny (`api/providers.py:39`) | Low | per-user cap (e.g. 100) and `limit`/`offset` | 101st save → 409 | later |
 
-**ER2-05 — database timeouts (launch blocker).**
+**ER2-05 — database timeouts (launch blocker; done 2026-10-10, §6 "Database timeouts").**
 - **API processes only:** `statement_timeout = 15s`, `lock_timeout = 5s`, set per connection
   (`connect_args={"server_settings": …}`) on the request, security and read engines.
 - **Enabled from `create_app()`**, not from the `api` service's environment: the engines are shared
@@ -2508,8 +2603,8 @@ main `314029b`**; line numbers will drift. Labels `ER2-` keep them apart from th
 2. **v0.0.1-rc7** — the owner, by hand; checklist by the agent (§9i, "v0.0.1-rc7 (planned)").
 3. **F13** — parts A and B done (2026-10-09; §9m). B relies on F5 for its subnet binding (F5 in code
    2026-10-09; server verification pending).
-4. **Launch blockers:** F5 (in code; verify on the server), ER2-05, Redis `requirepass` and
-   memory policy, `docs/DEPLOY_VPS.md` (outline in §9i).
+4. **Launch blockers:** F5 (in code; verify on the server), `docs/DEPLOY_VPS.md` (outline in
+   §9i). ER2-05, Redis `requirepass`, memory policy and persistence: done 2026-10-10.
 5. **Cleanup PR:** ER2-09 (`BATCH_MAX` 10 000), ER2-13 (dead settings), F15 (stale-note time in
    the viewer's time zone), F16 (no follow toggle on finished matches).
 6. **O2** (registration) with ER2-03, ER2-04, ER-M-04, F17 and F18.

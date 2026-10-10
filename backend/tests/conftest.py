@@ -25,6 +25,7 @@ os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
 
 from collections.abc import AsyncIterator  # noqa: E402
 
+import app.main  # noqa: E402,F401  (create_app() first: API DB limits before any engine)
 import app.models  # noqa: E402,F401  (register models on metadata)
 import pytest_asyncio  # noqa: E402
 from app.core.db import (  # noqa: E402

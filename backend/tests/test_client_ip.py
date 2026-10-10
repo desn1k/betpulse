@@ -95,6 +95,7 @@ def _settings(**overrides: Any) -> Settings:
         "cors_allowed_origins": "https://betpulse.example",
         "trusted_proxy_cidrs": "172.29.89.10/32,172.29.89.11/32",
         "internal_network_cidrs": "172.29.89.0/24",
+        "redis_password": secrets.token_hex(32),
     }
     values.update(overrides)
     return Settings(**values)

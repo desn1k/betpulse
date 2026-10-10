@@ -296,7 +296,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck
 
       - name: Validate deployment scripts
-        run: shellcheck -x scripts/deploy.sh scripts/rollback.sh scripts/prod-compose.sh scripts/release-digests.sh scripts/release-version.sh scripts/caddy-smoke.sh scripts/check-compose-ports.sh scripts/caddy-domain-smoke.sh scripts/edge-identity-smoke.sh scripts/compose-network.sh scripts/diagnose-client-ip.sh scripts/tests/deploy-scripts-test.sh scripts/tests/check-compose-ports-test.sh
+        run: shellcheck -x scripts/deploy.sh scripts/rollback.sh scripts/prod-compose.sh scripts/release-digests.sh scripts/release-version.sh scripts/caddy-smoke.sh scripts/check-compose-ports.sh scripts/caddy-domain-smoke.sh scripts/edge-identity-smoke.sh scripts/compose-network.sh scripts/diagnose-client-ip.sh scripts/tests/deploy-scripts-test.sh scripts/redis-persistence.sh scripts/redis-enable-aof.sh scripts/tests/check-compose-ports-test.sh scripts/tests/redis-config-smoke.sh scripts/tests/redis-aof-migration-test.sh
 
       - name: Deploy/rollback readiness behaviour (stubbed docker)
         run: bash scripts/tests/deploy-scripts-test.sh
@@ -310,6 +310,8 @@ jobs:
           API_IMAGE_DIGEST: sha256:1111111111111111111111111111111111111111111111111111111111111111
           WEB_IMAGE_DIGEST: sha256:2222222222222222222222222222222222222222222222222222222222222222
           MLFLOW_IMAGE_DIGEST: sha256:3333333333333333333333333333333333333333333333333333333333333333
+          # Letters and digits only: the prod overlay renders it into REDIS_URL.
+          REDIS_PASSWORD: ci0redis0password0a1b2c3d4e5f6a7b8c9d0e1f2
           # The dev value: production must still wire web to http://api:8000.
           API_BASE_URL: http://localhost:8000
         run: |
@@ -322,11 +324,15 @@ jobs:
           bash scripts/check-compose-ports.sh .env
           # F5: the dual-stack network and the proxy addresses the API trusts.
           bash scripts/tests/check-compose-ports-test.sh .env
+          # Redis runs what the config says: requirepass, noeviction under maxmemory, AOF.
+          bash scripts/tests/redis-config-smoke.sh .env
+          # The one-time move of an RDB-only Redis to AOF: guard, conversion, no key lost.
+          bash scripts/tests/redis-aof-migration-test.sh .env.example
           # ER-H-09: no tag or no digest -> the production config does not render.
           prod_config() {
             docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.prod.yml config --quiet
           }
-          for missing in IMAGE_TAG API_IMAGE_DIGEST WEB_IMAGE_DIGEST MLFLOW_IMAGE_DIGEST; do
+          for missing in IMAGE_TAG API_IMAGE_DIGEST WEB_IMAGE_DIGEST MLFLOW_IMAGE_DIGEST REDIS_PASSWORD; do
             if (unset "$missing"; prod_config) 2>/dev/null; then
               echo "production config rendered without $missing" >&2
               exit 1
@@ -365,6 +371,7 @@ jobs:
           API_IMAGE_DIGEST: sha256:1111111111111111111111111111111111111111111111111111111111111111
           WEB_IMAGE_DIGEST: sha256:2222222222222222222222222222222222222222222222222222222222222222
           MLFLOW_IMAGE_DIGEST: sha256:3333333333333333333333333333333333333333333333333333333333333333
+          REDIS_PASSWORD: ci0redis0password0a1b2c3d4e5f6a7b8c9d0e1f2
         run: bash scripts/caddy-domain-smoke.sh .env
 
       # F5: an IPv4 and an IPv6 client reach the upstream behind Caddy as
@@ -373,4 +380,6 @@ jobs:
         timeout-minutes: 5
         env:
           POSTGRES_PASSWORD: ci-postgres-password
+          # Required by the prod overlay (it renders it into REDIS_URL); redis is not started.
+          REDIS_PASSWORD: ci0redis0password0a1b2c3d4e5f6a7b8c9d0e1f2
         run: bash scripts/edge-identity-smoke.sh .env

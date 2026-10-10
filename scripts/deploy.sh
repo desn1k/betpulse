@@ -191,6 +191,11 @@ rollback_on_failure() {
 # shellcheck source=scripts/compose-network.sh
 . "$root_dir/scripts/compose-network.sh"
 check_project_network "IMAGE_TAG=$image_tag RELEASE_DIGESTS=$digests_file scripts/deploy.sh" || exit 1
+# Likewise a Redis without AOF that holds data: `up` would restart it with AOF
+# on, and Redis would come up empty. rollback.sh never restarts Redis.
+# shellcheck source=scripts/redis-persistence.sh
+. "$root_dir/scripts/redis-persistence.sh"
+check_redis_persistence "IMAGE_TAG=$image_tag RELEASE_DIGESTS=$digests_file scripts/deploy.sh" || exit 1
 
 trap rollback_on_failure ERR
 

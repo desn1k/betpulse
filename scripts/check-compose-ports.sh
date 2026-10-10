@@ -10,7 +10,10 @@
 # server: a tag alone can be re-pushed (ER-H-09). Since F5 it also checks the
 # dual-stack network: IPv6 enabled with one subnet per family, web and caddy
 # pinned in both, and TRUSTED_PROXY_CIDRS / INTERNAL_NETWORK_CIDRS of the API
-# and every worker naming exactly those addresses and subnets.
+# and every worker naming exactly those addresses and subnets. It also checks
+# Redis: requirepass from a non-empty REDIS_PASSWORD, the same password in the
+# REDIS_URL of the API and every worker, maxmemory with noeviction, AOF on, and
+# a healthcheck that authenticates.
 #
 # Why a rendered check: in an override file `ports: []` is *appended* to the
 # base file's list, so it does not remove anything; only `ports: !reset []`
@@ -169,6 +172,62 @@ for name in ("api", "worker-realtime", "worker-batch", "worker-ml"):
         if actual != expected:
             problems.append(f"{name}: {key} is {env.get(key)!r}, expected {','.join(expected)}")
 
+# Redis holds the pickled ARQ jobs, quotas and rate limits: a password on the
+# server and in every client's REDIS_URL (rollback-safe: every image reads the
+# URL), noeviction under a maxmemory (every one of those keys has a TTL), AOF.
+# Messages name keys and options, never the password.
+import shlex
+from urllib.parse import unquote, urlsplit
+
+
+def env_of(name):
+    env = config.get("services", {}).get(name, {}).get("environment") or {}
+    if isinstance(env, list):
+        env = dict(item.split("=", 1) for item in env if "=" in item)
+    return env
+
+
+redis_service = config.get("services", {}).get("redis") or {}
+redis_password = env_of("redis").get("REDIS_PASSWORD") or ""
+if not redis_password:
+    problems.append("redis: REDIS_PASSWORD is empty (requirepass is off)")
+command = redis_service.get("command") or []
+if isinstance(command, str):
+    command = [command]
+tokens = [token for part in command for token in shlex.split(part.replace("$$", "$"))]
+
+
+def option(flag):
+    return tokens[tokens.index(flag) + 1] if flag in tokens[:-1] else None
+
+
+if "requirepass" not in " ".join(command) and "REDIS_PASSWORD" not in " ".join(command):
+    problems.append("redis: the command never sets requirepass")
+if option("--maxmemory-policy") != "noeviction":
+    problems.append(
+        f"redis: --maxmemory-policy is {option('--maxmemory-policy')!r}, expected 'noeviction'"
+    )
+if option("--maxmemory") in (None, "0"):
+    problems.append("redis: no --maxmemory (Redis would grow until its container is killed)")
+if option("--appendonly") != "yes":
+    problems.append(f"redis: --appendonly is {option('--appendonly')!r}, expected 'yes'")
+health = " ".join((redis_service.get("healthcheck") or {}).get("test") or [])
+if "REDISCLI_AUTH" not in health:
+    problems.append("redis: the healthcheck does not authenticate (REDISCLI_AUTH)")
+
+for name in ("api", "worker-realtime", "worker-batch", "worker-ml"):
+    url = urlsplit(env_of(name).get("REDIS_URL") or "")
+    if (url.hostname, url.port) != ("redis", 6379):
+        problems.append(f"{name}: REDIS_URL points at {url.hostname}:{url.port}, expected redis:6379")
+    password = unquote(url.password or "")
+    if not password:
+        problems.append(f"{name}: REDIS_URL carries no password")
+    elif redis_password and password != redis_password:
+        problems.append(f"{name}: REDIS_URL password differs from redis's REDIS_PASSWORD")
+    own = env_of(name).get("REDIS_PASSWORD") or ""
+    if own and password and own != password:
+        problems.append(f"{name}: REDIS_PASSWORD differs from the password in REDIS_URL")
+
 if problems:
     print("Production Compose config is unsafe or miswired:", file=sys.stderr)
     for line in problems:
@@ -179,6 +238,7 @@ print(
     "http://api:8000; caddy gets PUBLIC_DOMAIN; no environment value is a comment; "
     "every image is pinned by digest and none is built on the server; the network is "
     "dual-stack, web and caddy are pinned in both families, and the API and workers "
-    "trust exactly those addresses."
+    "trust exactly those addresses; Redis requires a password that the API and every "
+    "worker send, never evicts, and keeps an AOF."
 )
 PY

@@ -19,7 +19,8 @@
 #
 # Publishes host ports 80/443 like production, so nothing else may hold them.
 # Needs a repo-root .env (copied from .env.example in CI) and POSTGRES_PASSWORD
-# (required by the base file's interpolation). Run in CI.
+# (required by the base file's interpolation) and REDIS_PASSWORD (by the prod
+# overlay). Run in CI.
 set -Eeuo pipefail
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

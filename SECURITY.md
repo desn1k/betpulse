@@ -240,5 +240,12 @@ authorization bypass, unrelated rows, data leakage, or server errors.
 - Strict Pydantic input validation; parameterized queries only.
 - HSTS at the production TLS edge (verified/finalized with Phase 14 release wiring).
 - Redis rate limiting on auth and promo redemption; account lockout/backoff.
+- Redis requires a password (`requirepass` from `REDIS_PASSWORD`, required in production and kept
+  out of the process arguments); the API and every worker send it, every `redis-cli` in the
+  scripts authenticates, and `scripts/check-compose-ports.sh` checks both. Redis runs
+  `noeviction` under `maxmemory`, so no quota, rate-limit or lockout key is ever evicted (a full
+  Redis refuses writes; the admin health page warns above 80 %), with AOF persistence.
+- Database statement (15 s) and lock (5 s) timeouts on every API connection, so a slow or
+  blocked query cannot hold an API connection indefinitely; workers and the CLI are exempt.
 - Provider and LLM API keys encrypted at rest; never returned to the client.
 - Secrets only from env/secret store; structured logging with secret redaction.

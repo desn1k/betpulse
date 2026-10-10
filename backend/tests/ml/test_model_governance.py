@@ -272,6 +272,8 @@ async def test_admin_action_waits_then_fails_with_registry_busy(session: AsyncSe
     ids = await _rows({"elo": None})
     assert await try_lock_registry(session)  # e.g. a running re-evaluation
     async with _write_sessionmaker()() as s:
+        # The session's own default: "5s" on an API connection (ER2-05), "0" on a worker's.
+        session_default = await s.scalar(select(func.current_setting("lock_timeout")))
         started = time.monotonic()
         with pytest.raises(RegistryBusy):
             await lock_registry(s, timeout_ms=200)
@@ -281,7 +283,7 @@ async def test_admin_action_waits_then_fails_with_registry_busy(session: AsyncSe
         await session.rollback()
         await model_admin.promote(s, ids["elo"], actor="admin:x")
         await s.commit()
-        assert await s.scalar(select(func.current_setting("lock_timeout"))) == "0"
+        assert await s.scalar(select(func.current_setting("lock_timeout"))) == session_default
     assert await _champions() == ["elo"]
 
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from functools import lru_cache
+from typing import Any
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -27,6 +28,36 @@ class Base(DeclarativeBase):
     """Declarative base for all ORM models."""
 
 
+# ER2-05: per-connection limits for API processes only. create_app() turns them
+# on before the first engine is built; workers, the CLI and Alembic (its own
+# engine) never call it, so training, ingestion and backfills run unbounded.
+API_STATEMENT_TIMEOUT_MS = 15_000
+API_LOCK_TIMEOUT_MS = 5_000
+_api_timeouts = False
+
+
+def enable_api_db_timeouts() -> None:
+    """Mark this process as an API process: every engine built from now on sets
+    ``statement_timeout`` and ``lock_timeout`` on each of its connections."""
+    global _api_timeouts
+    if _api_timeouts:
+        return
+    if any(factory.cache_info().currsize for factory in _ENGINES):
+        raise RuntimeError("enable_api_db_timeouts() must run before the first engine is built")
+    _api_timeouts = True
+
+
+def _connect_args() -> dict[str, Any]:
+    if not _api_timeouts:
+        return {}
+    return {
+        "server_settings": {
+            "statement_timeout": str(API_STATEMENT_TIMEOUT_MS),
+            "lock_timeout": str(API_LOCK_TIMEOUT_MS),
+        }
+    }
+
+
 @lru_cache
 def _write_engine() -> AsyncEngine:
     settings = get_settings()
@@ -36,6 +67,7 @@ def _write_engine() -> AsyncEngine:
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
         pool_timeout=settings.db_pool_timeout_seconds,
+        connect_args=_connect_args(),
         future=True,
     )
 
@@ -59,6 +91,7 @@ def _security_engine() -> AsyncEngine:
         pool_size=settings.db_security_pool_size,
         max_overflow=settings.db_security_max_overflow,
         pool_timeout=settings.db_pool_timeout_seconds,
+        connect_args=_connect_args(),
         future=True,
     )
 
@@ -74,6 +107,7 @@ def _read_engine() -> AsyncEngine:
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
         pool_timeout=settings.db_pool_timeout_seconds,
+        connect_args=_connect_args(),
         future=True,
     )
 
@@ -130,10 +164,9 @@ async def get_read_session() -> AsyncIterator[AsyncSession]:
         yield session
 
 
+_ENGINES = (_write_engine, _read_engine, _security_engine)
 _CACHED = (
-    _write_engine,
-    _read_engine,
-    _security_engine,
+    *_ENGINES,
     _write_sessionmaker,
     _read_sessionmaker,
     _security_sessionmaker,
@@ -148,7 +181,7 @@ def reset_engines() -> None:
 
 async def dispose_engines() -> None:
     """Close every pool built so far and clear the caches (test teardown)."""
-    for factory in (_write_engine, _read_engine, _security_engine):
+    for factory in _ENGINES:
         if factory.cache_info().currsize:
             await factory().dispose()
     reset_engines()

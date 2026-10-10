@@ -28,6 +28,7 @@ from app.api.system import router as system_router
 from app.api.users import admin_router as users_admin_router
 from app.core.client_ip import internal_client
 from app.core.config import get_settings
+from app.core.db import enable_api_db_timeouts
 from app.core.deps import get_client_ip
 from app.core.outbound import install_log_safety
 from app.core.redis import get_redis
@@ -51,6 +52,9 @@ def _with_security_headers(response: Response) -> Response:
 def create_app() -> FastAPI:
     """Build and configure the FastAPI application."""
     install_log_safety()
+    # ER2-05: statement and lock timeouts on every API connection, never on a
+    # worker's or the CLI's (they do not call create_app()).
+    enable_api_db_timeouts()
     settings = get_settings()
 
     app = FastAPI(

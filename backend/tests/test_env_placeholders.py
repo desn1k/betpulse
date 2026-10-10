@@ -43,6 +43,7 @@ def _prod(**overrides: str) -> Settings:
         "trusted_proxy_cidrs": "172.29.89.10/32",
         "internal_network_cidrs": "172.29.89.0/24",
         "cors_allowed_origins": "https://app.example.test",
+        "redis_password": secrets.token_hex(32),
     }
     values.update(overrides)
     return Settings(**values)  # type: ignore[arg-type]
