@@ -95,6 +95,19 @@ if [[ "$args" == *" ps -q "* ]]; then
   echo "container-id"
   exit 0
 fi
+# Redis persistence (AOF, scripts/redis-persistence.sh). STUB_REDIS_AOF is the
+# running Redis's appendonly (yes: this release's config or already moved; no:
+# an earlier release's RDB-only Redis), STUB_REDIS_KEYS its key count;
+# STUB_REDIS_AOF=unreadable makes redis-cli fail.
+if [[ "$args" == *" exec "*" config get appendonly "* ]]; then
+  [[ "${STUB_REDIS_AOF:-yes}" == "unreadable" ]] && exit 1
+  printf 'appendonly\n%s\n' "${STUB_REDIS_AOF:-yes}"
+  exit 0
+fi
+if [[ "$args" == *" exec "*" dbsize "* ]]; then
+  echo "${STUB_REDIS_KEYS:-5}"
+  exit 0
+fi
 if [[ "$args" == *" exec -T -e BP_DB="*" postgres "* ]]; then
   # psql reads its SQL from stdin: log it with its database and answer the
   # catalog queries. Only the app database (football) has the extension.
@@ -173,6 +186,7 @@ run() {
     STUB_READY_FAIL_TAG="${READY_FAIL_TAG:-}" STUB_UNHEALTHY_TAG="${UNHEALTHY_TAG:-}" \
     STUB_TIMESCALE="${TIMESCALE:-absent}" STUB_PSQL_FAIL_DB="${PSQL_FAIL_DB:-}" \
     STUB_NETWORK="${NETWORK:-match}" \
+    STUB_REDIS_AOF="${REDIS_AOF:-yes}" STUB_REDIS_KEYS="${REDIS_KEYS:-5}" \
     BETPULSE_RELEASE_LOCK_PID="${LOCK_PID:-}" \
     RELEASE_DIGESTS="$digests" DEPLOY_HEALTHCHECK_ATTEMPTS=2 \
     bash "$root/scripts/$script" >"$root/out.txt" 2>&1
@@ -736,8 +750,53 @@ code="$(PYTHON=/nonexistent/python3 run "$root" ok deploy.sh v2.0.0 "$root/relea
 grep -q "The network check needs python3" "$root/out.txt" || fail "no python: no clear message"
 [[ ! -s "$root/docker.log" ]] || fail "no python: docker was called"
 
+# 18. Redis persistence. This release runs Redis with AOF; started over an
+# RDB-only dataset Redis 7.4 comes up empty. So a running Redis without AOF
+# that holds keys is a refusal (exit 1, nothing pulled or started, no
+# rollback) with the one-time procedure.
+# 18a. deploy.sh
+root="$(setup_root redis-rdb-only-deploy)"
+code="$(REDIS_AOF=no REDIS_KEYS=42 run "$root" ok deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
+[[ "$code" == "1" ]] || fail "redis rdb-only, deploy: exit $code, expected 1"
+grep -q "Redis runs without AOF and holds 42 keys" "$root/out.txt" ||
+  fail "redis rdb-only, deploy: no clear message"
+grep -qF "scripts/redis-enable-aof.sh" "$root/out.txt" ||
+  fail "redis rdb-only, deploy: the conversion step is not printed"
+grep -qF "IMAGE_TAG=v2.0.0 RELEASE_DIGESTS=$root/release-v2.0.0.digests scripts/deploy.sh" "$root/out.txt" ||
+  fail "redis rdb-only, deploy: the exact re-run command is not printed"
+if grep -qE " (pull|up|down) " "$root/docker.log"; then
+  fail "redis rdb-only, deploy: pulled, started or stopped something"
+fi
+if grep -q "rolling back" "$root/out.txt"; then
+  fail "redis rdb-only, deploy: an automatic rollback was started"
+fi
+lock_released "$root" "redis rdb-only, deploy"
+
+# 18b. rollback.sh restarts only the app services (`up --no-deps`), never
+# Redis, so it does not check and an emergency rollback is never blocked.
+root="$(setup_root redis-rdb-only-rollback)"
+code="$(REDIS_AOF=no run "$root" ok rollback.sh v1.0.0)"
+[[ "$code" == "0" ]] || fail "redis rdb-only, rollback: exit $code, expected 0"
+if grep -qE " up .* redis( |$)" "$root/docker.log"; then
+  fail "redis rdb-only, rollback: restarted Redis"
+fi
+
+# 18c. an empty Redis without AOF has nothing to lose: the deploy goes ahead.
+root="$(setup_root redis-rdb-only-empty)"
+code="$(REDIS_AOF=no REDIS_KEYS=0 run "$root" ok deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
+[[ "$code" == "0" ]] || fail "redis empty without AOF: exit $code, expected 0"
+
+# 18d. Redis cannot be read: refused, exit 1, nothing pulled.
+root="$(setup_root redis-unreadable)"
+code="$(REDIS_AOF=unreadable run "$root" ok deploy.sh v2.0.0 "$root/release-v2.0.0.digests")"
+[[ "$code" == "1" ]] || fail "redis unreadable: exit $code, expected 1"
+grep -q "Cannot read the running Redis" "$root/out.txt" || fail "redis unreadable: no clear message"
+if grep -q " pull " "$root/docker.log"; then
+  fail "redis unreadable: pulled images"
+fi
+
 if ((failures > 0)); then
   echo "$failures deploy-script test(s) failed." >&2
   exit 1
 fi
-echo "OK: deploy, rollback, prod-compose and release-version checks behave as expected (43 scenarios)."
+echo "OK: deploy, rollback, prod-compose and release-version checks behave as expected (47 scenarios)."

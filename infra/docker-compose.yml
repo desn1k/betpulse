@@ -50,13 +50,38 @@ services:
 
   redis:
     image: redis:7.4-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
-    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    # Holds the pickled ARQ jobs, quotas, rate limits and lockout counters.
+    # - requirepass from REDIS_PASSWORD (required in production): written to a
+    #   config file at start, so it is not in the process arguments. Clients
+    #   get it in REDIS_URL (prod overlay) or REDIS_PASSWORD (app settings).
+    # - noeviction: every quota, rate-limit and ARQ key carries a TTL, so any
+    #   volatile-* or allkeys-* policy could evict them (a fresh quota, a lost
+    #   job). A full Redis refuses writes instead; the admin health page turns
+    #   degraded above 80% of maxmemory. 256mb leaves the 512M container limit
+    #   room for the fork of an AOF rewrite or RDB save.
+    # - AOF, fsync every second: a crash loses at most ~1 s of writes; the RDB
+    #   snapshot stays as a second copy. Enabling AOF on an existing RDB-only
+    #   dataset needs `CONFIG SET appendonly yes` first (HANDOFF §9i), or Redis
+    #   starts empty.
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        conf=/tmp/redis-auth.conf
+        umask 077
+        if [ -n "$${REDIS_PASSWORD:-}" ]; then printf 'requirepass %s\n' "$$REDIS_PASSWORD" >"$$conf"; else : >"$$conf"; fi
+        chown redis "$$conf"
+        exec docker-entrypoint.sh redis-server "$$conf" --save 60 1 --appendonly yes --appendfsync everysec --maxmemory 256mb --maxmemory-policy noeviction --loglevel warning
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # redis-cli exits 0 on a NOAUTH error too: only PONG counts.
+      test: ["CMD-SHELL", "if [ -n \"$${REDIS_PASSWORD:-}\" ]; then export REDISCLI_AUTH=\"$$REDIS_PASSWORD\"; fi; redis-cli ping | grep -qx PONG"]
       interval: 10s
       timeout: 5s
       retries: 5

@@ -26,6 +26,11 @@ x-trusted-proxy-cidrs: &trusted-proxy-cidrs "${BETPULSE_WEB_IP:-172.29.89.10}/32
 # The network's subnets: a client identity inside them is the bridge gateway
 # or an untrusted internal hop, never a client (the API's F5 guard).
 x-internal-network-cidrs: &internal-network-cidrs "${BETPULSE_NETWORK_SUBNET:-172.29.89.0/24},${BETPULSE_NETWORK_SUBNET6:-fd42:b7e1:5a29:89::/64}"
+# Redis requires a password in production. Every client gets it inside REDIS_URL,
+# which every image release reads (older images ignore REDIS_PASSWORD in some
+# clients), so a rollback still connects. Letters and digits only: it is not
+# URL-encoded here. scripts/check-compose-ports.sh checks every client.
+x-redis-url: &redis-url "redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required (openssl rand -hex 32)}@redis:6379/0"
 
 # Shared by the three ARQ worker services (realtime, batch, ml).
 x-worker-prod: &worker-prod
@@ -34,6 +39,7 @@ x-worker-prod: &worker-prod
     # Production settings validation requires both in every backend process.
     TRUSTED_PROXY_CIDRS: *trusted-proxy-cidrs
     INTERNAL_NETWORK_CIDRS: *internal-network-cidrs
+    REDIS_URL: *redis-url
   restart: always
 
 services:
@@ -47,6 +53,8 @@ services:
 
   redis:
     ports: !reset []
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required (openssl rand -hex 32)}
     deploy:
       resources:
         limits:
@@ -60,6 +68,7 @@ services:
     environment:
       TRUSTED_PROXY_CIDRS: *trusted-proxy-cidrs
       INTERNAL_NETWORK_CIDRS: *internal-network-cidrs
+      REDIS_URL: *redis-url
     restart: always
     deploy:
       resources:
