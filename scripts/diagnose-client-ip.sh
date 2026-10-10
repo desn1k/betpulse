@@ -113,7 +113,11 @@ if [[ -z "$caddy" || -z "$redis" ]]; then
 fi
 
 guest_keys() {
-  docker exec "$redis" redis-cli --scan --pattern 'limits:*' 2>/dev/null | sort -u
+  # The container's own REDIS_PASSWORD: it never leaves the container.
+  # shellcheck disable=SC2016 # expanded by the container's shell
+  docker exec "$redis" sh -c \
+    'if [ -n "${REDIS_PASSWORD:-}" ]; then export REDISCLI_AUTH="$REDIS_PASSWORD"; fi; redis-cli --no-auth-warning --scan --pattern "limits:*"' \
+    2>/dev/null | sort -u
 }
 before="$(guest_keys)"
 
