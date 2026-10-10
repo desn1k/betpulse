@@ -296,10 +296,13 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck
 
       - name: Validate deployment scripts
-        run: shellcheck -x scripts/deploy.sh scripts/rollback.sh scripts/prod-compose.sh scripts/release-digests.sh scripts/release-version.sh scripts/caddy-smoke.sh scripts/check-compose-ports.sh scripts/caddy-domain-smoke.sh scripts/edge-identity-smoke.sh scripts/compose-network.sh scripts/diagnose-client-ip.sh scripts/tests/deploy-scripts-test.sh scripts/redis-persistence.sh scripts/redis-enable-aof.sh scripts/redis-backup.sh scripts/redis-restore.sh scripts/tests/check-compose-ports-test.sh scripts/tests/redis-config-smoke.sh scripts/tests/redis-aof-migration-test.sh
+        run: shellcheck -x scripts/deploy.sh scripts/rollback.sh scripts/prod-compose.sh scripts/release-digests.sh scripts/release-version.sh scripts/caddy-smoke.sh scripts/check-compose-ports.sh scripts/caddy-domain-smoke.sh scripts/edge-identity-smoke.sh scripts/compose-network.sh scripts/diagnose-client-ip.sh scripts/tests/deploy-scripts-test.sh scripts/redis-persistence.sh scripts/redis-enable-aof.sh scripts/redis-backup.sh scripts/redis-restore.sh scripts/check-egress.sh scripts/tests/check-egress-test.sh scripts/tests/check-compose-ports-test.sh scripts/tests/redis-config-smoke.sh scripts/tests/redis-aof-migration-test.sh
 
       - name: Deploy/rollback readiness behaviour (stubbed docker)
         run: bash scripts/tests/deploy-scripts-test.sh
+
+      - name: Egress check behaviour (stubbed curl, getent, ip)
+        run: bash scripts/tests/check-egress-test.sh
 
       - name: Validate Compose configuration (development and production)
         env:
