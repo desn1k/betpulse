@@ -40,7 +40,7 @@ jobs:
       DAST_SQLMAP_PARAMETER: ${{ inputs.sqlmap_parameter }}
       DAST_AUTHORIZED: ${{ inputs.confirm_authorized }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Validate authorized public targets
         shell: bash

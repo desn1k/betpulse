@@ -38,7 +38,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       stable: ${{ steps.version.outputs.stable }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - id: version
         shell: bash
@@ -90,7 +90,7 @@ jobs:
       VERSION: ${{ needs.prepare.outputs.version }}
       STABLE: ${{ needs.prepare.outputs.stable }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: docker/setup-buildx-action@v3
 
