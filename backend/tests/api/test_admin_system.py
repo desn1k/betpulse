@@ -58,6 +58,9 @@ async def test_system_health_reports_components(client: AsyncClient, session: As
     assert components["postgres"]["status"] == "ok"
     assert components["redis"]["status"] == "ok"
     assert components["ops_alerts"]["status"] == "not_configured"
+    # The test Redis has no maxmemory; production sets 256mb (infra/docker-compose.yml).
+    assert components["redis_memory"]["status"] == "not_configured"
+    assert components["redis_memory"]["meta"]["used_bytes"] > 0
 
 
 @pytest.mark.asyncio

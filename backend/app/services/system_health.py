@@ -37,6 +37,55 @@ async def check_redis(redis: Redis) -> ComponentHealth:
         return ComponentHealth(name="redis", status="error", detail=exc.__class__.__name__)
 
 
+# Production runs `noeviction` with a `maxmemory` (infra/docker-compose.yml): every
+# quota, rate-limit and ARQ key carries a TTL, so no eviction policy spares them,
+# and a full Redis refuses writes instead. Degraded from here on, before that.
+REDIS_MEMORY_DEGRADED_RATIO = 0.8
+_MB = 1024 * 1024
+
+
+async def check_redis_memory(redis: Redis) -> ComponentHealth:
+    name = "redis_memory"
+    try:
+        info = await redis.info("memory")
+    except Exception as exc:  # noqa: BLE001 - reported, not raised
+        return ComponentHealth(name=name, status="degraded", detail=exc.__class__.__name__)
+    used = int(info.get("used_memory", 0))
+    maxmemory = int(info.get("maxmemory", 0))
+    policy = str(info.get("maxmemory_policy", ""))
+    meta: dict[str, object] = {
+        "used_bytes": used,
+        "maxmemory_bytes": maxmemory,
+        "used_percent": round(100 * used / maxmemory, 1) if maxmemory else None,
+        "policy": policy,
+    }
+    if not maxmemory:
+        return ComponentHealth(
+            name=name,
+            status="not_configured",
+            detail=f"maxmemory is not set ({used / _MB:.1f} MB used): Redis grows until "
+            "its container is killed",
+            meta=meta,
+        )
+    usage = f"{meta['used_percent']}% of maxmemory ({used / _MB:.1f} of {maxmemory / _MB:.0f} MB)"
+    if policy != "noeviction":
+        return ComponentHealth(
+            name=name,
+            status="degraded",
+            detail=f"policy {policy} may evict quota, rate-limit and ARQ keys; expected "
+            f"noeviction. {usage}",
+            meta=meta,
+        )
+    if used > REDIS_MEMORY_DEGRADED_RATIO * maxmemory:
+        return ComponentHealth(
+            name=name,
+            status="degraded",
+            detail=f"{usage}: at 100% Redis refuses writes (quotas, rate limits, job queues)",
+            meta=meta,
+        )
+    return ComponentHealth(name=name, status="ok", detail=usage, meta=meta)
+
+
 def check_ops_alerts(settings: Settings) -> ComponentHealth:
     configured = bool(settings.telegram_bot_token and settings.telegram_alert_chat_id)
     return ComponentHealth(
@@ -55,6 +104,7 @@ async def build_system_health(
     components = [
         await check_database(session),
         await check_redis(redis),
+        await check_redis_memory(redis),
         check_ops_alerts(settings),
         await check_client_identity(redis, settings),
     ]
