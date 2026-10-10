@@ -270,6 +270,8 @@ if wait_for_ping "$container" "$REDIS_PASSWORD"; then
   if [[ "$(docker exec "$container" redis-cli ping 2>&1)" == *NOAUTH* ]]; then ok "restore: the password is required"; else fail "restore: anonymous ping answered"; fi
 else
   fail "restore: Redis did not come back"
+  docker ps -a --filter "label=com.docker.compose.project=$current_project" --format "{{.Names}} {{.Status}}" >&2
+  docker logs --tail 40 "$container" >&2 || true
 fi
 end_scenario
 
